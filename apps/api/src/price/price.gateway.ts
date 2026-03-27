@@ -23,7 +23,7 @@ export class PriceGateway implements OnGatewayDisconnect {
       client.on('message', (raw: Buffer) => {
         let msg: IncomingMessage;
         try {
-          msg = JSON.parse(raw.toString());
+          msg = JSON.parse(raw.toString()) as IncomingMessage;
         } catch {
           return;
         }
@@ -32,10 +32,14 @@ export class PriceGateway implements OnGatewayDisconnect {
 
         if (msg.action === 'subscribe') {
           this.priceService.subscribe(client, msg.poolId);
-          client.send(JSON.stringify({ event: 'subscribed', poolId: msg.poolId }));
+          client.send(
+            JSON.stringify({ event: 'subscribed', poolId: msg.poolId }),
+          );
         } else if (msg.action === 'unsubscribe') {
           this.priceService.unsubscribe(client, msg.poolId);
-          client.send(JSON.stringify({ event: 'unsubscribed', poolId: msg.poolId }));
+          client.send(
+            JSON.stringify({ event: 'unsubscribed', poolId: msg.poolId }),
+          );
         }
       });
     });

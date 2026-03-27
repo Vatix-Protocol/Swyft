@@ -25,6 +25,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-ws": "^11.1.17",
     "@nestjs/websockets": "^11.1.17",
+    "@stellar/stellar-sdk": "^13.1.0",
     "ioredis": "^5.10.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",

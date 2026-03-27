@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import Redis from 'ioredis';
 
 export const TTL = {
@@ -17,7 +22,10 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     const url = process.env.REDIS_URL ?? 'redis://localhost:6379';
-    this.client = new Redis(url, { lazyConnect: true, enableOfflineQueue: false });
+    this.client = new Redis(url, {
+      lazyConnect: true,
+      enableOfflineQueue: false,
+    });
 
     this.client.on('connect', () => {
       this.available = true;
@@ -25,7 +33,9 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     });
     this.client.on('error', (err) => {
       this.available = false;
-      this.logger.warn(`Redis unavailable — falling back to DB. ${err.message}`);
+      this.logger.warn(
+        `Redis unavailable — falling back to DB. ${err.message}`,
+      );
     });
 
     this.client.connect().catch(() => {

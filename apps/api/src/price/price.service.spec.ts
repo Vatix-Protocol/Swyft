@@ -2,8 +2,12 @@ import { PriceService, PriceEvent } from './price.service';
 import { CacheService } from '../cache/cache.service';
 import { WebSocket } from 'ws';
 
-function mockClient(readyState: number = WebSocket.OPEN): WebSocket {
-  return { readyState, send: jest.fn() } as unknown as WebSocket;
+function mockClient(
+  readyState: number = WebSocket.OPEN,
+): WebSocket & { send: jest.Mock } {
+  return { readyState, send: jest.fn() } as unknown as WebSocket & {
+    send: jest.Mock;
+  };
 }
 
 describe('PriceService', () => {
@@ -29,7 +33,8 @@ describe('PriceService', () => {
     const client = mockClient();
     service.subscribe(client, 'pool-1');
     service.broadcastPrice(event);
-    expect(client.send).toHaveBeenCalledWith(
+    const send = client.send as jest.Mock;
+    expect(send).toHaveBeenCalledWith(
       JSON.stringify({ event: 'price', data: event }),
     );
   });
@@ -39,7 +44,7 @@ describe('PriceService', () => {
     service.subscribe(client, 'pool-1');
     service.unsubscribe(client, 'pool-1');
     service.broadcastPrice(event);
-    expect(client.send).not.toHaveBeenCalled();
+    expect(client.send as jest.Mock).not.toHaveBeenCalled();
   });
 
   it('cleans up all pools on disconnect', () => {
@@ -48,7 +53,7 @@ describe('PriceService', () => {
     service.subscribe(client, 'pool-2');
     service.removeClient(client);
     service.broadcastPrice(event);
-    expect(client.send).not.toHaveBeenCalled();
+    expect(client.send as jest.Mock).not.toHaveBeenCalled();
   });
 
   it('supports multiple clients on same pool', () => {
@@ -57,8 +62,8 @@ describe('PriceService', () => {
     service.subscribe(c1, 'pool-1');
     service.subscribe(c2, 'pool-1');
     service.broadcastPrice(event);
-    expect(c1.send).toHaveBeenCalledTimes(1);
-    expect(c2.send).toHaveBeenCalledTimes(1);
+    expect(c1.send as jest.Mock).toHaveBeenCalledTimes(1);
+    expect(c2.send as jest.Mock).toHaveBeenCalledTimes(1);
   });
 
   it('supports one client on multiple pools', () => {
@@ -67,13 +72,13 @@ describe('PriceService', () => {
     service.subscribe(client, 'pool-2');
     service.broadcastPrice(event);
     service.broadcastPrice({ ...event, poolId: 'pool-2' });
-    expect(client.send).toHaveBeenCalledTimes(2);
+    expect(client.send as jest.Mock).toHaveBeenCalledTimes(2);
   });
 
   it('skips non-OPEN clients', () => {
     const client = mockClient(WebSocket.CLOSED);
     service.subscribe(client, 'pool-1');
     service.broadcastPrice(event);
-    expect(client.send).not.toHaveBeenCalled();
+    expect(client.send as jest.Mock).not.toHaveBeenCalled();
   });
 });
