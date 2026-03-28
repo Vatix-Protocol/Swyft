@@ -5,9 +5,10 @@ import { CacheModule } from './cache/cache.module';
 import { PriceModule } from './price/price.module';
 import { HorizonModule } from './horizon/horizon.module';
 import { PoolsModule } from './pools/pools.module';
+import { PositionsModule } from './positions/positions.module';
 
 @Module({
-  imports: [CacheModule, PriceModule, PoolsModule, HorizonModule],
+  imports: [CacheModule, PriceModule, PoolsModule, PositionsModule, HorizonModule],
   controllers: [AppController],
   providers: [AppService],
 })
