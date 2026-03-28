@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model PoolCreated {
+  id          String   @id @default(cuid())
+  eventId     String   @unique
+  poolId      String
+  tokenA      String
+  tokenB      String
+  fee         String
+  sqrtPriceX96 String
+  createdAt   DateTime @default(now())
+
+  @@map("pool_created")
+}
+
+model SwapProcessed {
+  id        String   @id @default(cuid())
+  eventId   String   @unique
+  poolId    String
+  sender    String
+  recipient String
+  amount0   String
+  amount1   String
+  sqrtPriceX96 String
+  liquidity String
+  tick      Int
+  createdAt DateTime @default(now())
+
+  @@map("swap_processed")
+}
+
+model PositionMinted {
+  id        String   @id @default(cuid())
+  eventId   String   @unique
+  poolId    String
+  owner     String
+  tickLower Int
+  tickUpper Int
+  liquidity String
+  amount0   String
+  amount1   String
+  createdAt DateTime @default(now())
+
+  @@map("position_minted")
+}
+
+model PositionBurned {
+  id        String   @id @default(cuid())
+  eventId   String   @unique
+  poolId    String
+  owner     String
+  tickLower Int
+  tickUpper Int
+  liquidity String
+  amount0   String
+  amount1   String
+  createdAt DateTime @default(now())
+
+  @@map("position_burned")
+}
+
+model FeesCollected {
+  id        String   @id @default(cuid())
+  eventId   String   @unique
+  poolId    String
+  recipient String
+  amount0   String
+  amount1   String
+  createdAt DateTime @default(now())
+
+  @@map("fees_collected")
+}

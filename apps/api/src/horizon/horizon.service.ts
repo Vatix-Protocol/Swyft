@@ -7,6 +7,7 @@ import {
 import { Horizon } from '@stellar/stellar-sdk';
 import { PriceService, PriceEvent } from '../price/price.service';
 import { PoolsService } from '../pools/pools.service';
+import { CacheService } from '../cache/cache.service';
 
 @Injectable()
 export class HorizonService implements OnModuleInit, OnModuleDestroy {
@@ -19,6 +20,7 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly priceService: PriceService,
     private readonly poolsService: PoolsService,
+    private readonly cache: CacheService,
   ) {
     this.server = new Horizon.Server(
       process.env.HORIZON_URL ?? 'https://horizon-testnet.stellar.org',
@@ -58,6 +60,12 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
         await this.poolsService.handlePoolStateUpdate(event.poolId, {
           currentPrice: event.currentPrice,
         });
+        if (event) {
+          await this.cache.publish(
+            `prices:${event.poolId}`,
+            JSON.stringify(event),
+          );
+        }
       }
     } catch (err) {
       this.logger.warn(`Horizon poll error: ${(err as Error).message}`);
@@ -71,7 +79,8 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
       poolId: this.contractId,
       currentPrice: r.amount,
       sqrtPrice: Math.sqrt(price).toFixed(7),
-      change24h: '0',
+      tick: r.tick ?? 0,
+      liquidity: r.liquidity ?? '0',
       timestamp: new Date(r.created_at).getTime(),
     };
   }
@@ -80,5 +89,7 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
 interface EffectRecord {
   paging_token: string;
   amount?: string;
+  tick?: number;
+  liquidity?: string;
   created_at: string;
 }

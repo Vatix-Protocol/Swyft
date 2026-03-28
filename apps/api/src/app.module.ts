@@ -7,6 +7,7 @@ import { HorizonModule } from './horizon/horizon.module';
 import { PoolsModule } from './pools/pools.module';
 import { PositionsModule } from './positions/positions.module';
 import { SwapsModule } from './swaps/swaps.module';
+import { IndexerModule } from './indexer/indexer.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { SwapsModule } from './swaps/swaps.module';
     PositionsModule,
     SwapsModule,
     HorizonModule,
+    IndexerModule,
   ],
   controllers: [AppController],
   providers: [AppService],
