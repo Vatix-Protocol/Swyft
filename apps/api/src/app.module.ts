@@ -6,9 +6,17 @@ import { PriceModule } from './price/price.module';
 import { HorizonModule } from './horizon/horizon.module';
 import { PoolsModule } from './pools/pools.module';
 import { PositionsModule } from './positions/positions.module';
+import { SwapsModule } from './swaps/swaps.module';
 
 @Module({
-  imports: [CacheModule, PriceModule, PoolsModule, PositionsModule, HorizonModule],
+  imports: [
+    CacheModule,
+    PriceModule,
+    PoolsModule,
+    PositionsModule,
+    SwapsModule,
+    HorizonModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
