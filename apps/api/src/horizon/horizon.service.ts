@@ -5,7 +5,8 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Horizon } from '@stellar/stellar-sdk';
-import { PriceService, PriceEvent } from '../price/price.service';
+import { CacheService } from '../cache/cache.service';
+import { PriceEvent } from '../price/price.service';
 
 @Injectable()
 export class HorizonService implements OnModuleInit, OnModuleDestroy {
@@ -15,7 +16,7 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
   private cursor = 'now';
   private timer: NodeJS.Timeout | null = null;
 
-  constructor(private readonly priceService: PriceService) {
+  constructor(private readonly cache: CacheService) {
     this.server = new Horizon.Server(
       process.env.HORIZON_URL ?? 'https://horizon-testnet.stellar.org',
     );
@@ -48,7 +49,12 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
       for (const record of page.records) {
         this.cursor = record.paging_token;
         const event = this.toPrice(record as unknown as EffectRecord);
-        if (event) this.priceService.broadcastPrice(event);
+        if (event) {
+          await this.cache.publish(
+            `prices:${event.poolId}`,
+            JSON.stringify(event),
+          );
+        }
       }
     } catch (err) {
       this.logger.warn(`Horizon poll error: ${(err as Error).message}`);
@@ -62,7 +68,8 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
       poolId: this.contractId,
       currentPrice: r.amount,
       sqrtPrice: Math.sqrt(price).toFixed(7),
-      change24h: '0',
+      tick: r.tick ?? 0,
+      liquidity: r.liquidity ?? '0',
       timestamp: new Date(r.created_at).getTime(),
     };
   }
@@ -71,5 +78,7 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
 interface EffectRecord {
   paging_token: string;
   amount?: string;
+  tick?: number;
+  liquidity?: string;
   created_at: string;
 }
