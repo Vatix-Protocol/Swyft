@@ -20,7 +20,7 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly priceService: PriceService,
     private readonly poolsService: PoolsService,
-     private readonly cache: CacheService,
+    private readonly cache: CacheService,
   ) {
     this.server = new Horizon.Server(
       process.env.HORIZON_URL ?? 'https://horizon-testnet.stellar.org',

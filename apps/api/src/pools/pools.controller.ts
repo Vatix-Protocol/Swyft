@@ -10,14 +10,6 @@ import { PoolsListResponse, PoolsService } from './pools.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
 import { CacheService } from '../cache/cache.service';
 
-@Controller('pools')
-export class PoolsController {
-  constructor(private readonly poolsService: PoolsService) {}
-
-  @Get()
-  getPools(@Query() query: GetPoolsQueryDto): Promise<PoolsListResponse> {
-    return this.poolsService.getPools(query);
-  }
 
 @ApiTags('pools')
 @Controller('pools')
