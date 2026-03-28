@@ -7,8 +7,10 @@ import { Server, WebSocket } from 'ws';
 import { PriceService } from './price.service';
 
 interface IncomingMessage {
-  action: 'subscribe' | 'unsubscribe';
+  action: 'subscribe' | 'unsubscribe' | 'swap';
   poolId: string;
+  tokenA?: string;
+  tokenB?: string;
 }
 
 @WebSocketGateway({ path: '/' })
@@ -40,6 +42,8 @@ export class PriceGateway implements OnGatewayDisconnect {
           client.send(
             JSON.stringify({ event: 'unsubscribed', poolId: msg.poolId }),
           );
+        } else if (msg.action === 'swap' && msg.tokenA && msg.tokenB) {
+          void this.priceService.invalidatePairCache(msg.tokenA, msg.tokenB);
         }
       });
     });
