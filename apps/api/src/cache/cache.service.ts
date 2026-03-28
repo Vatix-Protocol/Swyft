@@ -47,6 +47,22 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     await this.client?.quit();
   }
 
+  /** Creates a dedicated Redis connection for pub/sub (must be managed by caller). */
+  createSubscriber(): Redis {
+    const url = process.env.REDIS_URL ?? 'redis://localhost:6379';
+    return new Redis(url, { lazyConnect: false, enableOfflineQueue: true });
+  }
+
+  /** Publish a message to a Redis pub/sub channel. */
+  async publish(channel: string, message: string): Promise<void> {
+    if (!this.available) return;
+    try {
+      await this.client!.publish(channel, message);
+    } catch {
+      /* degrade gracefully */
+    }
+  }
+
   async get<T>(key: string): Promise<T | null> {
     if (!this.available) return null;
     try {
