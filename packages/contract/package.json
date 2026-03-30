@@ -5,7 +5,14 @@
   "scripts": {
     "build": "stellar contract build",
     "test": "cargo test --workspace",
+    "test:unit": "cargo build --target wasm32-unknown-unknown --release && cargo test --workspace",
+    "test:integration": "tsx scripts/test-integration.ts",
     "deploy:testnet": "bash scripts/deploy-testnet.sh",
     "deploy:testnet:force": "bash scripts/deploy-testnet.sh --force"
+  },
+  "devDependencies": {
+    "@stellar/stellar-sdk": "^13.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
   }
 }
