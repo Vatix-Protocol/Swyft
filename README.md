@@ -181,3 +181,11 @@ Please do not open public GitHub issues for security vulnerabilities. See [`SECU
 ---
 
 *Swyft is in active development. Contracts are unaudited. Do not use on mainnet until a security audit has been completed.*
+
+## 💰 Bounty Contribution
+
+- **Task:** [Feat/backend]:  Implement webhook notifications for pool events
+- **Reward:** $10000
+- **Source:** GitHub-Paid
+- **Date:** 2026-04-27
+
