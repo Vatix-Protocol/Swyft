@@ -8,11 +8,12 @@ import {
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Request } from 'express';
+import { captureException } from '../sentry';
 import {
   ErrorResponse,
   ValidationErrorResponse,
   ValidationFieldError,
-} from '../interfaces/error-response.interface';
+} from './error-response.interface';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -94,6 +95,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     // ── Unhandled / unexpected exceptions ──
     const statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
+
+    captureException(exception, { path, method: request.method });
 
     this.logger.error(
       `[500] Unhandled exception at ${request.method} ${path}`,

@@ -14,13 +14,11 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
+    "plugins": [{ "name": "next" }],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@swyft/ui": ["../../packages/ui/src/index.ts"],
+      "@swyft/sdk": ["../../packages/sdk/src/index.ts"]
     }
   },
   "include": [

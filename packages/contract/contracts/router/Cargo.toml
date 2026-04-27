@@ -13,3 +13,5 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+cl-pool = { path = "../cl-pool", features = ["testutils"] }
+pool-factory = { path = "../pool-factory", features = ["testutils"] }

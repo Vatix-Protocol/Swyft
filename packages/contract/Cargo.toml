@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "contracts/hello-world",
   "contracts/math-lib",
+  "contracts/pool",
   "contracts/pool-factory",
   "contracts/router",
   "contracts/position-nft",
