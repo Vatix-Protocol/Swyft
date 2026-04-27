@@ -77,3 +77,15 @@ model FeesCollected {
 
   @@map("fees_collected")
 }
+
+model Token {
+  id              String   @id @default(cuid())
+  contractAddress String   @unique
+  symbol          String   @default("UNKNOWN")
+  name            String   @default("")
+  decimals        Int      @default(7)
+  logoUri         String?
+  updatedAt       DateTime @updatedAt
+
+  @@map("token")
+}

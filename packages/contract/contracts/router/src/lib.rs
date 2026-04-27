@@ -83,6 +83,17 @@ impl Router {
     }
 
     pub fn initialize(env: Env, factory: Address) {
+        if env
+            .storage()
+            .instance()
+            .get::<DataKey, bool>(&DataKey::Initialized)
+            .unwrap_or(false)
+        {
+            panic_with_error!(&env, RouterError::AlreadyInitialized);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::Initialized, &true);
         env.storage()
             .instance()
             .set(&symbol_short!("factory"), &factory);
