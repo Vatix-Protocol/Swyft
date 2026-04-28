@@ -1,0 +1,64 @@
+name: Database Migrations
+
+on:
+  pull_request:
+    paths:
+      - "apps/api/prisma/**"
+      - "prisma/**"
+      - "apps/api/package.json"
+      - "apps/api/package-lock.json"
+      - ".github/workflows/db-migrations.yml"
+
+jobs:
+  db-migrations:
+    name: db-migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: swyft_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d swyft_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft_test?schema=public
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+
+      - name: Install API dependencies
+        working-directory: apps/api
+        run: npm ci
+
+      - name: Validate Prisma schema
+        working-directory: apps/api
+        run: npx prisma validate --schema ../../prisma/schema.prisma
+
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: npx prisma generate --schema ../../prisma/schema.prisma
+
+      - name: Apply migrations
+        working-directory: apps/api
+        run: npx prisma migrate deploy --schema ../../prisma/schema.prisma
+
+      - name: Check migration status
+        working-directory: apps/api
+        run: npx prisma migrate status --schema ../../prisma/schema.prisma
