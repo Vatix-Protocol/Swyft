@@ -68,9 +68,11 @@ interface WalletState {
 // Consumed via prop so this component stays decoupled from a specific context shape
 interface Props {
   wallet: WalletState;
+  onTokenInChange?: (token: Token | null) => void;
+  onTokenOutChange?: (token: Token | null) => void;
 }
 
-export function SwapWidget({ wallet }: Props) {
+export function SwapWidget({ wallet, onTokenInChange, onTokenOutChange }: Props) {
   const { tokens, loading: tokensLoading } = useTokens();
   const { recentIds, pushRecent } = useRecentTokens();
   const [pair, setPair] = useState<TokenPair>({ tokenIn: null, tokenOut: null });
@@ -106,19 +108,29 @@ export function SwapWidget({ wallet }: Props) {
     !quote;
 
   function selectIn(token: Token) {
-    if (token.id === pair.tokenOut?.id) setPair({ tokenIn: token, tokenOut: pair.tokenIn });
-    else setPair((p) => ({ ...p, tokenIn: token }));
+    const next = token.id === pair.tokenOut?.id
+      ? { tokenIn: token, tokenOut: pair.tokenIn }
+      : { ...pair, tokenIn: token };
+    setPair(next);
+    onTokenInChange?.(token);
+    if (token.id === pair.tokenOut?.id) onTokenOutChange?.(pair.tokenIn ?? null);
     pushRecent(token.id);
   }
 
   function selectOut(token: Token) {
-    if (token.id === pair.tokenIn?.id) setPair({ tokenIn: pair.tokenOut, tokenOut: token });
-    else setPair((p) => ({ ...p, tokenOut: token }));
+    const next = token.id === pair.tokenIn?.id
+      ? { tokenIn: pair.tokenOut, tokenOut: token }
+      : { ...pair, tokenOut: token };
+    setPair(next);
+    onTokenOutChange?.(token);
+    if (token.id === pair.tokenIn?.id) onTokenInChange?.(pair.tokenOut ?? null);
     pushRecent(token.id);
   }
 
   function swapDirection() {
     setPair({ tokenIn: pair.tokenOut, tokenOut: pair.tokenIn });
+    onTokenInChange?.(pair.tokenOut ?? null);
+    onTokenOutChange?.(pair.tokenIn ?? null);
     setAmountIn(quote?.amountOut ?? "");
   }
 
