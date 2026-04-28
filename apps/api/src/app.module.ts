@@ -11,12 +11,14 @@ import { IndexerModule } from './indexer/indexer.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { AdminModule } from './admin/admin.module';
+import { RateLimitModule } from './rate-limit/rate-limit.module';
 
 @Module({
   imports: [
     CacheModule,
     PrismaModule,
     MetricsModule,
+    RateLimitModule,
     PriceModule,
     PoolsModule,
     PositionsModule,
