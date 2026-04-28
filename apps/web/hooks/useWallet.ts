@@ -6,6 +6,7 @@ import {
   requestAccess,
   getAddress,
   getNetwork,
+  signTransaction as freighterSignTx,
 } from "@stellar/freighter-api";
 import { useState, useEffect, useCallback } from "react";
 import { SWYFT_NETWORK, WALLET_STORAGE_KEY } from "@/lib/constants";
@@ -22,6 +23,7 @@ export interface WalletState {
   connecting: boolean;
   connect: () => Promise<void>;
   disconnect: () => void;
+  signTransaction: ((xdr: string) => Promise<string>) | null;
 }
 
 export function useWallet(): WalletState {
@@ -100,5 +102,13 @@ export function useWallet(): WalletState {
     localStorage.removeItem(WALLET_STORAGE_KEY);
   }, []);
 
-  return { address, error, connecting, connect, disconnect };
+
+  const signTransaction = useCallback(async (xdr: string): Promise<string> => {
+    const result = await freighterSignTx(xdr);
+    if (typeof result === "string") return result;
+    if ("signedTxXdr" in result) return result.signedTxXdr;
+    throw new Error("Signing rejected");
+  }, []);
+
+  return { address, error, connecting, connect, disconnect, signTransaction };
 }
