@@ -174,6 +174,17 @@ export function PriceChart({ tokenA, tokenB, tokenASymbol, tokenBSymbol }: Props
     setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top, candle: candles[idx] });
   }
 
+  function handleTouch(e: React.TouchEvent<HTMLCanvasElement>) {
+    if (!canvasRef.current || candles.length === 0 || e.touches.length === 0) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const mx = e.touches[0].clientX - rect.left;
+    const chartW = rect.width - PADDING.left - PADDING.right;
+    const candleW = chartW / candles.length;
+    const idx = Math.floor((mx - PADDING.left) / candleW);
+    if (idx < 0 || idx >= candles.length) { setTooltip(null); return; }
+    setTooltip({ x: mx, y: e.touches[0].clientY - rect.top, candle: candles[idx] });
+  }
+
   const pairLabel = tokenASymbol && tokenBSymbol
     ? `${tokenASymbol} / ${tokenBSymbol}`
     : tokenA && tokenB
@@ -198,7 +209,7 @@ export function PriceChart({ tokenA, tokenB, tokenASymbol, tokenBSymbol }: Props
               key={iv}
               type="button"
               onClick={() => setInterval(iv)}
-              className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+              className={`min-h-[44px] min-w-[44px] rounded-lg px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                 interval === iv
                   ? "bg-indigo-600 text-white"
                   : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 dark:text-zinc-400"
@@ -211,7 +222,7 @@ export function PriceChart({ tokenA, tokenB, tokenASymbol, tokenBSymbol }: Props
       </div>
 
       {/* Chart area */}
-      <div className="relative w-full" style={{ height: 220 }}>
+      <div className="relative w-full h-[160px] sm:h-[220px]">
         {/* Loading skeleton */}
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-zinc-900 z-10">
@@ -239,9 +250,11 @@ export function PriceChart({ tokenA, tokenB, tokenASymbol, tokenBSymbol }: Props
 
         <canvas
           ref={canvasRef}
-          className="w-full h-full block"
+          className="w-full h-full block touch-pan-y"
           onMouseMove={handleMouseMove}
           onMouseLeave={() => setTooltip(null)}
+          onTouchMove={handleTouch}
+          onTouchEnd={() => setTooltip(null)}
           aria-label="OHLCV candlestick chart"
         />
 

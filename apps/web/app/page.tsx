@@ -12,7 +12,7 @@ export default function Home() {
   const [tokenOut, setTokenOut] = useState<Token | null>(null);
 
   return (
-    <div className="flex flex-col flex-1 items-center bg-zinc-50 dark:bg-black min-h-screen p-4 sm:p-8">
+    <div className="flex flex-col flex-1 items-center bg-zinc-50 dark:bg-black min-h-screen px-4 py-6 sm:p-8 overflow-x-hidden">
       <div className="w-full max-w-md flex flex-col gap-4">
         <PriceChart
           tokenA={tokenIn?.id ?? null}

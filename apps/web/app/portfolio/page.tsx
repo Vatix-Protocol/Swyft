@@ -76,9 +76,9 @@ export default function PortfolioPage() {
   const positions = showClosed ? [...active, ...closed] : active;
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-10">
+    <main className="mx-auto w-full max-w-3xl px-4 py-6 sm:py-10">
       {/* Summary */}
-      <div className="mb-8 rounded-2xl border border-zinc-200 bg-white px-6 py-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="mb-6 sm:mb-8 rounded-2xl border border-zinc-200 bg-white px-4 py-4 sm:px-6 sm:py-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <p className="text-xs text-zinc-400 mb-1">Total portfolio value</p>
         <p className="text-3xl font-bold text-zinc-900 dark:text-white">
           ${totalValueUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -98,13 +98,13 @@ export default function PortfolioPage() {
             role="switch"
             aria-checked={showClosed}
             onClick={() => setShowClosed((v) => !v)}
-            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
               showClosed ? "bg-indigo-600" : "bg-zinc-300 dark:bg-zinc-700"
             }`}
           >
             <span
-              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
-                showClosed ? "translate-x-4" : "translate-x-1"
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                showClosed ? "translate-x-6" : "translate-x-1"
               }`}
             />
           </button>

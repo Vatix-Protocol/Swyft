@@ -72,19 +72,19 @@ export function PositionCard({ position: p, onCollectFees, collecting }: Props) 
             type="button"
             onClick={() => onCollectFees(p.id)}
             disabled={collecting || !hasFees}
-            className="flex-1 rounded-xl bg-indigo-600 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors"
+            className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors"
           >
             {collecting ? "Collecting…" : "Collect fees"}
           </button>
           <Link
             href={`/pools/${p.poolId}/add?positionId=${p.id}`}
-            className="flex-1 rounded-xl border border-zinc-200 dark:border-zinc-700 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-center"
+            className="flex-1 min-h-[44px] flex items-center justify-center rounded-xl border border-zinc-200 dark:border-zinc-700 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-center"
           >
             Add
           </Link>
           <Link
             href={`/positions/${p.id}/remove`}
-            className="flex-1 rounded-xl border border-red-200 dark:border-red-900 py-2 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors text-center"
+            className="flex-1 min-h-[44px] flex items-center justify-center rounded-xl border border-red-200 dark:border-red-900 py-2 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors text-center"
           >
             Remove
           </Link>
