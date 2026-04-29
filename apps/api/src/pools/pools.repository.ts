@@ -1,21 +1,24 @@
 import { Injectable } from '@nestjs/common';
-import { PoolListQuery, PoolListResult, PoolSnapshot, TickData, GetTicksQuery } from './pool.types';
 import { PrismaService } from '../prisma/prisma.service';
+import { PoolListQuery, PoolListResult, PoolSnapshot } from './pool.types';
 
 type PoolStatePatch = {
   currentPrice?: string;
 };
+
+export interface TickData {
+  tickIndex: number;
+  liquidityNet: string;
+  liquidityGross: string;
+  feeGrowthOutside0X128: string;
+  feeGrowthOutside1X128: string;
+}
 
 @Injectable()
 export class PoolsRepository {
   private readonly pools = new Map<string, PoolSnapshot>();
 
   constructor(private readonly prisma: PrismaService) {}
-
-  async poolExists(id: string): Promise<boolean> {
-    const count = await this.prisma.poolCreated.count({ where: { poolId: id } });
-    return count > 0;
-  }
 
   async listActivePools(query: PoolListQuery): Promise<PoolListResult> {
     const search = query.search?.trim().toLowerCase();
@@ -60,31 +63,24 @@ export class PoolsRepository {
     });
   }
 
-  async getTicks(query: GetTicksQuery): Promise<TickData[]> {
-    const where: any = {
-      poolId: query.poolId,
-    };
-
-    if (query.lowerTick !== undefined && query.upperTick !== undefined) {
-      where.tickIndex = {
-        gte: query.lowerTick,
-        lte: query.upperTick,
-      };
-    } else if (query.lowerTick !== undefined) {
-      where.tickIndex = {
-        gte: query.lowerTick,
-      };
-    } else if (query.upperTick !== undefined) {
-      where.tickIndex = {
-        lte: query.upperTick,
-      };
-    }
-
-    const ticks = await this.prisma.tick.findMany({
-      where,
-      orderBy: {
-        tickIndex: 'asc',
+  async getTicksByPoolId(
+    poolId: string,
+    lowerTick?: number,
+    upperTick?: number,
+  ): Promise<TickData[]> {
+    return this.prisma.tick.findMany({
+      where: {
+        poolId,
+        ...(lowerTick !== undefined || upperTick !== undefined
+          ? {
+              tickIndex: {
+                ...(lowerTick !== undefined && { gte: lowerTick }),
+                ...(upperTick !== undefined && { lte: upperTick }),
+              },
+            }
+          : {}),
       },
+      orderBy: { tickIndex: 'asc' },
       select: {
         tickIndex: true,
         liquidityNet: true,
@@ -93,13 +89,5 @@ export class PoolsRepository {
         feeGrowthOutside1X128: true,
       },
     });
-
-    return ticks.map((tick) => ({
-      tickIndex: tick.tickIndex,
-      liquidityNet: tick.liquidityNet,
-      liquidityGross: tick.liquidityGross,
-      feeGrowthOutside0X128: tick.feeGrowthOutside0X128,
-      feeGrowthOutside1X128: tick.feeGrowthOutside1X128,
-    }));
   }
 }

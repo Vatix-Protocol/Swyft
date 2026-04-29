@@ -12,6 +12,7 @@ export const TTL = {
   POOL_DETAIL: 15,
   CANDLES_SLOW: 60, // 1h / 1d candles
   CANDLES_FAST: 10, // 1m / 5m candles
+  TICKS: 10,
 } as const;
 
 @Injectable()

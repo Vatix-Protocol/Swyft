@@ -54,7 +54,7 @@ fn test_mint_adds_liquidity_in_range() {
     // sqrt price at tick 0 = Q96
     client.initialize(&t0, &t1, &Q96, &3000u32);
 
-    let result = client.mint(&lp, &-60, &60, &1_000_000u128);
+    let result = client.mint(&1u64, &-60, &60, &1_000_000u128);
     assert!(result.amount_0 > 0 || result.amount_1 > 0);
 
     let state = client.get_state();
@@ -67,8 +67,7 @@ fn test_mint_out_of_range_does_not_add_active_liquidity() {
     let client = PoolClient::new(&env, &id);
     client.initialize(&t0, &t1, &Q96, &3000u32);
 
-    // range entirely above current tick (0)
-    client.mint(&lp, &120, &240, &500_000u128);
+    client.mint(&2u64, &120, &240, &500_000u128);
     let state = client.get_state();
     assert_eq!(state.liquidity, 0);
 }
@@ -79,8 +78,8 @@ fn test_burn_removes_liquidity() {
     let client = PoolClient::new(&env, &id);
     client.initialize(&t0, &t1, &Q96, &3000u32);
 
-    client.mint(&lp, &-60, &60, &1_000_000u128);
-    let burn_result = client.burn(&lp, &-60, &60, &1_000_000u128);
+    client.mint(&3u64, &-60, &60, &1_000_000u128);
+    let burn_result = client.burn(&3u64, &-60, &60, &1_000_000u128);
     assert!(burn_result.amount_0 > 0 || burn_result.amount_1 > 0);
 
     let state = client.get_state();
@@ -93,8 +92,8 @@ fn test_partial_burn() {
     let client = PoolClient::new(&env, &id);
     client.initialize(&t0, &t1, &Q96, &3000u32);
 
-    client.mint(&lp, &-60, &60, &1_000_000u128);
-    client.burn(&lp, &-60, &60, &400_000u128);
+    client.mint(&4u64, &-60, &60, &1_000_000u128);
+    client.burn(&4u64, &-60, &60, &400_000u128);
     let state = client.get_state();
     assert_eq!(state.liquidity, 600_000u128);
 }

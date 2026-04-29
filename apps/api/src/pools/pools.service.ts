@@ -1,9 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { CacheService, TTL } from '../cache/cache.service';
 import { GetPoolsQueryDto } from './dto/get-pools-query.dto';
-import { GetTicksQueryDto } from './dto/get-ticks-query.dto';
-import { PoolListQuery, PoolOrderBy, PoolSnapshot, TickData, GetTicksQuery } from './pool.types';
-import { PoolsRepository } from './pools.repository';
+import { PoolListQuery, PoolOrderBy, PoolSnapshot } from './pool.types';
+import { PoolsRepository, TickData } from './pools.repository';
 
 interface PoolsListResponse {
   items: Array<{
@@ -174,8 +173,26 @@ export class PoolsService {
     ].join(':');
   }
 
-  async invalidatePoolTicksCache(poolId: string): Promise<void> {
-    await this.cache.invalidatePattern(`pool:ticks:v1:poolId=${poolId}:*`);
+  async getPoolTicks(
+    poolId: string,
+    lowerTick?: number,
+    upperTick?: number,
+  ): Promise<TickData[]> {
+    const pool = await this.findPoolById(poolId);
+    if (!pool) throw new NotFoundException(`Pool with ID ${poolId} not found`);
+
+    const cacheKey = `pool:${poolId}:ticks:lower=${lowerTick ?? ''}:upper=${upperTick ?? ''}`;
+    const cached = await this.cache.get<TickData[]>(cacheKey);
+    if (cached) return cached;
+
+    const ticks = await this.poolsRepository.getTicksByPoolId(poolId, lowerTick, upperTick);
+    await this.cache.set(cacheKey, ticks, TTL.TICKS);
+    return ticks;
+  }
+
+  async invalidatePoolCache(poolId: string): Promise<void> {
+    await this.cache.invalidate(`pool:${poolId}`);
+    await this.cache.invalidatePattern(`pool:${poolId}:ticks:*`);
   }
 }
 
