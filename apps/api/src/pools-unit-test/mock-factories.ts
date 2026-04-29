@@ -1,4 +1,5 @@
 import { Pool, Swap, Position, Token } from '@prisma/client';
+import { TickData } from '../pools/pools.repository';
 
 // ─── Prisma mock factory ──────────────────────────────────────────────────────
 
@@ -20,12 +21,32 @@ export const createMockPrismaService = () => ({
     findMany: jest.fn(),
     count: jest.fn(),
   },
+  tick: {
+    findMany: jest.fn(),
+  },
   token: {
     findUnique: jest.fn(),
   },
   ohlcv: {
     findMany: jest.fn(),
   },
+});
+
+// ─── CacheService mock factory ───────────────────────────────────────────────
+
+export const createMockCacheService = () => ({
+  get: jest.fn().mockResolvedValue(null),
+  set: jest.fn().mockResolvedValue(undefined),
+  invalidate: jest.fn().mockResolvedValue(undefined),
+  invalidatePattern: jest.fn().mockResolvedValue(undefined),
+});
+
+// ─── PoolsRepository mock factory ────────────────────────────────────────────
+
+export const createMockPoolsRepository = () => ({
+  listActivePools: jest.fn(),
+  upsertPoolState: jest.fn(),
+  getTicksByPoolId: jest.fn(),
 });
 
 // ─── Redis mock factory ───────────────────────────────────────────────────────
@@ -117,6 +138,15 @@ export const mockOhlcv = (overrides: Record<string, unknown> = {}) => ({
   close: 3_575,
   volume: 250_000,
   timestamp: new Date('2024-06-01T12:00:00Z'),
+  ...overrides,
+});
+
+export const mockTick = (overrides: Partial<TickData> = {}): TickData => ({
+  tickIndex: 0,
+  liquidityNet: '1000000000000000000',
+  liquidityGross: '1000000000000000000',
+  feeGrowthOutside0X128: '0',
+  feeGrowthOutside1X128: '0',
   ...overrides,
 });
 

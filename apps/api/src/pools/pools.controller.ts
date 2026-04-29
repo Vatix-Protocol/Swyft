@@ -2,12 +2,13 @@ import {
   Controller,
   Get,
   Param,
+  Query,
   NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
 import { GetPoolsQueryDto } from './dto/get-pools-query.dto';
+import { GetTicksQueryDto } from './dto/get-ticks-query.dto';
 import { PoolsListResponse, PoolsService } from './pools.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { CacheService } from '../cache/cache.service';
 
 
@@ -23,6 +24,20 @@ export class PoolsController {
   @Get()
   getPools(@Query() query: GetPoolsQueryDto): Promise<PoolsListResponse> {
     return this.poolsService.getPools(query);
+  }
+
+  @Get(':id/ticks')
+  @ApiOperation({ summary: 'Get initialized ticks for a pool' })
+  @ApiParam({ name: 'id', description: 'Pool ID' })
+  @ApiQuery({ name: 'lowerTick', required: false, type: Number })
+  @ApiQuery({ name: 'upperTick', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Tick data returned in ascending order' })
+  @ApiResponse({ status: 404, description: 'Pool not found' })
+  getPoolTicks(
+    @Param('id') id: string,
+    @Query() query: GetTicksQueryDto,
+  ) {
+    return this.poolsService.getPoolTicks(id, query.lowerTick, query.upperTick);
   }
 
   @Get(':id')

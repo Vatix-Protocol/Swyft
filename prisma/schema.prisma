@@ -75,6 +75,21 @@ model Position {
   @@index([closedAt])
 }
 
+model Tick {
+  id                   String   @id @default(cuid())
+  poolId               String
+  tickIndex            Int
+  liquidityNet         String
+  liquidityGross       String
+  feeGrowthOutside0X128 String  @default("0")
+  feeGrowthOutside1X128 String  @default("0")
+  updatedAt            DateTime @updatedAt
+
+  @@unique([poolId, tickIndex])
+  @@index([poolId, tickIndex])
+  @@map("tick")
+}
+
 model Token {
   id                String   @id @default(cuid())
   address           String   @unique

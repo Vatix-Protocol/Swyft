@@ -1,29 +1,24 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
-import { PoolsService } from '../../src/pools/pools.service';
-import { PrismaService } from '../../src/prisma/prisma.service';
-import { RedisService } from '../../src/redis/redis.service';
-import {
-  createMockPrismaService,
-  createMockRedisService,
-  mockPool,
-  paginatedResponse,
-} from '../test-utils/mock-factories';
+import { PoolsService } from '../pools/pools.service';
+import { PoolsRepository } from '../pools/pools.repository';
+import { CacheService } from '../cache/cache.service';
+import { createMockCacheService, createMockPoolsRepository, mockTick } from './mock-factories';
 
 describe('PoolsService', () => {
   let service: PoolsService;
-  let prisma: ReturnType<typeof createMockPrismaService>;
-  let redis: ReturnType<typeof createMockRedisService>;
+  let repo: ReturnType<typeof createMockPoolsRepository>;
+  let cache: ReturnType<typeof createMockCacheService>;
 
   beforeEach(async () => {
-    prisma = createMockPrismaService();
-    redis = createMockRedisService();
+    repo = createMockPoolsRepository();
+    cache = createMockCacheService();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PoolsService,
-        { provide: PrismaService, useValue: prisma },
-        { provide: RedisService, useValue: redis },
+        { provide: PoolsRepository, useValue: repo },
+        { provide: CacheService, useValue: cache },
       ],
     }).compile();
 
@@ -34,197 +29,91 @@ describe('PoolsService', () => {
 
   // ─── findAll ─────────────────────────────────────────────────────────────
 
-  describe('findAll()', () => {
-    const pools = [
-      mockPool({ id: 'pool_1' }),
-      mockPool({ id: 'pool_2', fee: 500 }),
-      mockPool({ id: 'pool_3', fee: 10000 }),
-    ];
+  describe('getPools()', () => {
+    it('returns pools from repository on cache miss', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
 
-    it('returns paginated pools on cache miss', async () => {
-      redis.get.mockResolvedValue(null); // cache miss
-      prisma.pool.count.mockResolvedValue(3);
-      prisma.pool.findMany.mockResolvedValue(pools);
-
-      const result = await service.findAll({ page: 1, limit: 10 });
-
-      expect(result).toEqual(paginatedResponse(pools, 3, 1, 10));
-      expect(prisma.pool.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ skip: 0, take: 10 }),
-      );
-      expect(redis.set).toHaveBeenCalledTimes(1);
-    });
-
-    it('returns cached result and skips DB calls on cache hit', async () => {
-      const cached = paginatedResponse(pools, 3, 1, 10);
-      redis.get.mockResolvedValue(JSON.stringify(cached));
-
-      const result = await service.findAll({ page: 1, limit: 10 });
-
-      expect(result).toEqual(cached);
-      expect(prisma.pool.findMany).not.toHaveBeenCalled();
-      expect(prisma.pool.count).not.toHaveBeenCalled();
-    });
-
-    it('calculates correct skip value for page > 1', async () => {
-      redis.get.mockResolvedValue(null);
-      prisma.pool.count.mockResolvedValue(25);
-      prisma.pool.findMany.mockResolvedValue(pools.slice(0, 5));
-
-      await service.findAll({ page: 3, limit: 5 });
-
-      expect(prisma.pool.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ skip: 10, take: 5 }),
-      );
-    });
-
-    it('returns empty items array when no pools exist', async () => {
-      redis.get.mockResolvedValue(null);
-      prisma.pool.count.mockResolvedValue(0);
-      prisma.pool.findMany.mockResolvedValue([]);
-
-      const result = await service.findAll({ page: 1, limit: 10 });
+      const result = await service.getPools({ page: 1, limit: 10 });
 
       expect(result.items).toEqual([]);
-      expect(result.total).toBe(0);
-      expect(result.pages).toBe(0);
+      expect(repo.listActivePools).toHaveBeenCalledTimes(1);
+      expect(cache.set).toHaveBeenCalledTimes(1);
     });
 
-    it('uses default pagination values when none provided', async () => {
-      redis.get.mockResolvedValue(null);
-      prisma.pool.count.mockResolvedValue(0);
-      prisma.pool.findMany.mockResolvedValue([]);
+    it('returns cached result and skips repository on cache hit', async () => {
+      const cached = { items: [], page: 1, limit: 10, total: 0, totalPages: 0, orderBy: 'tvl' };
+      cache.get.mockResolvedValue(cached);
 
-      await service.findAll({});
+      const result = await service.getPools({ page: 1, limit: 10 });
 
-      expect(prisma.pool.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ skip: 0, take: expect.any(Number) }),
-      );
-    });
-
-    it('stores correct cache key format', async () => {
-      redis.get.mockResolvedValue(null);
-      prisma.pool.count.mockResolvedValue(1);
-      prisma.pool.findMany.mockResolvedValue([mockPool()]);
-
-      await service.findAll({ page: 2, limit: 5 });
-
-      expect(redis.get).toHaveBeenCalledWith(expect.stringContaining('pools'));
-      expect(redis.set).toHaveBeenCalledWith(
-        expect.stringContaining('pools'),
-        expect.any(String),
-        expect.any(Number),
-      );
+      expect(result).toEqual(cached);
+      expect(repo.listActivePools).not.toHaveBeenCalled();
     });
   });
 
-  // ─── findOne ─────────────────────────────────────────────────────────────
+  // ─── getPoolTicks ─────────────────────────────────────────────────────────
 
-  describe('findOne()', () => {
-    it('returns the pool on cache miss and populates cache', async () => {
-      const pool = mockPool({ id: 'pool_1' });
-      redis.get.mockResolvedValue(null);
-      prisma.pool.findUnique.mockResolvedValue(pool);
+  describe('getPoolTicks()', () => {
+    const poolId = 'cltest123456789012345678';
 
-      const result = await service.findOne('pool_1');
-
-      expect(result).toEqual(pool);
-      expect(prisma.pool.findUnique).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'pool_1' } }),
-      );
-      expect(redis.set).toHaveBeenCalledTimes(1);
+    beforeEach(() => {
+      // findPoolById uses isValidPoolId — cuid pattern passes
+      cache.get.mockResolvedValue(null);
     });
 
-    it('returns cached pool without hitting DB', async () => {
-      const pool = mockPool({ id: 'pool_1' });
-      redis.get.mockResolvedValue(JSON.stringify(pool));
+    it('returns ticks from repository on cache miss', async () => {
+      const ticks = [mockTick({ tickIndex: -100 }), mockTick({ tickIndex: 100 })];
+      repo.getTicksByPoolId.mockResolvedValue(ticks);
 
-      const result = await service.findOne('pool_1');
+      const result = await service.getPoolTicks(poolId);
 
-      expect(result).toEqual(pool);
-      expect(prisma.pool.findUnique).not.toHaveBeenCalled();
+      expect(result).toEqual(ticks);
+      expect(repo.getTicksByPoolId).toHaveBeenCalledWith(poolId, undefined, undefined);
+      expect(cache.set).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns cached ticks without hitting repository', async () => {
+      const ticks = [mockTick()];
+      cache.get.mockResolvedValue(ticks);
+
+      const result = await service.getPoolTicks(poolId);
+
+      expect(result).toEqual(ticks);
+      expect(repo.getTicksByPoolId).not.toHaveBeenCalled();
+    });
+
+    it('returns empty array when pool has no initialized ticks', async () => {
+      repo.getTicksByPoolId.mockResolvedValue([]);
+
+      const result = await service.getPoolTicks(poolId);
+
+      expect(result).toEqual([]);
+    });
+
+    it('passes lowerTick and upperTick to repository', async () => {
+      repo.getTicksByPoolId.mockResolvedValue([]);
+
+      await service.getPoolTicks(poolId, -500, 500);
+
+      expect(repo.getTicksByPoolId).toHaveBeenCalledWith(poolId, -500, 500);
     });
 
     it('throws NotFoundException for unknown pool id', async () => {
-      redis.get.mockResolvedValue(null);
-      prisma.pool.findUnique.mockResolvedValue(null);
-
-      await expect(service.findOne('unknown_pool')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.getPoolTicks('unknown_id')).rejects.toThrow(NotFoundException);
+      expect(repo.getTicksByPoolId).not.toHaveBeenCalled();
     });
 
-    it('throws NotFoundException with descriptive message', async () => {
-      redis.get.mockResolvedValue(null);
-      prisma.pool.findUnique.mockResolvedValue(null);
-
-      await expect(service.findOne('ghost_pool')).rejects.toThrow(
-        /ghost_pool/i,
-      );
+    it('does not cache on 404', async () => {
+      await expect(service.getPoolTicks('bad_id')).rejects.toThrow(NotFoundException);
+      expect(cache.set).not.toHaveBeenCalled();
     });
 
-    it('does NOT cache on 404 — no redis.set call', async () => {
-      redis.get.mockResolvedValue(null);
-      prisma.pool.findUnique.mockResolvedValue(null);
+    it('includes pool id in cache key', async () => {
+      repo.getTicksByPoolId.mockResolvedValue([]);
 
-      await expect(service.findOne('nope')).rejects.toThrow(NotFoundException);
-      expect(redis.set).not.toHaveBeenCalled();
-    });
+      await service.getPoolTicks(poolId);
 
-    it('queries by address when input looks like an Ethereum address', async () => {
-      const pool = mockPool({ address: '0xPoolAddress1' });
-      redis.get.mockResolvedValue(null);
-      prisma.pool.findUnique.mockResolvedValue(pool);
-
-      const result = await service.findOne('0xPoolAddress1');
-
-      expect(result).toEqual(pool);
+      expect(cache.get).toHaveBeenCalledWith(expect.stringContaining(poolId));
     });
   });
-
-  // ─── Cache TTL / invalidation ─────────────────────────────────────────────
-
-  describe('cache behaviour', () => {
-    it('sets a positive TTL when caching pool list', async () => {
-      redis.get.mockResolvedValue(null);
-      prisma.pool.count.mockResolvedValue(1);
-      prisma.pool.findMany.mockResolvedValue([mockPool()]);
-
-      await service.findAll({ page: 1, limit: 10 });
-
-      const [, , ttl] = (redis.set as jest.Mock).mock.calls[0];
-      expect(ttl).toBeGreaterThan(0);
-    });
-
-    it('serialises result to JSON string in cache', async () => {
-      redis.get.mockResolvedValue(null);
-      prisma.pool.count.mockResolvedValue(1);
-      prisma.pool.findMany.mockResolvedValue([mockPool()]);
-
-      await service.findAll({ page: 1, limit: 10 });
-
-      const [, cachedValue] = (redis.set as jest.Mock).mock.calls[0];
-      expect(() => JSON.parse(cachedValue as string)).not.toThrow();
-    });
-  });
-
-  // ─── Error propagation ────────────────────────────────────────────────────
-
-  describe('error propagation', () => {
-    it('bubbles Prisma errors from findAll', async () => {
-      redis.get.mockResolvedValue(null);
-      prisma.pool.count.mockRejectedValue(new Error('DB connection lost'));
-
-      await expect(service.findAll({ page: 1, limit: 10 })).rejects.toThrow(
-        'DB connection lost',
-      );
-    });
-
-    it('bubbles Prisma errors from findOne', async () => {
-      redis.get.mockResolvedValue(null);
-      prisma.pool.findUnique.mockRejectedValue(new Error('Query timeout'));
-
-      await expect(service.findOne('pool_1')).rejects.toThrow('Query timeout');
-    });
-  });
-});

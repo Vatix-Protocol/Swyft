@@ -1,13 +1,24 @@
 import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 import { PoolListQuery, PoolListResult, PoolSnapshot } from './pool.types';
 
 type PoolStatePatch = {
   currentPrice?: string;
 };
 
+export interface TickData {
+  tickIndex: number;
+  liquidityNet: string;
+  liquidityGross: string;
+  feeGrowthOutside0X128: string;
+  feeGrowthOutside1X128: string;
+}
+
 @Injectable()
 export class PoolsRepository {
   private readonly pools = new Map<string, PoolSnapshot>();
+
+  constructor(private readonly prisma: PrismaService) {}
 
   async listActivePools(query: PoolListQuery): Promise<PoolListResult> {
     const search = query.search?.trim().toLowerCase();
@@ -49,6 +60,34 @@ export class PoolsRepository {
       ...existing,
       currentPrice,
       updatedAt: Date.now(),
+    });
+  }
+
+  async getTicksByPoolId(
+    poolId: string,
+    lowerTick?: number,
+    upperTick?: number,
+  ): Promise<TickData[]> {
+    return this.prisma.tick.findMany({
+      where: {
+        poolId,
+        ...(lowerTick !== undefined || upperTick !== undefined
+          ? {
+              tickIndex: {
+                ...(lowerTick !== undefined && { gte: lowerTick }),
+                ...(upperTick !== undefined && { lte: upperTick }),
+              },
+            }
+          : {}),
+      },
+      orderBy: { tickIndex: 'asc' },
+      select: {
+        tickIndex: true,
+        liquidityNet: true,
+        liquidityGross: true,
+        feeGrowthOutside0X128: true,
+        feeGrowthOutside1X128: true,
+      },
     });
   }
 }
