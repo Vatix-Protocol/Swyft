@@ -5,6 +5,7 @@ import { SwapInput, PriceImpactBadge, SlippagePanel, type TokenPair, type Token 
 import { useTokens, useRecentTokens, usePoolId } from "@/hooks/useTokens";
 import { useSwapQuote } from "@/hooks/useSwapQuote";
 import { useWalletBalances } from "@/hooks/useWalletBalances";
+import { SwapConfirmModal } from "@/components/SwapConfirmModal";
 
 // Inline minimal token selector trigger — full modal from @swyft/ui used in the SwapInput onTokenClick
 // For this branch we keep a simple inline selector; the full TokenSelectorModal lives in feat/token-pair-selector
@@ -68,14 +69,18 @@ interface WalletState {
 // Consumed via prop so this component stays decoupled from a specific context shape
 interface Props {
   wallet: WalletState;
+  onTokenInChange?: (token: Token | null) => void;
+  onTokenOutChange?: (token: Token | null) => void;
+  onSwapSuccess?: () => void;
 }
 
-export function SwapWidget({ wallet }: Props) {
+export function SwapWidget({ wallet, onTokenInChange, onTokenOutChange, onSwapSuccess }: Props) {
   const { tokens, loading: tokensLoading } = useTokens();
   const { recentIds, pushRecent } = useRecentTokens();
   const [pair, setPair] = useState<TokenPair>({ tokenIn: null, tokenOut: null });
   const [amountIn, setAmountIn] = useState("");
-  const [slippageBps, setSlippageBps] = useState(50); // 0.5% default
+  const [slippageBps, setSlippageBps] = useState(50);
+  const [showModal, setShowModal] = useState(false);
 
   const { poolId, poolExists } = usePoolId(pair.tokenIn?.id ?? null, pair.tokenOut?.id ?? null);
   const { quote, loading: quoteLoading } = useSwapQuote({
@@ -106,19 +111,29 @@ export function SwapWidget({ wallet }: Props) {
     !quote;
 
   function selectIn(token: Token) {
-    if (token.id === pair.tokenOut?.id) setPair({ tokenIn: token, tokenOut: pair.tokenIn });
-    else setPair((p) => ({ ...p, tokenIn: token }));
+    const next = token.id === pair.tokenOut?.id
+      ? { tokenIn: token, tokenOut: pair.tokenIn }
+      : { ...pair, tokenIn: token };
+    setPair(next);
+    onTokenInChange?.(token);
+    if (token.id === pair.tokenOut?.id) onTokenOutChange?.(pair.tokenIn ?? null);
     pushRecent(token.id);
   }
 
   function selectOut(token: Token) {
-    if (token.id === pair.tokenIn?.id) setPair({ tokenIn: pair.tokenOut, tokenOut: token });
-    else setPair((p) => ({ ...p, tokenOut: token }));
+    const next = token.id === pair.tokenIn?.id
+      ? { tokenIn: pair.tokenOut, tokenOut: token }
+      : { ...pair, tokenOut: token };
+    setPair(next);
+    onTokenOutChange?.(token);
+    if (token.id === pair.tokenIn?.id) onTokenInChange?.(pair.tokenOut ?? null);
     pushRecent(token.id);
   }
 
   function swapDirection() {
     setPair({ tokenIn: pair.tokenOut, tokenOut: pair.tokenIn });
+    onTokenInChange?.(pair.tokenOut ?? null);
+    onTokenOutChange?.(pair.tokenIn ?? null);
     setAmountIn(quote?.amountOut ?? "");
   }
 
@@ -160,7 +175,7 @@ export function SwapWidget({ wallet }: Props) {
             type="button"
             onClick={swapDirection}
             aria-label="Swap token pair direction"
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 hover:border-indigo-400 hover:text-indigo-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-indigo-400 transition-colors"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 hover:border-indigo-400 hover:text-indigo-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-indigo-400 transition-colors"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" />
@@ -247,9 +262,10 @@ export function SwapWidget({ wallet }: Props) {
         {/* Swap button */}
         <button
           type="button"
+          onClick={() => setShowModal(true)}
           disabled={swapDisabled}
           aria-disabled={swapDisabled}
-          className="mt-1 w-full rounded-xl bg-indigo-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-1 w-full min-h-[44px] rounded-xl bg-indigo-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {!wallet.address
             ? "Connect wallet to swap"
@@ -263,5 +279,23 @@ export function SwapWidget({ wallet }: Props) {
         </button>
       </div>
     </div>
+
+    {/* Confirmation modal */}
+    {showModal && quote && pair.tokenIn && pair.tokenOut && wallet.address && poolId && (
+      <SwapConfirmModal
+        poolId={poolId}
+        tokenIn={pair.tokenIn}
+        tokenOut={pair.tokenOut}
+        amountIn={amountIn}
+        quote={quote}
+        walletAddress={wallet.address}
+        onClose={() => setShowModal(false)}
+        onSuccess={() => {
+          setShowModal(false);
+          setAmountIn("");
+          onSwapSuccess?.();
+        }}
+      />
+    )}
   );
 }
