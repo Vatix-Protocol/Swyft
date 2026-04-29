@@ -21,6 +21,7 @@ import { CandlesModule } from './candles/candles.module';
     CacheModule,
     PrismaModule,
     MetricsModule,
+    RateLimitModule,
     PriceModule,
     PoolsModule,
     PositionsModule,
