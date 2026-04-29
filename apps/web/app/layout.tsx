@@ -2,7 +2,9 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { WalletProvider } from "@/context/WalletContext";
+import { QueryProvider } from "@/context/QueryProvider";
 import { Navbar } from "@/components/Navbar";
+import { Providers } from "./providers";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -35,11 +37,13 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col overflow-x-hidden">
-        <WalletProvider>
-          <Navbar />
-          {children}
-        </WalletProvider>
+      <body className="min-h-full flex flex-col">
+        <Providers>
+          <WalletProvider>
+            <Navbar />
+            {children}
+          </WalletProvider>
+        </Providers>
       </body>
     </html>
   );
