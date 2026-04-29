@@ -24,3 +24,17 @@ export interface PoolListResult {
   items: PoolSnapshot[];
   total: number;
 }
+
+export interface TickData {
+  tickIndex: number;
+  liquidityNet: string;
+  liquidityGross: string;
+  feeGrowthOutside0X128: string;
+  feeGrowthOutside1X128: string;
+}
+
+export interface GetTicksQuery {
+  poolId: string;
+  lowerTick?: number;
+  upperTick?: number;
+}

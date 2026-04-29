@@ -90,6 +90,21 @@ model Tick {
   @@map("tick")
 }
 
+model Tick {
+  id                   String   @id @default(cuid())
+  poolId               String
+  tickIndex            Int
+  liquidityNet         String   // signed integer for net liquidity change
+  liquidityGross       String   // absolute liquidity
+  feeGrowthOutside0X128 String  // fee growth outside token0
+  feeGrowthOutside1X128 String  // fee growth outside token1
+  updatedAt            DateTime @updatedAt
+
+  @@unique([poolId, tickIndex])
+  @@index([poolId])
+  @@map("tick")
+}
+
 model Token {
   id                String   @id @default(cuid())
   address           String   @unique
