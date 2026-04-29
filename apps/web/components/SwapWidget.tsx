@@ -5,6 +5,7 @@ import { SwapInput, PriceImpactBadge, SlippagePanel, type TokenPair, type Token 
 import { useTokens, useRecentTokens, usePoolId } from "@/hooks/useTokens";
 import { useSwapQuote } from "@/hooks/useSwapQuote";
 import { useWalletBalances } from "@/hooks/useWalletBalances";
+import { SwapConfirmModal } from "@/components/SwapConfirmModal";
 
 // Inline minimal token selector trigger — full modal from @swyft/ui used in the SwapInput onTokenClick
 // For this branch we keep a simple inline selector; the full TokenSelectorModal lives in feat/token-pair-selector
@@ -70,14 +71,16 @@ interface Props {
   wallet: WalletState;
   onTokenInChange?: (token: Token | null) => void;
   onTokenOutChange?: (token: Token | null) => void;
+  onSwapSuccess?: () => void;
 }
 
-export function SwapWidget({ wallet, onTokenInChange, onTokenOutChange }: Props) {
+export function SwapWidget({ wallet, onTokenInChange, onTokenOutChange, onSwapSuccess }: Props) {
   const { tokens, loading: tokensLoading } = useTokens();
   const { recentIds, pushRecent } = useRecentTokens();
   const [pair, setPair] = useState<TokenPair>({ tokenIn: null, tokenOut: null });
   const [amountIn, setAmountIn] = useState("");
-  const [slippageBps, setSlippageBps] = useState(50); // 0.5% default
+  const [slippageBps, setSlippageBps] = useState(50);
+  const [showModal, setShowModal] = useState(false);
 
   const { poolId, poolExists } = usePoolId(pair.tokenIn?.id ?? null, pair.tokenOut?.id ?? null);
   const { quote, loading: quoteLoading } = useSwapQuote({
@@ -259,6 +262,7 @@ export function SwapWidget({ wallet, onTokenInChange, onTokenOutChange }: Props)
         {/* Swap button */}
         <button
           type="button"
+          onClick={() => setShowModal(true)}
           disabled={swapDisabled}
           aria-disabled={swapDisabled}
           className="mt-1 w-full min-h-[44px] rounded-xl bg-indigo-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
@@ -275,5 +279,23 @@ export function SwapWidget({ wallet, onTokenInChange, onTokenOutChange }: Props)
         </button>
       </div>
     </div>
+
+    {/* Confirmation modal */}
+    {showModal && quote && pair.tokenIn && pair.tokenOut && wallet.address && poolId && (
+      <SwapConfirmModal
+        poolId={poolId}
+        tokenIn={pair.tokenIn}
+        tokenOut={pair.tokenOut}
+        amountIn={amountIn}
+        quote={quote}
+        walletAddress={wallet.address}
+        onClose={() => setShowModal(false)}
+        onSuccess={() => {
+          setShowModal(false);
+          setAmountIn("");
+          onSwapSuccess?.();
+        }}
+      />
+    )}
   );
 }
