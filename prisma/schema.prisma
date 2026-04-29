@@ -89,3 +89,64 @@ model Token {
 
   @@map("token")
 }
+
+// #75 — API key authentication
+model ApiKey {
+  id           String    @id @default(cuid())
+  hashedKey    String    @unique
+  label        String
+  ownerWallet  String
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+  revoked      Boolean   @default(false)
+
+  @@index([ownerWallet])
+  @@map("api_key")
+}
+
+// #82 — Webhook notifications
+model Webhook {
+  id               String            @id @default(cuid())
+  ownerWallet      String
+  url              String
+  eventTypes       String[]
+  secret           String?
+  largeSwapUsd     Float             @default(10000)
+  disabled         Boolean           @default(false)
+  consecutiveFails Int               @default(0)
+  createdAt        DateTime          @default(now())
+  deliveries       WebhookDelivery[]
+
+  @@index([ownerWallet])
+  @@map("webhook")
+}
+
+model WebhookDelivery {
+  id             String   @id @default(cuid())
+  webhookId      String
+  eventType      String
+  responseStatus Int?
+  deliveryMs     Int?
+  createdAt      DateTime @default(now())
+  webhook        Webhook  @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@map("webhook_delivery")
+}
+
+// #81 — OHLCV candle aggregation
+model PriceCandle {
+  id          String   @id @default(cuid())
+  poolId      String
+  interval    String
+  open        Float
+  high        Float
+  low         Float
+  close       Float
+  volumeUsd   Float
+  periodStart DateTime
+
+  @@unique([poolId, interval, periodStart])
+  @@index([poolId, interval])
+  @@map("price_candle")
+}
