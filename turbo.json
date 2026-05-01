@@ -16,6 +16,11 @@
     "test": {
       "dependsOn": ["^build"],
       "outputs": ["coverage/**"]
+    },
+    "deploy:testnet": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "outputs": ["deployments/testnet.json"]
     }
   }
 }

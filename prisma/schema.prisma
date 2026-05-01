@@ -1,0 +1,178 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Pool {
+  id                String   @id @default(cuid())
+  token0Address     String
+  token1Address     String
+  feeTier           Int
+  currentSqrtPrice  String
+  currentTick       Int
+  liquidity         String
+  tvl               String
+  volume24h         String
+  feeApr            String
+  createdAt         DateTime @default(now())
+
+  // Relations
+  swaps             Swap[]
+  positions         Position[]
+  priceCandles      PriceCandle[]
+
+  @@map("pool")
+  @@index([token0Address, token1Address])
+  @@index([createdAt])
+}
+
+model Swap {
+  id                String   @id @default(cuid())
+  poolId            String
+  senderAddress     String
+  recipientAddress  String
+  amount0           String
+  amount1           String
+  sqrtPriceAfter    String
+  tickAfter         Int
+  transactionHash   String
+  timestamp         DateTime @default(now())
+
+  // Relations
+  pool              Pool     @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@map("swap")
+  @@index([poolId])
+  @@index([senderAddress])
+  @@index([timestamp])
+  @@index([transactionHash])
+}
+
+model Position {
+  id                String   @id @default(cuid())
+  poolId            String
+  ownerAddress      String
+  tokenId           String   // NFT token ID
+  lowerTick         Int
+  upperTick         Int
+  liquidity         String
+  feesCollected0    String   @default("0")
+  feesCollected1    String   @default("0")
+  createdAt         DateTime @default(now())
+  closedAt          DateTime?
+
+  // Relations
+  pool              Pool     @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@map("position")
+  @@index([poolId])
+  @@index([ownerAddress])
+  @@index([createdAt])
+  @@index([closedAt])
+}
+
+model Tick {
+  id                   String   @id @default(cuid())
+  poolId               String
+  tickIndex            Int
+  liquidityNet         String
+  liquidityGross       String
+  feeGrowthOutside0X128 String  @default("0")
+  feeGrowthOutside1X128 String  @default("0")
+  updatedAt            DateTime @updatedAt
+
+  @@unique([poolId, tickIndex])
+  @@index([poolId, tickIndex])
+  @@map("tick")
+}
+
+model Tick {
+  id                   String   @id @default(cuid())
+  poolId               String
+  tickIndex            Int
+  liquidityNet         String   // signed integer for net liquidity change
+  liquidityGross       String   // absolute liquidity
+  feeGrowthOutside0X128 String  // fee growth outside token0
+  feeGrowthOutside1X128 String  // fee growth outside token1
+  updatedAt            DateTime @updatedAt
+
+  @@unique([poolId, tickIndex])
+  @@index([poolId])
+  @@map("tick")
+}
+
+model Token {
+  id                String   @id @default(cuid())
+  address           String   @unique
+  symbol            String
+  name              String
+  decimals          Int
+  logoUri           String?
+
+  @@map("token")
+}
+
+// #75 — API key authentication
+model ApiKey {
+  id           String    @id @default(cuid())
+  hashedKey    String    @unique
+  label        String
+  ownerWallet  String
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+  revoked      Boolean   @default(false)
+
+  @@index([ownerWallet])
+  @@map("api_key")
+}
+
+// #82 — Webhook notifications
+model Webhook {
+  id               String            @id @default(cuid())
+  ownerWallet      String
+  url              String
+  eventTypes       String[]
+  secret           String?
+  largeSwapUsd     Float             @default(10000)
+  disabled         Boolean           @default(false)
+  consecutiveFails Int               @default(0)
+  createdAt        DateTime          @default(now())
+  deliveries       WebhookDelivery[]
+
+  @@index([ownerWallet])
+  @@map("webhook")
+}
+
+model WebhookDelivery {
+  id             String   @id @default(cuid())
+  webhookId      String
+  eventType      String
+  responseStatus Int?
+  deliveryMs     Int?
+  createdAt      DateTime @default(now())
+  webhook        Webhook  @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@map("webhook_delivery")
+}
+
+// #81 — OHLCV candle aggregation
+model PriceCandle {
+  id          String   @id @default(cuid())
+  poolId      String
+  interval    String
+  open        Float
+  high        Float
+  low         Float
+  close       Float
+  volumeUsd   Float
+  periodStart DateTime
+
+  @@unique([poolId, interval, periodStart])
+  @@index([poolId, interval])
+  @@map("price_candle")
+}
