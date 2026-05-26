@@ -230,3 +230,191 @@ fn read_pools(env: &Env) -> Map<PoolKey, Address> {
         .get::<DataKey, Map<PoolKey, Address>>(&DataKey::Pools)
         .unwrap_or(Map::new(env))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Address, Env};
+
+    fn setup() -> (Env, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let factory_id = env.register_contract(None, PoolFactory);
+        (env, factory_id)
+    }
+
+    #[test]
+    fn test_initialize_and_get_owner() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+        
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, [1; 32]);
+        
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+        
+        assert_eq!(client.get_owner(), owner);
+        assert_eq!(client.get_math_lib(), math_lib);
+        assert_eq!(client.get_pool_wasm_hash(), pool_wasm_hash);
+    }
+
+    #[test]
+    #[should_panic(expected = "FactoryError(AlreadyInitialized)")]
+    fn test_initialize_already_initialized() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+        
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, [1; 32]);
+        
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+        // Try to initialize again
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+    }
+
+    #[test]
+    fn test_get_supported_fee_tiers() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+        
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, [1; 32]);
+        
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+        
+        let tiers = client.get_supported_fee_tiers();
+        assert_eq!(tiers.len(), 3);
+        assert_eq!(tiers.get(0), FEE_TIER_005);
+        assert_eq!(tiers.get(1), FEE_TIER_03);
+        assert_eq!(tiers.get(2), FEE_TIER_1);
+    }
+
+    #[test]
+    #[should_panic(expected = "FactoryError(InvalidFeeTier)")]
+    fn test_create_pool_invalid_fee_tier() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+        
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, [1; 32]);
+        
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+        
+        let token_a = Address::generate(&env);
+        let token_b = Address::generate(&env);
+        let invalid_fee = 12345; // Invalid fee tier
+        
+        client.create_pool(&token_a, &token_b, &invalid_fee);
+    }
+
+    #[test]
+    #[should_panic(expected = "FactoryError(IdenticalTokens)")]
+    fn test_create_pool_identical_tokens() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+        
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, [1; 32]);
+        
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+        
+        let token = Address::generate(&env);
+        client.create_pool(&token, &token, &FEE_TIER_03);
+    }
+
+    #[test]
+    #[should_panic(expected = "FactoryError(NotInitialized)")]
+    fn test_get_pool_not_initialized() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+        
+        let token_a = Address::generate(&env);
+        let token_b = Address::generate(&env);
+        
+        client.get_pool(&token_a, &token_b, &FEE_TIER_03);
+    }
+
+    #[test]
+    fn test_get_pool_nonexistent() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+        
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, [1; 32]);
+        
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+        
+        let token_a = Address::generate(&env);
+        let token_b = Address::generate(&env);
+        
+        let pool = client.get_pool(&token_a, &token_b, &FEE_TIER_03);
+        assert!(pool.is_none());
+    }
+
+    #[test]
+    fn test_set_pool_wasm_hash_owner_only() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+        
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, [1; 32]);
+        
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+        
+        let new_wasm_hash = BytesN::<32>::from_array(&env, [2; 32]);
+        client.set_pool_wasm_hash(&new_wasm_hash);
+        
+        assert_eq!(client.get_pool_wasm_hash(), new_wasm_hash);
+    }
+
+    #[test]
+    fn test_set_math_lib_owner_only() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+        
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, [1; 32]);
+        
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+        
+        let new_math_lib = Address::generate(&env);
+        client.set_math_lib(&new_math_lib);
+        
+        assert_eq!(client.get_math_lib(), new_math_lib);
+    }
+
+    #[test]
+    fn test_set_owner() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+        
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, [1; 32]);
+        
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+        
+        let new_owner = Address::generate(&env);
+        client.set_owner(&new_owner);
+        
+        assert_eq!(client.get_owner(), new_owner);
+    }
+
+    #[test]
+    fn test_name() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+        
+        let name = client.name();
+        assert_eq!(name, Symbol::new(&env, "pool_factory"));
+    }
+}
+
