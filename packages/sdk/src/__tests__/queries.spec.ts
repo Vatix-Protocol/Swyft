@@ -113,6 +113,21 @@ describe('getPosition', () => {
       liquidity: '5000',
     });
   });
+
+  it('throws SwyftRpcError on simulation error', async () => {
+    const { SorobanRpc: MockRpc } = jest.requireMock('@stellar/stellar-sdk') as {
+      SorobanRpc: { Api: { isSimulationError: jest.Mock }; Server: jest.Mock };
+    };
+    MockRpc.Api.isSimulationError.mockReturnValueOnce(true);
+    mockSimulate.mockResolvedValue({ error: 'contract trap' });
+
+    await expect(getPosition({ rpcUrl: 'https://rpc.example.com', positionNftId: 'CNFT' })).rejects.toBeInstanceOf(SwyftRpcError);
+  });
+
+  it('throws SwyftRpcError on network failure', async () => {
+    mockSimulate.mockRejectedValue(new Error('network timeout'));
+    await expect(getPosition({ rpcUrl: 'https://rpc.example.com', positionNftId: 'CNFT' })).rejects.toBeInstanceOf(SwyftRpcError);
+  });
 });
 
 describe('getTick', () => {
