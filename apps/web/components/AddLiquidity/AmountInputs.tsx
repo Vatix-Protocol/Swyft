@@ -1,16 +1,31 @@
 "use client";
 
-interface Props {
+export interface AmountInputsProps {
   token0Symbol: string;
   token1Symbol: string;
   amount0: string;
   amount1: string;
+  /** Wallet balance for token0, used to show "Insufficient balance" warning */
   balance0?: string;
+  /** Wallet balance for token1, used to show "Insufficient balance" warning */
   balance1?: string;
+  /** When true, token0 input is disabled (price is above range — only token1 needed) */
   token0Only?: boolean;
+  /** When true, token1 input is disabled (price is below range — only token0 needed) */
   token1Only?: boolean;
-  onAmount0Change: (v: string) => void;
-  onAmount1Change: (v: string) => void;
+  onAmount0Change: (value: string) => void;
+  onAmount1Change: (value: string) => void;
+}
+
+interface TokenInputProps {
+  label: string;
+  symbol: string;
+  amount: string;
+  /** Wallet balance string; when provided, shows balance and insufficient-balance warning */
+  balance?: string;
+  /** When true, the input is read-only and visually dimmed */
+  disabled?: boolean;
+  onChange: (value: string) => void;
 }
 
 function TokenInput({
@@ -20,14 +35,7 @@ function TokenInput({
   balance,
   disabled,
   onChange,
-}: {
-  label: string;
-  symbol: string;
-  amount: string;
-  balance?: string;
-  disabled?: boolean;
-  onChange: (v: string) => void;
-}) {
+}: TokenInputProps) {
   const insufficient =
     !disabled &&
     balance !== undefined &&
@@ -101,7 +109,7 @@ export function AmountInputs({
   token1Only,
   onAmount0Change,
   onAmount1Change,
-}: Props) {
+}: AmountInputsProps) {
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Deposit amounts</p>

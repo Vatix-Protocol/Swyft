@@ -4,22 +4,42 @@ import { useRef, useCallback, useMemo } from "react";
 import type { TickData } from "@/hooks/usePoolTicks";
 import { tickToPrice, priceToTick, nearestUsableTick } from "@/hooks/useAddLiquidity";
 
-interface Props {
+export interface RangeSelectorProps {
+  /** Tick data used to render the liquidity depth chart */
   ticks: TickData[];
+  /** The pool's current active tick */
   currentTick: number;
+  /** Currently selected lower bound tick */
   lowerTick: number;
+  /** Currently selected upper bound tick */
   upperTick: number;
+  /** Minimum tick spacing enforced by the pool's fee tier (default: 60) */
   tickSpacing?: number;
   token0Symbol: string;
   token1Symbol: string;
+  /** Formatted lower bound price string shown in the manual input */
   lowerPrice: string;
+  /** Formatted upper bound price string shown in the manual input */
   upperPrice: string;
   onLowerTickChange: (tick: number) => void;
   onUpperTickChange: (tick: number) => void;
   onLowerPriceChange: (price: string) => void;
   onUpperPriceChange: (price: string) => void;
+  /** Called when the user clicks "Full range" */
   onFullRange: () => void;
+  /** Whether the full-range option is currently active */
   isFullRange: boolean;
+}
+
+/** A single bar in the liquidity depth chart */
+interface Bar {
+  tick: number;
+  /** X position as a percentage (0–100) within the SVG viewport */
+  x: number;
+  /** Bar height as a percentage (0–100) of the chart height */
+  h: number;
+  /** Whether this tick falls within the selected [lowerTick, upperTick] range */
+  active: boolean;
 }
 
 const CHART_H = 100;
@@ -41,17 +61,17 @@ export function RangeSelector({
   onUpperPriceChange,
   onFullRange,
   isFullRange,
-}: Props) {
+}: RangeSelectorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const dragging = useRef<"lower" | "upper" | null>(null);
 
   const { bars, minTick, maxTick } = useMemo(() => {
-    if (!ticks.length) return { bars: [], minTick: -2000, maxTick: 2000 };
+    if (!ticks.length) return { bars: [] as Bar[], minTick: -2000, maxTick: 2000 };
     const sorted = [...ticks].sort((a, b) => a.tick - b.tick);
     const minT = sorted[0].tick;
     const maxT = sorted[sorted.length - 1].tick;
     const maxLiq = Math.max(...sorted.map((t) => parseFloat(t.liquidityGross) || 0), 1);
-    const bars = sorted.map((t) => ({
+    const bars: Bar[] = sorted.map((t) => ({
       tick: t.tick,
       x: ((t.tick - minT) / (maxT - minT)) * CHART_W,
       h: (parseFloat(t.liquidityGross) / maxLiq) * CHART_H,

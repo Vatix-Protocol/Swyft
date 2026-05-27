@@ -2,12 +2,14 @@
 
 import { usePools, type PoolDetail } from "@/hooks/usePoolTicks";
 
-interface Props {
+export interface PoolSelectorProps {
+  /** The currently selected pool, or null if none is selected */
   selected: PoolDetail | null;
+  /** Called when the user picks a pool from the list */
   onSelect: (pool: PoolDetail) => void;
 }
 
-export function PoolSelector({ selected, onSelect }: Props) {
+export function PoolSelector({ selected, onSelect }: PoolSelectorProps) {
   const { pools, loading } = usePools();
 
   return (

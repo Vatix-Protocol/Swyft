@@ -7,15 +7,55 @@ import { Token } from "./types";
 import { TokenLogo } from "./TokenLogo";
 
 interface Props {
+  /** Full list of tokens available for selection */
   tokens: Token[];
+  /** The currently selected token, or null if none is selected */
   selected: Token | null;
+  /**
+   * Map of token ID → formatted balance string.
+   * When provided, each token row shows the user's balance.
+   */
   balances?: Record<string, string>;
+  /**
+   * Ordered list of recently used token IDs.
+   * These are shown at the top of the list when no search query is active.
+   */
   recentIds?: string[];
+  /** When true, shows a loading spinner instead of the token list */
   loading?: boolean;
+  /**
+   * Called when the user selects a token from the list.
+   * The modal closes automatically after selection.
+   */
   onSelect: (token: Token) => void;
+  /**
+   * Accessible label for the trigger button and the dialog title.
+   * Example: "Input token" or "Output token".
+   */
   label: string;
 }
 
+/**
+ * A searchable token-selection modal built on Radix UI Dialog.
+ *
+ * Renders a trigger button showing the currently selected token (or a
+ * "Select token" placeholder). Clicking the button opens a modal with a
+ * search input and a scrollable token list. Keyboard navigation is supported:
+ * ArrowDown/ArrowUp move focus between rows; the search input is focused
+ * automatically when the modal opens.
+ *
+ * @example
+ * ```tsx
+ * <TokenSelectorModal
+ *   label="Input token"
+ *   tokens={tokens}
+ *   selected={selectedToken}
+ *   balances={walletBalances}
+ *   recentIds={recentTokenIds}
+ *   onSelect={(token) => setSelectedToken(token)}
+ * />
+ * ```
+ */
 export function TokenSelectorModal({
   tokens,
   selected,

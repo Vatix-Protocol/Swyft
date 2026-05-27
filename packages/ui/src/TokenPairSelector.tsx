@@ -4,15 +4,59 @@ import { Token, TokenPair } from "./types";
 import { TokenSelectorModal } from "./TokenSelectorModal";
 
 interface Props {
+  /** The current token pair (tokenIn / tokenOut). Either side may be null. */
   pair: TokenPair;
+  /** Full list of tokens available for selection in both selectors */
   tokens: Token[];
+  /**
+   * Map of token ID → formatted balance string passed through to each
+   * {@link TokenSelectorModal}.
+   */
   balances?: Record<string, string>;
+  /**
+   * Ordered list of recently used token IDs passed through to each
+   * {@link TokenSelectorModal}.
+   */
   recentIds?: string[];
+  /** When true, both selectors show a loading spinner */
   loading?: boolean;
-  poolExists?: boolean | null; // null = not yet checked
+  /**
+   * Whether a pool exists for the current pair.
+   * - `true`  — pool found, no warning shown
+   * - `false` — no pool found, an amber warning is rendered
+   * - `null`  — pool check is still in progress, no warning shown
+   */
+  poolExists?: boolean | null;
+  /**
+   * Called whenever either token changes or the pair direction is swapped.
+   * Receives the full updated {@link TokenPair}.
+   */
   onChange: (pair: TokenPair) => void;
 }
 
+/**
+ * A compound token-pair selector that renders two {@link TokenSelectorModal}
+ * instances (input token and output token) with a swap-direction button
+ * between them.
+ *
+ * Handles the "same token on both sides" edge case by automatically swapping
+ * the opposite side when the user picks a token that is already selected on
+ * the other side.
+ *
+ * Shows an amber warning when `poolExists` is `false` and both tokens are
+ * selected.
+ *
+ * @example
+ * ```tsx
+ * <TokenPairSelector
+ *   pair={pair}
+ *   tokens={tokens}
+ *   balances={walletBalances}
+ *   poolExists={poolExists}
+ *   onChange={setPair}
+ * />
+ * ```
+ */
 export function TokenPairSelector({
   pair,
   tokens,

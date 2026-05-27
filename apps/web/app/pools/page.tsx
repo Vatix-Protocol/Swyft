@@ -6,6 +6,8 @@ import { TokenLogo } from "@swyft/ui";
 import { usePools, PoolOrderBy, PoolListItem } from "@/hooks/usePools";
 import type { Token } from "@swyft/ui";
 
+// ─── Formatters ───────────────────────────────────────────────────────────────
+
 function fmt(n: number, prefix = "$") {
   if (n >= 1_000_000) return `${prefix}${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `${prefix}${(n / 1_000).toFixed(2)}K`;
@@ -26,6 +28,8 @@ function tokenFromAddress(address: string): Token {
   return { id: address, symbol, name: address, logoUrl: null };
 }
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 type SortKey = "tvl" | "volume" | "apr";
 
 const SORT_MAP: Record<SortKey, PoolOrderBy> = {
@@ -33,6 +37,55 @@ const SORT_MAP: Record<SortKey, PoolOrderBy> = {
   volume: "volume",
   apr: "apr",
 };
+
+// ─── Skeleton row ─────────────────────────────────────────────────────────────
+
+/**
+ * A single animated skeleton row shown while pool data is loading.
+ * Renders 6 cells matching the real table column layout.
+ */
+function SkeletonRow() {
+  return (
+    <tr
+      aria-hidden="true"
+      className="border-b border-zinc-100 dark:border-zinc-800"
+    >
+      {/* Pool name + logos */}
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="flex -space-x-2">
+            <div className="h-6 w-6 animate-pulse rounded-full bg-zinc-200 dark:bg-zinc-700" />
+            <div className="h-6 w-6 animate-pulse rounded-full bg-zinc-200 dark:bg-zinc-700" />
+          </div>
+          <div className="h-4 w-28 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+          <div className="h-4 w-10 animate-pulse rounded-full bg-zinc-100 dark:bg-zinc-800" />
+        </div>
+      </td>
+      {/* TVL */}
+      <td className="px-4 py-3 text-right">
+        <div className="ml-auto h-4 w-16 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+      </td>
+      {/* 24h Volume */}
+      <td className="px-4 py-3 text-right">
+        <div className="ml-auto h-4 w-16 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+      </td>
+      {/* 7d Volume */}
+      <td className="px-4 py-3 text-right">
+        <div className="ml-auto h-4 w-16 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+      </td>
+      {/* Fee APR */}
+      <td className="px-4 py-3 text-right">
+        <div className="ml-auto h-4 w-12 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+      </td>
+      {/* Action button */}
+      <td className="px-4 py-3 text-right">
+        <div className="ml-auto h-7 w-24 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-700" />
+      </td>
+    </tr>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PoolsPage() {
   const router = useRouter();
@@ -57,25 +110,34 @@ export default function PoolsPage() {
   });
 
   function handleSort(key: SortKey) {
+    if (isLoading) return;
     setSortKey(key);
     setPage(1);
   }
 
+  /** Sort column header — disabled while data is loading */
   function SortHeader({ label, col }: { label: string; col: SortKey }) {
     const active = sortKey === col;
     return (
       <button
         onClick={() => handleSort(col)}
-        className={`flex items-center gap-1 font-medium transition-colors ${
-          active ? "text-indigo-500" : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+        disabled={isLoading}
+        aria-sort={active ? "descending" : "none"}
+        className={`flex items-center gap-1 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          active
+            ? "text-indigo-500"
+            : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
         }`}
       >
         {label}
-        <span className="text-xs">{active ? "↓" : "↕"}</span>
+        <span className="text-xs" aria-hidden="true">
+          {active ? "↓" : "↕"}
+        </span>
       </button>
     );
   }
 
+  /** A single data row — clicking navigates to the pool detail page */
   function PoolRow({ pool }: { pool: PoolListItem }) {
     const t0 = tokenFromAddress(pool.token0);
     const t1 = tokenFromAddress(pool.token1);
@@ -130,18 +192,35 @@ export default function PoolsPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8">
+      {/* ── Header ── */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Pools</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Pools</h1>
+          {/* Inline spinner shown next to the heading during background refreshes */}
+          {isLoading && (
+            <span
+              className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent"
+              aria-label="Loading pools"
+            />
+          )}
+        </div>
         <input
           type="search"
           placeholder="Search by token symbol…"
           value={search}
           onChange={(e) => handleSearch(e.target.value)}
-          className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 sm:w-72"
+          disabled={isLoading}
+          aria-label="Search pools"
+          className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 sm:w-72"
         />
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+      {/* ── Table ── */}
+      <div
+        className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+        aria-busy={isLoading}
+        aria-live="polite"
+      >
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-zinc-100 dark:border-zinc-800">
@@ -189,6 +268,8 @@ export default function PoolsPage() {
                 </td>
               </tr>
             )}
+
+            {/* Empty state */}
             {!isLoading && !isError && pools.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-16 text-center">
@@ -223,6 +304,8 @@ export default function PoolsPage() {
                 </td>
               </tr>
             )}
+
+            {/* Data rows — rendered even while a background refresh is in progress */}
             {pools.map((pool) => (
               <PoolRow key={pool.id} pool={pool} />
             ))}
@@ -230,12 +313,13 @@ export default function PoolsPage() {
         </table>
       </div>
 
+      {/* ── Pagination ── */}
       {totalPages > 1 && (
         <div className="mt-4 flex items-center justify-center gap-2">
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
+            disabled={page === 1 || isLoading}
+            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
           >
             Previous
           </button>
@@ -244,8 +328,8 @@ export default function PoolsPage() {
           </span>
           <button
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
+            disabled={page === totalPages || isLoading}
+            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
           >
             Next
           </button>

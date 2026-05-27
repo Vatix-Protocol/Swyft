@@ -3,24 +3,44 @@
 import Link from "next/link";
 import type { TxStatus } from "@/hooks/useAddLiquidity";
 
-interface Props {
+export interface PositionPreviewProps {
   token0Symbol: string;
   token1Symbol: string;
+  /** Formatted deposit amount for token0 */
   amount0: string;
+  /** Formatted deposit amount for token1 */
   amount1: string;
+  /** Formatted lower bound price of the selected range */
   lowerPrice: string;
+  /** Formatted upper bound price of the selected range */
   upperPrice: string;
+  /** Estimated share of the pool as a percentage string */
   shareOfPool: string;
+  /** Estimated APR as a percentage string */
   estimatedApr: string;
+  /** Whether the current pool price falls within the selected range */
   inRange: boolean;
+  /** Current pool price used for the out-of-range warning message */
   currentPrice: number;
   txStatus: TxStatus;
+  /** Error message when txStatus is "error"; null otherwise */
   txError: string | null;
+  /** Transaction hash after successful submission; null otherwise */
   txHash: string | null;
+  /** NFT position ID after successful mint; null otherwise */
   positionNftId: string | null;
+  /** Called when the user clicks the "Add liquidity" submit button */
   onSubmit: () => void;
+  /** Called when the user dismisses an error or clicks "Add another" */
   onReset: () => void;
+  /** Whether a wallet is connected; disables the submit button when false */
   isWalletConnected: boolean;
+}
+
+interface RowProps {
+  label: string;
+  value: string;
+  valueClassName?: string;
 }
 
 export function PositionPreview({
@@ -41,7 +61,7 @@ export function PositionPreview({
   onSubmit,
   onReset,
   isWalletConnected,
-}: Props) {
+}: PositionPreviewProps) {
   const isBusy = txStatus === "signing" || txStatus === "submitting";
   const hasAmounts = parseFloat(amount0 || "0") > 0 || parseFloat(amount1 || "0") > 0;
 
@@ -156,7 +176,7 @@ export function PositionPreview({
   );
 }
 
-function Row({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
+function Row({ label, value, valueClassName }: RowProps) {
   return (
     <div className="flex justify-between">
       <span className="text-zinc-500 dark:text-zinc-400">{label}</span>
