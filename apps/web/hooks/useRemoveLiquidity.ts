@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useState } from "react";
@@ -7,7 +6,9 @@ import { buildBurnTx, buildCollectTx } from "@swyft/sdk";
 import type { PositionSnapshot } from "@swyft/ui";
 import { API_BASE, SWYFT_NETWORK } from "@/lib/constants";
 
+/** Lifecycle status of a remove-liquidity or collect-fees transaction. */
 export type TxStatus = "idle" | "signing" | "submitting" | "success" | "error";
+/** Reason a transaction failed. */
 export type TxError = "rejected" | "network" | "already_closed" | null;
 
 interface State {
@@ -16,6 +17,13 @@ interface State {
   txHash: string | null;
 }
 
+/**
+ * Submits a signed XDR transaction to the Swyft API.
+ * @param xdr - Base64-encoded signed transaction XDR.
+ * @param authToken - Bearer token for API authentication.
+ * @returns The transaction hash on success.
+ * @throws {Error} "already_closed" if the position is already closed, "network" for other failures.
+ */
 async function submitXdr(xdr: string, authToken: string): Promise<string> {
   const res = await fetch(`${API_BASE}/transactions`, {
     method: "POST",
@@ -31,13 +39,33 @@ async function submitXdr(xdr: string, authToken: string): Promise<string> {
   return data.hash;
 }
 
+function resolveSignedXdr(signResult: unknown): string | null {
+  if (typeof signResult === "string") return signResult;
+  if (signResult && typeof signResult === "object" && "signedTxXdr" in signResult) {
+    return (signResult as { signedTxXdr: string }).signedTxXdr;
+  }
+  return null;
+}
+
+/**
+ * Hook for removing liquidity from a position or collecting uncollected fees.
+ * @param position - The position to act on, or null if not yet loaded.
+ * @param authToken - Bearer token for API authentication, or null if unauthenticated.
+ * @returns Transaction state (`status`, `txError`, `txHash`) and action functions
+ *   (`removeLiquidity`, `collectFees`, `reset`).
+ */
 export function useRemoveLiquidity(position: PositionSnapshot | null, authToken: string | null) {
   const [state, setState] = useState<State>({ status: "idle", txError: null, txHash: null });
 
+  /** Resets transaction state back to idle. */
   function reset() {
     setState({ status: "idle", txError: null, txHash: null });
   }
 
+  /**
+   * Removes a percentage of liquidity from the position.
+   * @param pct - Percentage to remove (1–100).
+   */
   async function removeLiquidity(pct: number) {
     if (!position || !authToken) return;
     setState({ status: "signing", txError: null, txHash: null });
@@ -51,9 +79,7 @@ export function useRemoveLiquidity(position: PositionSnapshot | null, authToken:
       });
 
       const signResult = await signTransaction(xdr, { network: SWYFT_NETWORK });
-      const signedXdr = typeof signResult === "string" ? signResult
-        : "signedTxXdr" in signResult ? (signResult as { signedTxXdr: string }).signedTxXdr
-        : null;
+      const signedXdr = resolveSignedXdr(signResult);
 
       if (!signedXdr) { setState({ status: "error", txError: "rejected", txHash: null }); return; }
 
@@ -70,6 +96,7 @@ export function useRemoveLiquidity(position: PositionSnapshot | null, authToken:
     }
   }
 
+  /** Collects uncollected fees from the position without removing liquidity. */
   async function collectFees() {
     if (!position || !authToken) return;
     setState({ status: "signing", txError: null, txHash: null });
@@ -82,9 +109,7 @@ export function useRemoveLiquidity(position: PositionSnapshot | null, authToken:
       });
 
       const signResult = await signTransaction(xdr, { network: SWYFT_NETWORK });
-      const signedXdr = typeof signResult === "string" ? signResult
-        : "signedTxXdr" in signResult ? (signResult as { signedTxXdr: string }).signedTxXdr
-        : null;
+      const signedXdr = resolveSignedXdr(signResult);
 
       if (!signedXdr) { setState({ status: "error", txError: "rejected", txHash: null }); return; }
 
