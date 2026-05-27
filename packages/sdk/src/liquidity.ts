@@ -69,3 +69,24 @@ export function estimateRemoveAmounts(
     amount1: Math.max(0, amount1).toFixed(7),
   };
 }
+
+/**
+ * Async version of `estimateRemoveAmounts` that returns a Promise and can be
+ * awaited by UIs that want to show a loading state while the math runs.
+ * The computation is lightweight but wrapped in a microtask to allow
+ * consumers to display spinners/skeletons.
+ */
+export async function estimateRemoveAmountsAsync(
+  liquidity: string,
+  pct: number,
+  currentPrice: number,
+  lowerTick: number,
+  upperTick: number
+): Promise<{ amount0: string; amount1: string }> {
+  return new Promise((resolve) => {
+    // Defer to next tick so callers can render loading UI
+    Promise.resolve().then(() => {
+      resolve(estimateRemoveAmounts(liquidity, pct, currentPrice, lowerTick, upperTick));
+    });
+  });
+}

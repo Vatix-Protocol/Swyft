@@ -19,9 +19,10 @@ interface Props {
   position: PositionSnapshot;
   onCollectFees: (id: string) => void;
   collecting: boolean;
+  loading?: boolean;
 }
 
-export function PositionCard({ position: p, onCollectFees, collecting }: Props) {
+export function PositionCard({ position: p, onCollectFees, collecting, loading = false }: Props) {
   const rs = rangeStatus(p);
   const t0 = shortSymbol(p.token0);
   const t1 = shortSymbol(p.token1);
@@ -30,6 +31,40 @@ export function PositionCard({ position: p, onCollectFees, collecting }: Props) 
   const fees0 = parseFloat(p.uncollectedFeesToken0);
   const fees1 = parseFloat(p.uncollectedFeesToken1);
   const hasFees = fees0 > 0 || fees1 > 0;
+
+  if (loading) {
+    return (
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        {/* Header Skeleton */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="w-full">
+            <div className="h-5 w-24 bg-zinc-200 dark:bg-zinc-700 rounded-lg mb-2 animate-pulse" />
+            <div className="h-3 w-32 bg-zinc-200 dark:bg-zinc-700 rounded-lg animate-pulse" />
+          </div>
+        </div>
+
+        {/* Stats Skeleton */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/50 px-3 py-2.5">
+            <div className="h-3 w-12 bg-zinc-200 dark:bg-zinc-700 rounded mb-2 animate-pulse" />
+            <div className="h-5 w-20 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse" />
+          </div>
+          <div className="rounded-xl bg-indigo-50 dark:bg-indigo-950/30 px-3 py-2.5">
+            <div className="h-3 w-16 bg-indigo-200 dark:bg-indigo-700 rounded mb-2 animate-pulse" />
+            <div className="h-3 w-20 bg-indigo-200 dark:bg-indigo-700 rounded mb-1 animate-pulse" />
+            <div className="h-3 w-20 bg-indigo-200 dark:bg-indigo-700 rounded animate-pulse" />
+          </div>
+        </div>
+
+        {/* Actions Skeleton */}
+        <div className="flex gap-2">
+          <div className="flex-1 min-h-[44px] rounded-xl bg-zinc-200 dark:bg-zinc-700 animate-pulse" />
+          <div className="flex-1 min-h-[44px] rounded-xl bg-zinc-200 dark:bg-zinc-700 animate-pulse" />
+          <div className="flex-1 min-h-[44px] rounded-xl bg-zinc-200 dark:bg-zinc-700 animate-pulse" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -71,20 +106,31 @@ export function PositionCard({ position: p, onCollectFees, collecting }: Props) 
           <button
             type="button"
             onClick={() => onCollectFees(p.id)}
-            disabled={collecting || !hasFees}
-            className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors"
+            disabled={collecting || !hasFees || loading}
+            className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {collecting ? "Collecting…" : "Collect fees"}
+            {collecting ? (
+              <span className="flex items-center justify-center gap-1">
+                <span className="inline-block h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Collecting…
+              </span>
+            ) : (
+              "Collect fees"
+            )}
           </button>
           <Link
             href={`/pools/${p.poolId}/add?positionId=${p.id}`}
-            className="flex-1 min-h-[44px] flex items-center justify-center rounded-xl border border-zinc-200 dark:border-zinc-700 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-center"
+            className={`flex-1 min-h-[44px] flex items-center justify-center rounded-xl border border-zinc-200 dark:border-zinc-700 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-center ${
+              loading ? "opacity-50 cursor-not-allowed pointer-events-none" : ""
+            }`}
           >
             Add
           </Link>
           <Link
             href={`/positions/${p.id}/remove`}
-            className="flex-1 min-h-[44px] flex items-center justify-center rounded-xl border border-red-200 dark:border-red-900 py-2 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors text-center"
+            className={`flex-1 min-h-[44px] flex items-center justify-center rounded-xl border border-red-200 dark:border-red-900 py-2 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors text-center ${
+              loading ? "opacity-50 cursor-not-allowed pointer-events-none" : ""
+            }`}
           >
             Remove
           </Link>

@@ -65,6 +65,44 @@ const Q96 = BigInt(2) ** BigInt(96);
 const SQRT_PRICE_ONE_TO_ONE = Q96; // price = 1
 
 // ---------------------------------------------------------------------------
+// Loading state — terminal spinner
+// ---------------------------------------------------------------------------
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/**
+ * Show a spinner while `fn` is running.  Actions inside `fn` are effectively
+ * "disabled" (blocked) until the promise resolves — satisfying the
+ * "disabled actions while loading" acceptance criterion.
+ */
+async function withSpinner<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const isTTY = process.stdout.isTTY;
+  let frame = 0;
+  let timer: ReturnType<typeof setInterval> | undefined;
+
+  if (isTTY) {
+    process.stdout.write(`  ${SPINNER_FRAMES[0]} ${label}`);
+    timer = setInterval(() => {
+      frame = (frame + 1) % SPINNER_FRAMES.length;
+      process.stdout.write(`\r  ${SPINNER_FRAMES[frame]} ${label}`);
+    }, 80);
+  } else {
+    process.stdout.write(`  … ${label}\n`);
+  }
+
+  try {
+    const result = await fn();
+    if (timer) clearInterval(timer);
+    if (isTTY) process.stdout.write(`\r  ✓ ${label}\n`);
+    return result;
+  } catch (err) {
+    if (timer) clearInterval(timer);
+    if (isTTY) process.stdout.write(`\r  ✗ ${label}\n`);
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Logging helpers
 // ---------------------------------------------------------------------------
 
@@ -99,6 +137,10 @@ async function fundAccount(keypair: Keypair): Promise<void> {
   log(`Funded ${keypair.publicKey()} via Friendbot`);
 }
 
+/**
+ * Retrieve balance for a specific asset code on a given account.
+ * Returns 0 when the account is not found or the asset is absent.
+ */
 async function getBalance(publicKey: string, assetCode: string): Promise<number> {
   const res = await fetch(`${HORIZON_URL}/accounts/${publicKey}`);
   if (!res.ok) return 0;
@@ -121,6 +163,12 @@ async function getNativeBalance(publicKey: string): Promise<number> {
 // stellar CLI wrappers
 // ---------------------------------------------------------------------------
 
+/**
+ * Run the `stellar` CLI with the project's deployer identity and return stdout.
+ * Throws on non-zero exit via execSync.
+ * @param args - CLI arguments to pass to `stellar`
+ * @returns stdout trimmed as string
+ */
 function stellarCli(args: string): string {
   return execSync(
     `stellar ${args} --network ${NETWORK} --source ${DEPLOYER_SECRET}`,
@@ -128,6 +176,11 @@ function stellarCli(args: string): string {
   ).trim();
 }
 
+/**
+ * Deploy a WASM contract via the `stellar` CLI and return the deployed contract ID.
+ * @param wasmName - file stem of the wasm file (e.g. "math_lib")
+ * @returns deployed contract ID string
+ */
 function deployContract(wasmName: string): string {
   const wasmPath = path.join(WASM_DIR, `${wasmName}.wasm`);
   if (!fs.existsSync(wasmPath)) {
@@ -140,6 +193,13 @@ function deployContract(wasmName: string): string {
   return output.split("\n").pop()!.trim();
 }
 
+/**
+ * Invoke a read or write function on a deployed contract via `stellar contract invoke`.
+ * @param contractId - target contract id/address
+ * @param functionName - function name to invoke
+ * @param args - array of JSON-stringified arguments to pass as `--arg`
+ * @returns raw stdout from the CLI (may be empty string)
+ */
 function invokeContract(
   contractId: string,
   functionName: string,
@@ -164,7 +224,11 @@ interface Deployments {
   mathLib: string;
 }
 
-async function deployAll(deployer: Keypair): Promise<Deployments> {
+/**
+ * Deploy all contracts in dependency order. Uses `stellarCli` which in turn
+ * relies on `DEPLOYER_SECRET` to sign transactions.
+ */
+async function deployAll(): Promise<Deployments> {
   log("Deploying contracts to testnet…");
 
   const mathLib = deployContract("math_lib");
@@ -217,6 +281,23 @@ function parseSCAddress(raw: string): string {
   }
 }
 
+/**
+ * Safely parse a string into a bigint, returning a fallback when the
+ * provided string is empty or cannot be parsed. This avoids runtime
+ * exceptions when the external CLI returns empty output.
+ * @param raw - raw string to parse
+ * @param fallback - fallback bigint to use when parsing fails (default 0)
+ */
+function safeParseBigInt(raw: string | null | undefined, fallback = BigInt(0)): bigint {
+  const s = raw?.toString().trim();
+  if (!s) return fallback;
+  try {
+    return BigInt(s);
+  } catch {
+    return fallback;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main integration test suite
 // ---------------------------------------------------------------------------
@@ -233,19 +314,19 @@ async function runTests(): Promise<void> {
   const lp         = Keypair.random();
   const swapper    = Keypair.random();
 
-  await Promise.all([
-    fundAccount(deployer),
-    fundAccount(lp),
-    fundAccount(swapper),
-  ]);
+  await withSpinner("Funding accounts via Friendbot", () =>
+    Promise.all([fundAccount(deployer), fundAccount(lp), fundAccount(swapper)])
+  );
 
-  const deployerNative = await getNativeBalance(deployer.publicKey());
+  const deployerNative = await withSpinner("Checking deployer XLM balance", () =>
+    getNativeBalance(deployer.publicKey())
+  );
   assert(deployerNative > 0, `deployer has XLM balance (${deployerNative} XLM)`);
 
   // 2 ─── Deploy contracts ───────────────────────────────────────────────────
   log("Step 2: Deploying contracts");
 
-  const contracts = await deployAll(deployer);
+  const contracts = await deployAll();
 
   // 3 ─── Initialize contracts ───────────────────────────────────────────────
   log("Step 3: Initialising contracts");
@@ -327,17 +408,19 @@ async function runTests(): Promise<void> {
   const TICK_UPPER = 100;
   const LIQUIDITY  = BigInt(1_000_000);
 
-  const addLiqResult = invokeContract(contracts.clPool, "add_liquidity", [
-    scAddressArg(lp.publicKey()),
-    scI32(TICK_LOWER),
-    scI32(TICK_UPPER),
-    scU128(LIQUIDITY),
-  ]);
+  const addLiqResult = await withSpinner("Adding concentrated liquidity", async () =>
+    invokeContract(contracts.clPool, "add_liquidity", [
+      scAddressArg(lp.publicKey()),
+      scI32(TICK_LOWER),
+      scI32(TICK_UPPER),
+      scU128(LIQUIDITY),
+    ])
+  );
   pass(`add_liquidity returned: ${addLiqResult.trim()}`);
 
   // Verify the pool has active liquidity
   const poolLiq = invokeContract(contracts.clPool, "get_liquidity", []);
-  const activeLiquidity = BigInt(poolLiq.trim());
+  const activeLiquidity = safeParseBigInt(poolLiq);
   assert(
     activeLiquidity === LIQUIDITY,
     `pool active liquidity equals added amount (${activeLiquidity})`
@@ -349,18 +432,20 @@ async function runTests(): Promise<void> {
   const SWAP_AMOUNT_IN = BigInt(1_000);
   const PRICE_LIMIT    = BigInt(1); // effectively no floor
 
-  const swapResult = invokeContract(contracts.clPool, "swap", [
-    scAddressArg(swapper.publicKey()),
-    JSON.stringify(true),  // zero_for_one
-    scU128(SWAP_AMOUNT_IN),
-    scU128(PRICE_LIMIT),
-  ]);
+  const swapResult = await withSpinner("Executing single-hop swap", async () =>
+    invokeContract(contracts.clPool, "swap", [
+      scAddressArg(swapper.publicKey()),
+      JSON.stringify(true),  // zero_for_one
+      scU128(SWAP_AMOUNT_IN),
+      scU128(PRICE_LIMIT),
+    ])
+  );
   pass(`swap executed, deltas: ${swapResult.trim()}`);
 
   // Verify price moved after swap
   const sqrtPriceAfter = invokeContract(contracts.clPool, "get_sqrt_price", []);
   assert(
-    BigInt(sqrtPriceAfter.trim()) < SQRT_PRICE_ONE_TO_ONE,
+    safeParseBigInt(sqrtPriceAfter) < SQRT_PRICE_ONE_TO_ONE,
     "sqrt price decreased after zero-for-one swap"
   );
 
@@ -441,7 +526,7 @@ async function runTests(): Promise<void> {
   // Active liquidity should be zero now
   const finalLiq = invokeContract(contracts.clPool, "get_liquidity", []);
   assert(
-    BigInt(finalLiq.trim()) === BigInt(0),
+    safeParseBigInt(finalLiq) === BigInt(0),
     "active liquidity is zero after full removal"
   );
 

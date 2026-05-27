@@ -12,6 +12,10 @@ export const MAX_TICK = 887272;
 /**
  * Converts a human-readable price (token1/token0) to the nearest valid tick,
  * snapped to the given tickSpacing.
+ *
+ * @param price - The price as token1/token0 (must be > 0)
+ * @param tickSpacing - Tick spacing used by the pool (e.g. 60)
+ * @returns The nearest tick index snapped to `tickSpacing` and clamped to valid bounds
  */
 export function priceToTick(price: number, tickSpacing: number): number {
   if (price <= 0) throw new RangeError("price must be positive");
@@ -24,6 +28,11 @@ export function priceToTick(price: number, tickSpacing: number): number {
 /**
  * Converts a tick index to a human-readable price (token1/token0),
  * adjusted for token decimals.
+ *
+ * @param tick - Tick index to convert
+ * @param token0Decimals - Decimals for token0
+ * @param token1Decimals - Decimals for token1
+ * @returns The price as a floating-point number (token1/token0)
  */
 export function tickToPrice(
   tick: number,
@@ -49,6 +58,12 @@ export interface AmountsResult {
 /**
  * Returns token0 and token1 amounts for a given liquidity position.
  * Mirrors amounts_for_liquidity in cl-pool/src/lib.rs.
+ *
+ * @param params.sqrtPriceX96 - Current sqrt price in Q64.96 format
+ * @param params.sqrtPriceLowerX96 - Lower bound sqrt price in Q64.96
+ * @param params.sqrtPriceUpperX96 - Upper bound sqrt price in Q64.96
+ * @param params.liquidity - Liquidity in integer Q64.96 units
+ * @returns Object containing `amount0` and `amount1` as bigint
  */
 export function getAmountsForLiquidity({
   sqrtPriceX96,
@@ -87,6 +102,16 @@ export interface LiquidityForAmountsParams {
 /**
  * Returns the maximum liquidity achievable for the given token amounts and price range.
  * Mirrors the inverse of amounts_for_liquidity.
+ */
+/**
+ * Returns the maximum liquidity achievable for the given token amounts and price range.
+ *
+ * @param params.sqrtPriceX96 - Current sqrt price in Q64.96 format
+ * @param params.sqrtPriceLowerX96 - Lower bound sqrt price in Q64.96
+ * @param params.sqrtPriceUpperX96 - Upper bound sqrt price in Q64.96
+ * @param params.amount0 - token0 amount as bigint
+ * @param params.amount1 - token1 amount as bigint
+ * @returns The maximum liquidity (bigint)
  */
 export function getLiquidityForAmounts({
   sqrtPriceX96,
@@ -127,6 +152,12 @@ export interface AmountsDeltaParams {
 /**
  * Returns token amounts returned for a partial or full burn.
  * Equivalent to calling getAmountsForLiquidity with liquidityDelta.
+ *
+ * @param params.currentPrice - current sqrtPrice (Q64.96)
+ * @param params.lowerPrice - lower sqrtPrice (Q64.96)
+ * @param params.upperPrice - upper sqrtPrice (Q64.96)
+ * @param params.liquidityDelta - liquidity to burn (bigint)
+ * @returns Object with `amount0` and `amount1` as bigint
  */
 export function getAmountsDelta({
   currentPrice,
@@ -145,6 +176,9 @@ export function getAmountsDelta({
 /**
  * Converts a tick to its Q64.96 sqrt price.
  * Mirrors tick_to_sqrt_price in cl-pool/src/lib.rs.
+ *
+ * @param tick - Tick index to convert
+ * @returns Sqrt price in Q64.96 as bigint
  */
 export function tickToSqrtPriceX96(tick: number): bigint {
   if (tick < MIN_TICK || tick > MAX_TICK)
@@ -161,6 +195,9 @@ export function tickToSqrtPriceX96(tick: number): bigint {
 /**
  * Converts a Q64.96 sqrt price to the nearest tick.
  * Mirrors sqrt_price_to_tick in cl-pool/src/lib.rs.
+ *
+ * @param sqrtPriceX96 - Sqrt price in Q64.96
+ * @returns Tick index (number)
  */
 export function sqrtPriceX96ToTick(sqrtPriceX96: bigint): number {
   if (sqrtPriceX96 <= 0n) throw new RangeError("sqrtPriceX96 must be positive");

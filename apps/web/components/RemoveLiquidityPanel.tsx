@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { PositionRangeBadge, type PositionSnapshot } from "@swyft/ui";
-import { estimateRemoveAmounts } from "@swyft/sdk";
+import { estimateRemoveAmounts, estimateRemoveAmountsAsync } from "@swyft/sdk";
 import { useRemoveLiquidity } from "@/hooks/useRemoveLiquidity";
 
 const PRESETS = [25, 50, 75, 100];
@@ -30,13 +30,26 @@ export function RemoveLiquidityPanel({ position, token0Symbol, token1Symbol, aut
   const [customInput, setCustomInput] = useState("100");
   const { status, txError, txHash, removeLiquidity, collectFees, reset } = useRemoveLiquidity(position, authToken);
 
-  const estimates = estimateRemoveAmounts(
-    position.liquidity,
-    pct,
-    position.poolCurrentPrice,
-    position.lowerTick,
-    position.upperTick
-  );
+  const [estimates, setEstimates] = useState({ amount0: '0', amount1: '0' });
+  const [estimatesLoading, setEstimatesLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEstimatesLoading(true);
+    // Use async SDK method to allow UI to show loading state
+    estimateRemoveAmountsAsync(
+      position.liquidity,
+      pct,
+      position.poolCurrentPrice,
+      position.lowerTick,
+      position.upperTick
+    )
+      .then((r) => { if (!cancelled) setEstimates(r); })
+      .catch(() => { if (!cancelled) setEstimates({ amount0: '0', amount1: '0' }); })
+      .finally(() => { if (!cancelled) setEstimatesLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [position.liquidity, pct, position.poolCurrentPrice, position.lowerTick, position.upperTick]);
 
   const lowerPrice = Math.pow(1.0001, position.lowerTick).toFixed(6);
   const upperPrice = Math.pow(1.0001, position.upperTick).toFixed(6);
@@ -181,11 +194,11 @@ export function RemoveLiquidityPanel({ position, token0Symbol, token1Symbol, aut
           <div className="flex flex-col gap-1.5 text-zinc-700 dark:text-zinc-300">
             <div className="flex justify-between">
               <span>{token0Symbol}</span>
-              <span className="font-semibold tabular-nums">{estimates.amount0}</span>
+              <span className="font-semibold tabular-nums">{estimatesLoading ? '…' : estimates.amount0}</span>
             </div>
             <div className="flex justify-between">
               <span>{token1Symbol}</span>
-              <span className="font-semibold tabular-nums">{estimates.amount1}</span>
+              <span className="font-semibold tabular-nums">{estimatesLoading ? '…' : estimates.amount1}</span>
             </div>
           </div>
         </div>
@@ -222,10 +235,10 @@ export function RemoveLiquidityPanel({ position, token0Symbol, token1Symbol, aut
         )}
 
         {/* Remove button */}
-        <button
+          <button
           type="button"
           onClick={() => removeLiquidity(pct)}
-          disabled={isBusy || alreadyClosed || status === "success"}
+          disabled={isBusy || alreadyClosed || status === "success" || estimatesLoading}
           className="w-full rounded-xl bg-red-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {status === "signing" && "Waiting for signature…"}

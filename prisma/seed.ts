@@ -2,8 +2,51 @@ import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
+// ---------------------------------------------------------------------------
+// Minimal spinner — no extra dependencies required
+// ---------------------------------------------------------------------------
+
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+
+class Spinner {
+  private frame = 0
+  private timer: ReturnType<typeof setInterval> | null = null
+  private label = ''
+
+  /** Start spinning with the given label. Prevents a second start while running. */
+  start(label: string): void {
+    if (this.timer) return // already running — disabled while in progress
+    this.label = label
+    this.frame = 0
+    process.stdout.write('\x1B[?25l') // hide cursor
+    this.timer = setInterval(() => {
+      const icon = SPINNER_FRAMES[this.frame % SPINNER_FRAMES.length]
+      process.stdout.write(`\r${icon}  ${this.label}`)
+      this.frame++
+    }, 80)
+  }
+
+  /** Stop the spinner and print a final status line. */
+  stop(success: boolean, message: string): void {
+    if (this.timer) {
+      clearInterval(this.timer)
+      this.timer = null
+    }
+    const icon = success ? '✔' : '✖'
+    process.stdout.write(`\r${icon}  ${message}\n`)
+    process.stdout.write('\x1B[?25h') // restore cursor
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Seed steps
+// ---------------------------------------------------------------------------
+
 async function main() {
-  // Create some test tokens
+  const spinner = new Spinner()
+
+  // ── Tokens ────────────────────────────────────────────────────────────────
+  spinner.start('Seeding tokens…')
   const token0 = await prisma.token.upsert({
     where: { address: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' },
     update: {},
@@ -27,8 +70,10 @@ async function main() {
       logoUri: 'https://example.com/xlm.png',
     },
   })
+  spinner.stop(true, `Tokens seeded  (${token0.symbol}, ${token1.symbol})`)
 
-  // Create a test pool
+  // ── Pool ──────────────────────────────────────────────────────────────────
+  spinner.start('Seeding pool…')
   const pool = await prisma.pool.upsert({
     where: { id: 'test-pool-1' },
     update: {},
@@ -37,7 +82,7 @@ async function main() {
       token0Address: token0.address,
       token1Address: token1.address,
       feeTier: 3000,
-      currentSqrtPrice: '79228162514264337593543950336', // sqrt(1) * 2^96
+      currentSqrtPrice: '79228162514264337593543950336',
       currentTick: 0,
       liquidity: '1000000000000000000',
       tvl: '2000000000',
@@ -45,8 +90,10 @@ async function main() {
       feeApr: '0.05',
     },
   })
+  spinner.stop(true, `Pool seeded    (${pool.id})`)
 
-  // Create a test position
+  // ── Position ──────────────────────────────────────────────────────────────
+  spinner.start('Seeding position…')
   await prisma.position.upsert({
     where: { id: 'test-position-1' },
     update: {},
@@ -62,8 +109,10 @@ async function main() {
       feesCollected1: '0',
     },
   })
+  spinner.stop(true, 'Position seeded (test-position-1)')
 
-  // Create some test swaps
+  // ── Swaps ─────────────────────────────────────────────────────────────────
+  spinner.start('Seeding swaps…')
   await prisma.swap.createMany({
     data: [
       {
@@ -88,8 +137,10 @@ async function main() {
       },
     ],
   })
+  spinner.stop(true, 'Swaps seeded   (2 records)')
 
-  // Create some test price candles
+  // ── Price candles ─────────────────────────────────────────────────────────
+  spinner.start('Seeding price candles…')
   await prisma.priceCandle.createMany({
     data: [
       {
@@ -104,8 +155,9 @@ async function main() {
       },
     ],
   })
+  spinner.stop(true, 'Price candles seeded (1 record)')
 
-  console.log('Database seeded successfully')
+  console.log('\nDatabase seeded successfully ✔')
 }
 
 main()
@@ -113,7 +165,7 @@ main()
     await prisma.$disconnect()
   })
   .catch(async (e) => {
-    console.error(e)
+    console.error('\nSeed failed:', e)
     await prisma.$disconnect()
     process.exit(1)
   })

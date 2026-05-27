@@ -1,7 +1,14 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, contracterror, symbol_short, Address, Env, Symbol};
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+enum DataKey {
+    Initialized,
+    Factory,
+}
 
 #[contracttype]
 #[derive(Clone)]
@@ -38,7 +45,8 @@ pub struct SwapResult {
 
 // ── Errors ────────────────────────────────────────────────────────────────────
 
-#[derive(Copy, Clone)]
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum RouterError {
     NotInitialized = 1,
@@ -46,6 +54,8 @@ pub enum RouterError {
     SlippageExceeded = 3,
     ZeroAmount = 4,
     PoolNotFound = 5,
+    EmptyData = 6,
+    AlreadyInitialized = 7,
 }
 
 impl From<RouterError> for soroban_sdk::Error {
@@ -96,13 +106,13 @@ impl Router {
             .set(&DataKey::Initialized, &true);
         env.storage()
             .instance()
-            .set(&symbol_short!("factory"), &factory);
+            .set(&DataKey::Factory, &factory);
     }
 
     pub fn get_factory(env: Env) -> Address {
         env.storage()
             .instance()
-            .get(&symbol_short!("factory"))
+            .get(&DataKey::Factory)
             .unwrap_or_else(|| panic_router(&env, RouterError::NotInitialized))
     }
 
@@ -203,7 +213,7 @@ fn get_pool(env: &Env, token_in: &Address, token_out: &Address, fee: u32) -> Add
     let factory: Address = env
         .storage()
         .instance()
-        .get(&symbol_short!("factory"))
+        .get(&DataKey::Factory)
         .unwrap_or_else(|| panic_router(env, RouterError::NotInitialized));
 
     // Call factory.get_pool(token_in, token_out, fee) — returns Option<Address>
@@ -217,7 +227,12 @@ fn get_pool(env: &Env, token_in: &Address, token_out: &Address, fee: u32) -> Add
             fee.into_val(env),
         ],
     );
-    pool.unwrap_or_else(|| panic_router(env, RouterError::PoolNotFound))
+    pool.unwrap_or_else(|| {
+        if pool.is_none() {
+            panic_router(env, RouterError::EmptyData);
+        }
+        panic_router(env, RouterError::PoolNotFound)
+    })
 }
 
 /// Execute a single-hop swap against the pool contract.

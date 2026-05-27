@@ -21,10 +21,26 @@ export interface SwapQuote {
   executionPrice: string;
 }
 
+/** A zero-value quote returned when inputs are missing or invalid. */
+export const EMPTY_QUOTE: SwapQuote = {
+  amountOut: "0",
+  priceImpact: 0,
+  lpFee: "0",
+  protocolFee: "0",
+  minimumReceived: "0",
+  executionPrice: "0",
+};
+
+/** Returns true when a quote carries no meaningful output (e.g. empty input). */
+export function isEmptyQuote(quote: SwapQuote): boolean {
+  return quote.amountOut === "0" && quote.executionPrice === "0";
+}
+
 export function calculateSwapQuote(params: SwapQuoteParams): SwapQuote {
+  if (!params?.amountIn) return EMPTY_QUOTE;
   const amountIn = parseFloat(params.amountIn);
   if (!amountIn || amountIn <= 0) {
-    return { amountOut: "0", priceImpact: 0, lpFee: "0", protocolFee: "0", minimumReceived: "0", executionPrice: "0" };
+    return EMPTY_QUOTE;
   }
   const reserveIn = 1_000_000;
   const reserveOut = 1_000_000;

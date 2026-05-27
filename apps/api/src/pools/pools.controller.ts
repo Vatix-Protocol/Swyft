@@ -13,12 +13,11 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { CacheService } from '../cache/cache.service';
 import { GetPoolsQueryDto } from './dto/get-pools-query.dto';
 import { GetTicksQueryDto } from './dto/get-ticks-query.dto';
-import { PoolDetailDto } from './dto/pool-detail.dto';
-import { PoolsListResponse, PoolsService } from './pools.service';
 import { TickData } from './pools.repository';
-import { CacheService } from '../cache/cache.service';
+import { PoolsListResponse, PoolsService } from './pools.service';
 
 @ApiTags('pools')
 @Controller('pools')
@@ -29,10 +28,16 @@ export class PoolsController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'List all active pools' })
-  @ApiResponse({ status: 200, description: 'Paginated list of pools' })
-  getPools(@Query() query: GetPoolsQueryDto): Promise<PoolsListResponse> {
-    return this.poolsService.getPools(query);
+  @ApiOperation({ summary: 'List active pools' })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns a paginated list of pools. Items array is empty when no pools match.',
+  })
+  async getPools(@Query() query: GetPoolsQueryDto): Promise<PoolsListResponse> {
+    const result = await this.poolsService.getPools(query);
+
+    // Empty result is valid — return it as-is so the UI can render an empty state
+    return result;
   }
 
   @Get(':id')
@@ -43,29 +48,31 @@ export class PoolsController {
   async getPoolById(@Param('id') id: string): Promise<PoolDetailDto> {
     const cacheKey = `pool:${id}`;
 
-    const cached = await this.cacheService.get<PoolDetailDto>(cacheKey);
+    const cached = await this.cacheService.get(cacheKey);
     if (cached) {
       return cached;
     }
 
     const pool = await this.poolsService.findPoolById(id);
     if (!pool) {
-      throw new NotFoundException(`Pool with ID ${id} not found`);
+      throw new NotFoundException(
+        `Pool with ID "${id}" not found. Check the ID and try again.`,
+      );
     }
 
     await this.cacheService.set(cacheKey, pool, 15);
-
-    return pool as unknown as PoolDetailDto;
+    return pool;
   }
 
   @Get(':id/ticks')
   @ApiOperation({ summary: 'Get initialized ticks for a pool' })
   @ApiParam({ name: 'id', description: 'Pool ID (cuid or contract address)' })
-  @ApiQuery({ name: 'lowerTick', required: false, type: Number, description: 'Lower bound tick index (inclusive)' })
-  @ApiQuery({ name: 'upperTick', required: false, type: Number, description: 'Upper bound tick index (inclusive)' })
+  @ApiQuery({ name: 'lowerTick', required: false, type: Number })
+  @ApiQuery({ name: 'upperTick', required: false, type: Number })
   @ApiResponse({
     status: 200,
-    description: 'Tick data returned in ascending order',
+    description:
+      'Tick data returned in ascending order. Returns an empty array when no ticks exist in the requested range.',
     schema: {
       type: 'array',
       items: {
@@ -81,23 +88,30 @@ export class PoolsController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Invalid tick range — lowerTick must be ≤ upperTick' })
+  @ApiResponse({ status: 400, description: 'Invalid tick range' })
   @ApiResponse({ status: 404, description: 'Pool not found' })
   async getPoolTicks(
-    @Param('id') poolId: string,
+    @Param('id') id: string,
     @Query() query: GetTicksQueryDto,
   ): Promise<TickData[]> {
-    const pool = await this.poolsService.findPoolById(poolId);
+    const pool = await this.poolsService.findPoolById(id);
     if (!pool) {
-      throw new NotFoundException(`Pool with ID ${poolId} not found`);
+      throw new NotFoundException(
+        `Pool with ID "${id}" not found. Check the ID and try again.`,
+      );
     }
 
-    if (query.lowerTick !== undefined && query.upperTick !== undefined) {
-      if (query.lowerTick > query.upperTick) {
-        throw new BadRequestException('lowerTick must be less than or equal to upperTick');
-      }
+    if (
+      query.lowerTick !== undefined &&
+      query.upperTick !== undefined &&
+      query.lowerTick > query.upperTick
+    ) {
+      throw new BadRequestException(
+        'lowerTick must be less than or equal to upperTick.',
+      );
     }
 
-    return this.poolsService.getPoolTicks(poolId, query.lowerTick, query.upperTick);
+    // Empty array is a valid response — the pool exists but has no ticks in this range
+    return this.poolsService.getPoolTicks(id, query.lowerTick, query.upperTick);
   }
 }

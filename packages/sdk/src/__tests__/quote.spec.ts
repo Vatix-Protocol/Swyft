@@ -1,4 +1,4 @@
-import { getSwapQuote } from "../quote";
+import { getSwapQuote, calculateSwapQuote, EMPTY_QUOTE, isEmptyQuote } from "../quote";
 import { PoolState } from "../types";
 
 const Q96 = 2n ** 96n;
@@ -111,5 +111,55 @@ describe("getSwapQuote", () => {
     });
 
     expect(Date.now() - started).toBeLessThan(5);
+  });
+});
+
+describe("calculateSwapQuote — empty data handling", () => {
+  it("returns EMPTY_QUOTE for empty amountIn string", () => {
+    const result = calculateSwapQuote({
+      poolId: "pool",
+      tokenInId: "token0",
+      tokenOutId: "token1",
+      amountIn: "",
+      slippageBps: 50,
+    });
+    expect(result).toEqual(EMPTY_QUOTE);
+  });
+
+  it("returns EMPTY_QUOTE for zero amountIn", () => {
+    const result = calculateSwapQuote({
+      poolId: "pool",
+      tokenInId: "token0",
+      tokenOutId: "token1",
+      amountIn: "0",
+      slippageBps: 50,
+    });
+    expect(result).toEqual(EMPTY_QUOTE);
+  });
+
+  it("returns EMPTY_QUOTE for negative amountIn", () => {
+    const result = calculateSwapQuote({
+      poolId: "pool",
+      tokenInId: "token0",
+      tokenOutId: "token1",
+      amountIn: "-5",
+      slippageBps: 50,
+    });
+    expect(result).toEqual(EMPTY_QUOTE);
+  });
+
+  it("isEmptyQuote returns true for EMPTY_QUOTE", () => {
+    expect(isEmptyQuote(EMPTY_QUOTE)).toBe(true);
+  });
+
+  it("isEmptyQuote returns false for a real quote", () => {
+    const result = calculateSwapQuote({
+      poolId: "pool",
+      tokenInId: "token0",
+      tokenOutId: "token1",
+      amountIn: "100",
+      slippageBps: 50,
+    });
+    expect(isEmptyQuote(result)).toBe(false);
   });
 });

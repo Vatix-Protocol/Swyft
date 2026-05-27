@@ -5,14 +5,19 @@
   "scripts": {
     "build": "stellar contract build",
     "test": "cargo test --workspace",
-    "test:unit": "cargo build --target wasm32-unknown-unknown --release && cargo test --workspace",
+    "test:unit": "jest",
     "test:integration": "tsx scripts/test-integration.ts",
+    "test:deploy": "vitest run scripts/__tests__/deploy.test.ts",
     "deploy:testnet": "bash scripts/deploy-testnet.sh",
     "deploy:testnet:force": "bash scripts/deploy-testnet.sh --force"
   },
   "devDependencies": {
     "@stellar/stellar-sdk": "^13.0.0",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.0.0",
+    "ts-jest": "^29.2.5",
     "tsx": "^4.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
   }
 }

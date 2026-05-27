@@ -101,11 +101,24 @@ pub struct Pool;
 
 #[contractimpl]
 impl Pool {
+    /// Returns the contract name — used for post-deploy verification.
+    ///
+    /// # Returns
+    /// A `Symbol` with value `"pool"`.
     pub fn name(_env: Env) -> Symbol {
         Symbol::new(&_env, "pool")
     }
 
     /// Initialise the pool with an opening sqrt price and fee tier.
+    ///
+    /// # Arguments
+    /// * `token_0` - Address of the first (sorted) token.
+    /// * `token_1` - Address of the second (sorted) token.
+    /// * `sqrt_price_x96` - Opening square-root price in Q64.96 format.
+    /// * `fee_tier` - Fee tier in hundredths of a basis point (e.g. 500 = 0.05 %).
+    ///
+    /// # Errors
+    /// Panics with `PoolError::AlreadyInitialized` if the pool has already been set up.
     pub fn initialize(
         env: Env,
         token_0: Address,
@@ -137,6 +150,13 @@ impl Pool {
     }
 
     /// Returns current pool state.
+    ///
+    /// # Returns
+    /// A [`PoolState`] snapshot containing sqrt price, current tick, active liquidity,
+    /// global fee accumulators, fee tier, tick spacing, and token addresses.
+    ///
+    /// # Errors
+    /// Panics with `PoolError::NotInitialized` if the pool has not been initialised.
     pub fn get_state(env: Env) -> PoolState {
         load_state(&env)
     }
@@ -144,6 +164,14 @@ impl Pool {
     // ── Tick bitmap ──────────────────────────────────────────────────────────
 
     /// Flip a tick's initialised status in the bitmap.
+    ///
+    /// # Arguments
+    /// * `tick` - The tick index to flip. Must be a multiple of `tick_spacing` and
+    ///   within `[MIN_TICK, MAX_TICK]`.
+    /// * `tick_spacing` - The pool's tick spacing derived from its fee tier.
+    ///
+    /// # Errors
+    /// Panics with `PoolError::InvalidTick` if `tick` is out of range or not aligned.
     pub fn flip_tick(env: Env, tick: i32, tick_spacing: i32) {
         validate_tick(&env, tick, tick_spacing);
         let (word_pos, bit_pos) = tick_position(tick / tick_spacing);
@@ -160,6 +188,15 @@ impl Pool {
 
     /// Find the next initialised tick at or after `tick` in the given direction.
     /// `lte = true` searches left (decreasing), `lte = false` searches right.
+    ///
+    /// # Arguments
+    /// * `tick` - Starting tick index for the search.
+    /// * `tick_spacing` - The pool's tick spacing.
+    /// * `lte` - Search direction: `true` = towards lower ticks, `false` = towards higher ticks.
+    ///
+    /// # Returns
+    /// A tuple `(next_tick, initialized)` where `initialized` is `false` when no
+    /// initialised tick was found and the boundary (`MIN_TICK` / `MAX_TICK`) is returned.
     pub fn next_initialized_tick(env: Env, tick: i32, tick_spacing: i32, lte: bool) -> (i32, bool) {
         let compressed = tick / tick_spacing;
         let bitmap: Map<i16, u128> = env
@@ -225,6 +262,24 @@ impl Pool {
     // ── Liquidity management ─────────────────────────────────────────────────
 
     /// Add liquidity between [tick_lower, tick_upper].
+    ///
+    /// Updates tick accumulators, the tick bitmap, active liquidity (when the
+    /// current tick is inside the range), and the caller's position record.
+    ///
+    /// # Arguments
+    /// * `position_id` - Unique identifier for the LP position (e.g. NFT token id).
+    /// * `tick_lower` - Lower bound of the price range (inclusive, must be aligned to tick spacing).
+    /// * `tick_upper` - Upper bound of the price range (exclusive, must be aligned to tick spacing).
+    /// * `amount` - Amount of liquidity units to add. Must be > 0.
+    ///
+    /// # Returns
+    /// A [`MintResult`] with the token amounts required to fund the position.
+    ///
+    /// # Errors
+    /// Panics with `PoolError::ZeroLiquidity` if `amount == 0`.
+    /// Panics with `PoolError::InvalidTick` if either tick is out of range or misaligned.
+    /// Panics with `PoolError::InvalidTickRange` if `tick_lower >= tick_upper`.
+    /// Panics with `PoolError::Overflow` on arithmetic overflow.
     pub fn mint(
         env: Env,
         position_id: u64,
@@ -287,6 +342,23 @@ impl Pool {
     }
 
     /// Remove liquidity between [tick_lower, tick_upper].
+    ///
+    /// Decrements tick accumulators, updates the bitmap, reduces active liquidity
+    /// when the current tick is inside the range, and shrinks or removes the position.
+    ///
+    /// # Arguments
+    /// * `position_id` - Unique identifier for the LP position.
+    /// * `tick_lower` - Lower bound of the price range.
+    /// * `tick_upper` - Upper bound of the price range.
+    /// * `amount` - Amount of liquidity units to remove. Must be > 0.
+    ///
+    /// # Returns
+    /// A [`BurnResult`] with the token amounts released by the position.
+    ///
+    /// # Errors
+    /// Panics with `PoolError::ZeroLiquidity` if `amount == 0`.
+    /// Panics with `PoolError::NotInitialized` if the position does not exist.
+    /// Panics with `PoolError::InsufficientLiquidity` if `amount` exceeds position liquidity.
     pub fn burn(
         env: Env,
         position_id: u64,
@@ -345,6 +417,20 @@ impl Pool {
     }
 
     /// Collect accumulated fees for a position.
+    ///
+    /// Computes the fee growth inside the position's tick range since the last
+    /// collection and transfers the owed amounts to the caller.
+    ///
+    /// # Arguments
+    /// * `position_id` - Unique identifier for the LP position.
+    /// * `tick_lower` - Lower bound of the position's price range.
+    /// * `tick_upper` - Upper bound of the position's price range.
+    ///
+    /// # Returns
+    /// A [`CollectResult`] with the token amounts collected as fees.
+    ///
+    /// # Errors
+    /// Panics with `PoolError::NotInitialized` if the position does not exist.
     pub fn collect(
         env: Env,
         position_id: u64,
@@ -375,6 +461,13 @@ impl Pool {
     }
 
     /// Cross a tick boundary during a swap, updating active liquidity.
+    ///
+    /// Applies the tick's `liquidity_net` to the pool's active liquidity and
+    /// flips the tick's fee-growth-outside accumulators.
+    ///
+    /// # Arguments
+    /// * `tick` - The tick index being crossed.
+    /// * `zero_for_one` - Swap direction: `true` = token0 → token1 (price decreasing).
     pub fn cross_tick(env: Env, tick: i32, zero_for_one: bool) {
         let mut state = load_state(&env);
         let mut ticks: Map<i32, TickInfo> = env
@@ -413,6 +506,9 @@ impl Pool {
     }
 
     /// Update sqrt price and current tick after a swap step.
+    ///
+    /// # Arguments
+    /// * `sqrt_price_x96` - New square-root price in Q64.96 format.
     pub fn set_price(env: Env, sqrt_price_x96: u128) {
         let mut state = load_state(&env);
         state.sqrt_price_x96 = sqrt_price_x96;
@@ -421,6 +517,18 @@ impl Pool {
     }
 
     /// Perform a swap.
+    ///
+    /// Executes a single-hop swap within this pool, accruing protocol fees.
+    ///
+    /// # Arguments
+    /// * `token_in` - Address of the token being sold.
+    /// * `token_out` - Address of the token being bought.
+    /// * `amount_in` - Exact amount of `token_in` to swap.
+    /// * `exact_input` - `true` for exact-input swaps; `false` for exact-output.
+    /// * `sqrt_price_limit_x96` - Price limit in Q64.96 format; swap stops if this price is reached.
+    ///
+    /// # Returns
+    /// A [`SwapResult`] with `amount_in` consumed and `amount_out` received.
     pub fn swap(
         env: Env,
         token_in: Address,
@@ -548,6 +656,12 @@ fn update_tick(env: &Env, tick: i32, liquidity_delta: i128, upper: bool, state: 
 }
 
 /// Approximate sqrt(1.0001^tick) * 2^96 using integer arithmetic.
+///
+/// # Arguments
+/// * `tick` - Tick index in the range `[MIN_TICK, MAX_TICK]`.
+///
+/// # Returns
+/// The square-root price corresponding to `tick` in Q64.96 format.
 pub fn tick_to_sqrt_price(tick: i32) -> u128 {
     if tick == 0 {
         return Q96;
@@ -580,6 +694,15 @@ pub fn tick_to_sqrt_price(tick: i32) -> u128 {
 }
 
 /// Approximate tick from sqrt price (floor).
+///
+/// Uses binary search over `[MIN_TICK, MAX_TICK]` to find the greatest tick
+/// whose sqrt price does not exceed `sqrt_price_x96`.
+///
+/// # Arguments
+/// * `sqrt_price_x96` - Square-root price in Q64.96 format.
+///
+/// # Returns
+/// The floor tick index. Returns `MIN_TICK` when `sqrt_price_x96` is zero.
 pub fn sqrt_price_to_tick(sqrt_price_x96: u128) -> i32 {
     if sqrt_price_x96 == 0 {
         return MIN_TICK;

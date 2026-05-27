@@ -31,7 +31,16 @@ pub struct PositionNft;
 
 #[contractimpl]
 impl PositionNft {
-    /// One-time initialisation. `minter` is the pool contract address.
+    /// One-time initialisation. Must be called before any other function.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban execution environment.
+    /// - `minter`: Address of the pool contract that is authorised to mint and
+    ///   burn position NFTs.  All subsequent `mint` and `burn` calls must be
+    ///   authorised by this address.
+    ///
+    /// # Panics
+    /// Panics with `"already initialized"` if called more than once.
     pub fn initialize(env: Env, minter: Address) {
         if env.storage().instance().has(&DataKey::Minter) {
             panic!("already initialized");
@@ -41,7 +50,25 @@ impl PositionNft {
     }
 
     /// Mint a new position NFT. Only callable by the minter (pool contract).
-    /// Returns the new token ID.
+    ///
+    /// Creates a [`PositionMetadata`] record keyed by the new token ID and
+    /// emits a `Transfer(None → owner, token_id)` event.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban execution environment.
+    /// - `owner`: Address that will own the newly minted position.
+    /// - `pool`: Address of the pool contract this position belongs to.
+    /// - `tick_lower`: Lower tick boundary of the concentrated-liquidity range.
+    /// - `tick_upper`: Upper tick boundary of the concentrated-liquidity range.
+    /// - `liquidity`: Initial liquidity amount deposited into the position.
+    ///
+    /// # Returns
+    /// The newly assigned token ID (`u64`).  Token IDs are monotonically
+    /// increasing and are never reused after a burn.
+    ///
+    /// # Panics
+    /// Panics if the caller is not the authorised minter, or if the token ID
+    /// counter would overflow `u64::MAX`.
     pub fn mint(
         env: Env,
         owner: Address,
@@ -84,6 +111,20 @@ impl PositionNft {
     }
 
     /// Burn a position NFT. Only callable by the minter (pool contract).
+    ///
+    /// Removes the [`PositionMetadata`] record for `token_id` from persistent
+    /// storage and emits a `Transfer(owner → None, token_id)` event.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban execution environment.
+    /// - `token_id`: ID of the token to burn.  Must exist in storage.
+    ///
+    /// # Returns
+    /// `()` — no return value.
+    ///
+    /// # Panics
+    /// Panics if the caller is not the authorised minter, or if `token_id`
+    /// does not exist (`"token not found"`).
     pub fn burn(env: Env, token_id: u64) {
         require_minter(&env);
 
@@ -100,6 +141,23 @@ impl PositionNft {
     }
 
     /// Transfer a position NFT between addresses. Callable by the current owner.
+    ///
+    /// Updates the `owner` field of the [`PositionMetadata`] record and emits
+    /// a `Transfer(from → to, token_id)` event.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban execution environment.
+    /// - `from`: Current owner of the token.  Must authorise this call.
+    /// - `to`: Recipient address that will become the new owner.
+    /// - `token_id`: ID of the token to transfer.  Must exist in storage.
+    ///
+    /// # Returns
+    /// `()` — no return value.
+    ///
+    /// # Panics
+    /// Panics if `from` does not authorise the call, if `token_id` does not
+    /// exist (`"token not found"`), or if `from` is not the current owner
+    /// (`"not owner"`).
     pub fn transfer(env: Env, from: Address, to: Address, token_id: u64) {
         from.require_auth();
 
@@ -120,6 +178,16 @@ impl PositionNft {
     }
 
     /// Returns the current owner of a token.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban execution environment.
+    /// - `token_id`: ID of the token to query.
+    ///
+    /// # Returns
+    /// The [`Address`] of the current owner.
+    ///
+    /// # Panics
+    /// Panics if `token_id` does not exist (`"token not found"`).
     pub fn owner_of(env: Env, token_id: u64) -> Address {
         let meta: PositionMetadata = env
             .storage()
@@ -130,11 +198,27 @@ impl PositionNft {
     }
 
     /// Returns full metadata for a token.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban execution environment.
+    /// - `token_id`: ID of the token to query.
+    ///
+    /// # Returns
+    /// `Some(`[`PositionMetadata`]`)` if the token exists, or `None` if it has
+    /// been burned or was never minted.
     pub fn get_position(env: Env, token_id: u64) -> Option<PositionMetadata> {
         env.storage().persistent().get(&DataKey::Position(token_id))
     }
 
     /// Returns the next token ID (== total minted, since IDs are never reused).
+    ///
+    /// # Parameters
+    /// - `env`: Soroban execution environment.
+    ///
+    /// # Returns
+    /// A `u64` equal to the number of tokens that have ever been minted.
+    /// Because IDs start at `0` and increment by `1` on each mint, this value
+    /// is also the ID that will be assigned to the *next* mint call.
     pub fn next_id(env: Env) -> u64 {
         env.storage()
             .instance()

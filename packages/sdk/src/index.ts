@@ -1,4 +1,4 @@
-export { calculateSwapQuote } from './quote';
+export { calculateSwapQuote, EMPTY_QUOTE, isEmptyQuote } from './quote';
 export type { SwapQuoteParams, SwapQuote } from './quote';
 
 export { buildBurnTx, buildCollectTx, estimateRemoveAmounts } from './liquidity';
