@@ -160,13 +160,28 @@ export default function PoolsPage() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-zinc-400">
-                  Loading pools…
-                </td>
-              </tr>
-            )}
+            {isLoading &&
+              Array.from({ length: 5 }).map((_, i) => (
+                <tr key={i} className="border-b border-zinc-100 dark:border-zinc-800 animate-pulse">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex -space-x-2">
+                        <div className="h-6 w-6 rounded-full bg-zinc-200 dark:bg-zinc-700" />
+                        <div className="h-6 w-6 rounded-full bg-zinc-200 dark:bg-zinc-700" />
+                      </div>
+                      <div className="h-4 w-28 rounded bg-zinc-200 dark:bg-zinc-700" />
+                    </div>
+                  </td>
+                  {Array.from({ length: 4 }).map((_, j) => (
+                    <td key={j} className="px-4 py-3 text-right">
+                      <div className="ml-auto h-4 w-16 rounded bg-zinc-200 dark:bg-zinc-700" />
+                    </td>
+                  ))}
+                  <td className="px-4 py-3">
+                    <div className="ml-auto h-7 w-24 rounded-lg bg-zinc-200 dark:bg-zinc-700" />
+                  </td>
+                </tr>
+              ))}
             {isError && (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-red-500">
@@ -176,10 +191,35 @@ export default function PoolsPage() {
             )}
             {!isLoading && !isError && pools.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-zinc-400">
-                  {debouncedSearch
-                    ? `No pools found matching "${debouncedSearch}".`
-                    : "No pools available yet."}
+                <td colSpan={6} className="px-4 py-16 text-center">
+                  {debouncedSearch ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="text-2xl">🔍</span>
+                      <p className="font-medium text-zinc-700 dark:text-zinc-300">
+                        No pools found matching &ldquo;{debouncedSearch}&rdquo;
+                      </p>
+                      <p className="text-sm text-zinc-400">
+                        Try a different token symbol or clear the search.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-3">
+                      <span className="text-3xl">🏊</span>
+                      <p className="font-semibold text-zinc-700 dark:text-zinc-300">
+                        No pools yet
+                      </p>
+                      <p className="max-w-xs text-sm text-zinc-400">
+                        Liquidity pools will appear here once they are created. Be the first to
+                        create a pool and start earning fees.
+                      </p>
+                      <button
+                        onClick={() => router.push("/pools/create")}
+                        className="mt-1 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors"
+                      >
+                        Create a pool
+                      </button>
+                    </div>
+                  )}
                 </td>
               </tr>
             )}
