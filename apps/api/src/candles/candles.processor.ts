@@ -5,7 +5,16 @@ import { CandlesService, CandleInterval } from './candles.service';
 export const CANDLES_QUEUE = 'candle-aggregation';
 const REDIS_CONNECTION = { url: process.env.REDIS_URL ?? 'redis://localhost:6379' };
 
-const SCHEDULES: { interval: CandleInterval; cron: string }[] = [
+interface CandleJobData {
+  interval: CandleInterval;
+}
+
+interface CandleSchedule {
+  interval: CandleInterval;
+  cron: string;
+}
+
+const SCHEDULES: CandleSchedule[] = [
   { interval: '1m', cron: '* * * * *' },
   { interval: '5m', cron: '*/5 * * * *' },
   { interval: '1h', cron: '0 * * * *' },
@@ -15,23 +24,23 @@ const SCHEDULES: { interval: CandleInterval; cron: string }[] = [
 @Injectable()
 export class CandlesWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CandlesWorker.name);
-  private worker!: Worker<{ interval: CandleInterval }>;
-  private readonly queue = new Queue<{ interval: CandleInterval }>(CANDLES_QUEUE, {
+  private worker!: Worker<CandleJobData>;
+  private readonly queue = new Queue<CandleJobData>(CANDLES_QUEUE, {
     connection: REDIS_CONNECTION,
   });
 
   constructor(private readonly service: CandlesService) {}
 
-  async onModuleInit() {
-    this.worker = new Worker<{ interval: CandleInterval }>(
+  async onModuleInit(): Promise<void> {
+    this.worker = new Worker<CandleJobData>(
       CANDLES_QUEUE,
-      (job: Job<{ interval: CandleInterval }>) => this.service.aggregate(job.data.interval),
+      (job: Job<CandleJobData>) => this.service.aggregate(job.data.interval),
       { connection: REDIS_CONNECTION },
     );
-    this.worker.on('completed', (job) => {
+    this.worker.on('completed', (job: Job<CandleJobData>) => {
       this.logger.log(`candle job completed interval=${job.data.interval}`);
     });
-    this.worker.on('failed', (job, err) => {
+    this.worker.on('failed', (job: Job<CandleJobData> | undefined, err: Error) => {
       this.logger.warn(`candle job failed interval=${job?.data.interval} err=${err.message}`);
     });
 
@@ -50,7 +59,7 @@ export class CandlesWorker implements OnModuleInit, OnModuleDestroy {
     this.logger.log('Candle aggregation worker started');
   }
 
-  async onModuleDestroy() {
+  async onModuleDestroy(): Promise<void> {
     await this.worker.close();
     await this.queue.close();
   }

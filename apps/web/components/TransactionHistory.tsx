@@ -132,7 +132,7 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
           <div className="flex items-center justify-between mt-6 pt-6 border-t border-zinc-200 dark:border-zinc-700">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
+              disabled={page === 1 || swapsLoading || lpLoading}
               className="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Previous
@@ -142,7 +142,7 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
             </span>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
+              disabled={page === totalPages || swapsLoading || lpLoading}
               className="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Next
@@ -163,16 +163,28 @@ interface SwapTableProps {
   truncateHash: (hash: string) => string;
 }
 
-function SwapTable({ swaps, loading, error, getExplorerUrl, formatDate, truncateHash }: SwapTableProps) {
-  if (loading) {
-    return <div className="text-center py-8 text-zinc-500 dark:text-zinc-400">Loading swaps...</div>;
-  }
+function SkeletonRows({ cols }: { cols: number }) {
+  return (
+    <>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <tr key={i} aria-hidden="true">
+          {Array.from({ length: cols }).map((__, j) => (
+            <td key={j} className="py-3 px-4">
+              <div className="h-4 rounded bg-zinc-200 dark:bg-zinc-700 animate-pulse" />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
 
+function SwapTable({ swaps, loading, error, getExplorerUrl, formatDate, truncateHash }: SwapTableProps) {
   if (error) {
     return <div className="text-center py-8 text-red-500">Failed to load swaps</div>;
   }
 
-  if (swaps.length === 0) {
+  if (!loading && swaps.length === 0) {
     return (
       <div className="text-center py-12">
         <p className="text-zinc-500 dark:text-zinc-400 mb-2">No swap history found</p>
@@ -195,7 +207,7 @@ function SwapTable({ swaps, loading, error, getExplorerUrl, formatDate, truncate
           </tr>
         </thead>
         <tbody>
-          {swaps.map((swap) => (
+          {loading ? <SkeletonRows cols={6} /> : swaps.map((swap) => (
             <tr key={swap.id} className="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
               <td className="py-3 px-4 text-sm text-zinc-900 dark:text-zinc-100">
                 {swap.token0Symbol}/{swap.token1Symbol}
@@ -240,10 +252,6 @@ interface LpTableProps {
 }
 
 function LpTable({ activities, loading, error, getExplorerUrl, formatDate, truncateHash }: LpTableProps) {
-  if (loading) {
-    return <div className="text-center py-8 text-zinc-500 dark:text-zinc-400">Loading LP activity...</div>;
-  }
-
   if (error) {
     return (
       <div className="text-center py-8">
@@ -253,7 +261,7 @@ function LpTable({ activities, loading, error, getExplorerUrl, formatDate, trunc
     );
   }
 
-  if (activities.length === 0) {
+  if (!loading && activities.length === 0) {
     return (
       <div className="text-center py-12">
         <p className="text-zinc-500 dark:text-zinc-400 mb-2">No LP activity found</p>
@@ -302,7 +310,7 @@ function LpTable({ activities, loading, error, getExplorerUrl, formatDate, trunc
           </tr>
         </thead>
         <tbody>
-          {activities.map((activity) => (
+          {loading ? <SkeletonRows cols={6} /> : activities.map((activity) => (
             <tr key={activity.id} className="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
               <td className="py-3 px-4 text-sm font-medium capitalize">
                 <span className={getTypeColor(activity.type)}>
