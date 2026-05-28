@@ -20,11 +20,35 @@ done
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+##
+# log() — Print an informational deploy message to stdout.
+# @param $* Message text.
+##
 log()  { echo "[deploy] $*"; }
+
+##
+# ok() — Print a success message to stdout.
+# @param $* Message text.
+##
 ok()   { echo "[  ok  ] $*"; }
+
+##
+# skip() — Print a skip message to stdout (contract already deployed).
+# @param $* Message text.
+##
 skip() { echo "[ skip ] $*"; }
+
+##
+# fail() — Print an error message to stderr and exit with status 1.
+# @param $* Error message text.
+##
 fail() { echo "[error] $*" >&2; exit 1; }
 
+##
+# require_cmd() — Assert that a CLI command is available on PATH.
+# Calls fail() and exits if the command is not found.
+# @param $1 Command name to check (e.g. "stellar", "jq").
+##
 require_cmd() { command -v "$1" &>/dev/null || fail "'$1' not found. Install it first."; }
 require_cmd stellar
 require_cmd curl
@@ -44,6 +68,12 @@ log "Deployer: $DEPLOYER_ADDRESS"
 
 # ── Friendbot funding ─────────────────────────────────────────────────────────
 
+##
+# fund_if_needed() — Fund the deployer account via Stellar Friendbot if the
+# XLM balance is below 10 XLM. No-ops when the balance is sufficient.
+# Uses the global DEPLOYER_ADDRESS, NETWORK, and FRIENDBOT_URL variables.
+# @return 0 on success; calls fail() and exits on Friendbot error.
+##
 fund_if_needed() {
   local balance
   balance=$(stellar account balance "$DEPLOYER_ADDRESS" --network "$NETWORK" 2>/dev/null | grep XLM | awk '{print $1}' || echo "0")
@@ -67,6 +97,11 @@ ok "Build complete."
 
 # ── State helpers (read/write testnet.json) ───────────────────────────────────
 
+##
+# read_address() — Read a deployed contract address from testnet.json.
+# @param $1 key  Contract key (e.g. "mathLib", "poolFactory").
+# @return        The contract address string, or empty string if not found.
+##
 read_address() {
   local key="$1"
   if [[ -f "$TESTNET_JSON" ]]; then
@@ -74,6 +109,13 @@ read_address() {
   fi
 }
 
+##
+# write_address() — Persist a deployed contract address to testnet.json.
+# Creates the file with an empty manifest if it does not exist.
+# Also records the UTC deployment timestamp under .deployedAt[$key].
+# @param $1 key   Contract key (e.g. "mathLib", "poolFactory").
+# @param $2 addr  Soroban contract ID returned by `stellar contract deploy`.
+##
 write_address() {
   local key="$1" addr="$2" ts
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -89,6 +131,23 @@ write_address() {
 
 # ── Deploy + verify one contract ──────────────────────────────────────────────
 
+##
+# deploy_contract() — Deploy a single Soroban contract and verify it on-chain.
+#
+# If the contract key already exists in testnet.json and --force was not
+# passed, the function skips deployment and echoes the existing address.
+# On success the contract address is written to testnet.json and echoed to
+# stdout so callers can capture it with $(...).
+#
+# @param $1 key         Logical contract name used as the JSON key
+#                       (e.g. "mathLib", "poolFactory").
+# @param $2 wasm_name   Base name of the compiled WASM file without extension
+#                       (e.g. "math_lib", "pool_factory").
+# @param $3 verify_fn   Name of a read-only contract function to invoke as a
+#                       post-deploy smoke test (e.g. "name").
+# @return               Echoes the deployed contract ID (Soroban address).
+#                       Calls fail() and exits on any error.
+##
 # deploy_contract <key> <wasm_name> <verify_fn>
 deploy_contract() {
   local key="$1" wasm_name="$2" verify_fn="$3"

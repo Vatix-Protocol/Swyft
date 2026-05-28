@@ -22,6 +22,8 @@ coverage/
 *.snap
 __snapshots__/
 .nyc_output/
+junit.xml
+test-results/
 
 # logs
 *.log
@@ -41,3 +43,15 @@ Thumbs.db
 # misc
 .gitkeep
 *.tsbuildinfo
+
+# Vercel / deployment
+.vercel
+next-env.d.ts
+
+# Rust / Soroban
+*.wasm
+Cargo.lock.bak
+
+# pnpm
+.pnp
+.pnp.*
