@@ -59,6 +59,15 @@ impl PoolFactory {
     }
 
     /// Initializes factory owner and external configuration.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban environment handle.
+    /// - `owner`: Account that becomes the factory owner.
+    /// - `math_lib`: Address of the deployed math library contract.
+    /// - `pool_wasm_hash`: WASM hash for pool deployment.
+    ///
+    /// # Returns
+    /// Nothing.
     pub fn initialize(env: Env, owner: Address, math_lib: Address, pool_wasm_hash: BytesN<32>) {
         owner.require_auth();
 
@@ -83,6 +92,15 @@ impl PoolFactory {
     }
 
     /// Deploys a new CL pool contract for the token pair and fee tier.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban environment handle.
+    /// - `token_a`: Address of the first token in the pair.
+    /// - `token_b`: Address of the second token in the pair.
+    /// - `fee_tier`: Fee tier for the pool deployment.
+    ///
+    /// # Returns
+    /// The address of the newly deployed pool contract.
     pub fn create_pool(env: Env, token_a: Address, token_b: Address, fee_tier: u32) -> Address {
         ensure_initialized(&env);
         validate_fee_tier(&env, fee_tier);
@@ -124,6 +142,15 @@ impl PoolFactory {
     }
 
     /// Returns the pool for a pair/fee tier if it exists.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban environment handle.
+    /// - `token_a`: Address of the first token in the pair.
+    /// - `token_b`: Address of the second token in the pair.
+    /// - `fee_tier`: Fee tier of the pool.
+    ///
+    /// # Returns
+    /// An optional pool `Address`, or `None` if no matching pool exists.
     pub fn get_pool(env: Env, token_a: Address, token_b: Address, fee_tier: u32) -> Option<Address> {
         ensure_initialized(&env);
         let (token0, token1) = normalize_pair(&env, token_a, token_b);
@@ -138,26 +165,60 @@ impl PoolFactory {
     }
 
     /// Returns all deployed pools keyed by normalized (token_a, token_b, fee_tier).
+    ///
+    /// # Parameters
+    /// - `env`: Soroban environment handle.
+    ///
+    /// # Returns
+    /// A map of all deployed pools keyed by normalized token pairs and fee tier.
     pub fn get_pools(env: Env) -> Map<PoolKey, Address> {
         ensure_initialized(&env);
         read_pools(&env)
     }
 
+    /// Returns the current factory owner.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban environment handle.
+    ///
+    /// # Returns
+    /// The `Address` of the current factory owner.
     pub fn get_owner(env: Env) -> Address {
         ensure_initialized(&env);
         env.storage().instance().get(&DataKey::Owner).unwrap()
     }
 
+    /// Returns the math library address used by the factory.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban environment handle.
+    ///
+    /// # Returns
+    /// The `Address` of the configured math library contract.
     pub fn get_math_lib(env: Env) -> Address {
         ensure_initialized(&env);
         env.storage().instance().get(&DataKey::MathLib).unwrap()
     }
 
+    /// Returns the current WASM hash used for pool deployments.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban environment handle.
+    ///
+    /// # Returns
+    /// The 32-byte WASM hash for deploying new pools.
     pub fn get_pool_wasm_hash(env: Env) -> BytesN<32> {
         ensure_initialized(&env);
         env.storage().instance().get(&DataKey::PoolWasmHash).unwrap()
     }
 
+    /// Returns the supported fee tiers for pools deployed by this factory.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban environment handle.
+    ///
+    /// # Returns
+    /// A vector of supported fee tier values.
     pub fn get_supported_fee_tiers(env: Env) -> soroban_sdk::Vec<u32> {
         let mut tiers = soroban_sdk::Vec::new(&env);
         tiers.push_back(FEE_TIER_005);
@@ -167,6 +228,13 @@ impl PoolFactory {
     }
 
     /// Owner-only update for pool deployment WASM hash.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban environment handle.
+    /// - `wasm_hash`: New 32-byte WASM hash for pool deployment.
+    ///
+    /// # Returns
+    /// Nothing.
     pub fn set_pool_wasm_hash(env: Env, wasm_hash: BytesN<32>) {
         ensure_initialized(&env);
         require_owner(&env);
@@ -174,6 +242,13 @@ impl PoolFactory {
     }
 
     /// Owner-only update for math library reference.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban environment handle.
+    /// - `math_lib`: New math library contract address.
+    ///
+    /// # Returns
+    /// Nothing.
     pub fn set_math_lib(env: Env, math_lib: Address) {
         ensure_initialized(&env);
         require_owner(&env);
@@ -181,6 +256,13 @@ impl PoolFactory {
     }
 
     /// Owner-only transfer of factory ownership.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban environment handle.
+    /// - `new_owner`: Address of the new owner account.
+    ///
+    /// # Returns
+    /// Nothing.
     pub fn set_owner(env: Env, new_owner: Address) {
         ensure_initialized(&env);
         require_owner(&env);
