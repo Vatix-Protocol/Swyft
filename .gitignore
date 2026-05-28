@@ -6,6 +6,8 @@ node_modules/
 dist/
 .next/
 build/
+out/
+target/
 
 # env files
 .env
@@ -15,8 +17,27 @@ build/
 # turbo
 .turbo/
 
-# misc
-.DS_Store
-*.log
+# test artifacts
 coverage/
+*.snap
+__snapshots__/
+.nyc_output/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+
+# misc
 .gitkeep
+*.tsbuildinfo

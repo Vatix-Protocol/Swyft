@@ -21,18 +21,7 @@
  *   pnpm --filter contracts test:integration
  */
 
-import {
-  Contract,
-  Keypair,
-  Networks,
-  SorobanRpc,
-  TransactionBuilder,
-  BASE_FEE,
-  xdr,
-  nativeToScVal,
-  scValToNative,
-  Address,
-} from "@stellar/stellar-sdk";
+import { Keypair } from "@stellar/stellar-sdk";
 import * as fs from "fs";
 import * as path from "path";
 import { execSync } from "child_process";
@@ -45,20 +34,17 @@ const NETWORK = "testnet";
 const RPC_URL = "https://soroban-testnet.stellar.org";
 const HORIZON_URL = "https://horizon-testnet.stellar.org";
 const FRIENDBOT_URL = "https://friendbot.stellar.org";
-const NETWORK_PASSPHRASE = Networks.TESTNET;
 
 const DEPLOYER_SECRET =
   process.env.TESTNET_DEPLOYER_SECRET_KEY ?? Keypair.random().secret();
 
 const WASM_DIR = path.join(__dirname, "../target/wasm32-unknown-unknown/release");
-const DEPLOYMENTS_FILE = path.join(__dirname, "../deployments/testnet.json");
 
 // ---------------------------------------------------------------------------
 // Supported fee tiers (must match PoolFactory constants)
 // ---------------------------------------------------------------------------
 const FEE_TIER_005 = 500;   // 0.05%
 const FEE_TIER_03  = 3_000; // 0.30%
-const FEE_TIER_1   = 10_000; // 1.00%
 
 // Q64.96 representation of price 1:1
 const Q96 = BigInt(2) ** BigInt(96);
@@ -128,7 +114,17 @@ function assert(cond: boolean, msg: string): void {
 // Stellar helpers
 // ---------------------------------------------------------------------------
 
-const server = new SorobanRpc.Server(RPC_URL);
+/** Shape of a single balance entry returned by Horizon's /accounts endpoint. */
+interface HorizonBalance {
+  asset_type: string;
+  asset_code?: string;
+  balance: string;
+}
+
+/** Minimal shape of the Horizon /accounts response used in this script. */
+interface HorizonAccountResponse {
+  balances: HorizonBalance[];
+}
 
 async function fundAccount(keypair: Keypair): Promise<void> {
   const url = `${FRIENDBOT_URL}?addr=${keypair.publicKey()}`;
@@ -144,17 +140,15 @@ async function fundAccount(keypair: Keypair): Promise<void> {
 async function getBalance(publicKey: string, assetCode: string): Promise<number> {
   const res = await fetch(`${HORIZON_URL}/accounts/${publicKey}`);
   if (!res.ok) return 0;
-  const data = (await res.json()) as { balances: { asset_code?: string; balance: string }[] };
-  const bal = data.balances.find(
-    (b) => b.asset_code === assetCode
-  );
+  const data = (await res.json()) as HorizonAccountResponse;
+  const bal = data.balances.find((b) => b.asset_code === assetCode);
   return bal ? parseFloat(bal.balance) : 0;
 }
 
 async function getNativeBalance(publicKey: string): Promise<number> {
   const res = await fetch(`${HORIZON_URL}/accounts/${publicKey}`);
   if (!res.ok) return 0;
-  const data = (await res.json()) as { balances: { asset_type: string; balance: string }[] };
+  const data = (await res.json()) as HorizonAccountResponse;
   const native = data.balances.find((b) => b.asset_type === "native");
   return native ? parseFloat(native.balance) : 0;
 }
@@ -274,7 +268,7 @@ function scI32(n: number): string {
 
 function parseSCAddress(raw: string): string {
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as { address?: string; contract_id?: string } | null;
     return parsed?.address ?? parsed?.contract_id ?? raw.trim();
   } catch {
     return raw.trim();
