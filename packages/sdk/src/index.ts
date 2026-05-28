@@ -1,8 +1,8 @@
 export { calculateSwapQuote, EMPTY_QUOTE, isEmptyQuote } from './quote';
-export type { SwapQuoteParams, SwapQuote } from './quote';
+export type { SwapQuoteParams, SwapQuote, LocalSwapQuoteParams, LocalSwapQuote, PoolStateWithTicks } from './quote';
 
-export { buildBurnTx, buildCollectTx, estimateRemoveAmounts } from './liquidity';
-export type { BurnTxParams, CollectTxParams, UnsignedTx } from './liquidity';
+export { buildBurnTx, buildCollectTx, estimateRemoveAmounts, estimateRemoveAmountsAsync } from './liquidity';
+export type { BurnTxParams, CollectTxParams, UnsignedTx, BurnUnsignedTx, CollectUnsignedTx, RemoveAmountsResult } from './liquidity';
 
 // #69 — Pool query helpers
 export { getPool, getPosition, getTick } from './queries';

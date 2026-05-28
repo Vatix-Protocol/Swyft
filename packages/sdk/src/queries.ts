@@ -1,4 +1,4 @@
-import { SorobanRpc, Contract, xdr, scValToNative } from '@stellar/stellar-sdk';
+import { SorobanRpc, Contract, xdr, scValToNative, Transaction, FeeBumpTransaction } from '@stellar/stellar-sdk';
 import { PoolState, PositionState, TickState, SwyftRpcError } from './types';
 
 async function callContract(
@@ -12,12 +12,12 @@ async function callContract(
   const op = contract.call(method, ...args);
 
   try {
+    // stellar-sdk's simulateTransaction requires a built Transaction or FeeBumpTransaction.
+    // The Operation returned by contract.call() is cast here because the stub simulation
+    // path only needs the operation XDR; replace with a fully-built transaction once
+    // the Soroban signing flow is wired up.
     const result = await server.simulateTransaction(
-      // We only need the result value; build a minimal transaction envelope
-      // by wrapping the operation in a simulation request directly.
-      // stellar-sdk's simulateTransaction accepts an Operation or a built tx;
-      // here we pass the raw operation xdr for simulation.
-      op as unknown as Parameters<typeof server.simulateTransaction>[0],
+      op as unknown as Transaction | FeeBumpTransaction,
     );
 
     if (SorobanRpc.Api.isSimulationError(result)) {
@@ -31,11 +31,20 @@ async function callContract(
     return sim.result.retval;
   } catch (err) {
     if (err instanceof SwyftRpcError) throw err;
+    const message = err instanceof Error ? err.message : String(err);
     throw new SwyftRpcError(
-      `RPC call failed for ${method} on ${contractAddress}: ${(err as Error).message}`,
+      `RPC call failed for ${method} on ${contractAddress}: ${message}`,
       err,
     );
   }
+}
+
+/** Asserts that a raw scValToNative result is a plain object, throwing on unexpected shapes. */
+function assertRawObject(raw: unknown, context: string): Record<string, unknown> {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new SwyftRpcError(`Unexpected response shape from ${context}`);
+  }
+  return raw as Record<string, unknown>;
 }
 
 export async function getPool({
@@ -46,11 +55,7 @@ export async function getPool({
   poolAddress: string;
 }): Promise<PoolState> {
   const retval = await callContract(rpcUrl, poolAddress, 'get_pool_state');
-  const raw = scValToNative(retval) as Record<string, unknown>;
-
-  if (!raw || typeof raw !== 'object') {
-    throw new SwyftRpcError(`Unexpected pool state shape from ${poolAddress}`);
-  }
+  const raw = assertRawObject(scValToNative(retval), poolAddress);
 
   return {
     poolAddress,
@@ -72,11 +77,7 @@ export async function getPosition({
 }): Promise<PositionState> {
   // positionNftId is the NFT contract address that holds the position
   const retval = await callContract(rpcUrl, positionNftId, 'get_position');
-  const raw = scValToNative(retval) as Record<string, unknown>;
-
-  if (!raw || typeof raw !== 'object') {
-    throw new SwyftRpcError(`Unexpected position state shape from ${positionNftId}`);
-  }
+  const raw = assertRawObject(scValToNative(retval), positionNftId);
 
   return {
     positionNftId,
@@ -99,11 +100,7 @@ export async function getTick({
 }): Promise<TickState> {
   const tickArg = xdr.ScVal.scvI32(tick);
   const retval = await callContract(rpcUrl, poolAddress, 'get_tick', [tickArg]);
-  const raw = scValToNative(retval) as Record<string, unknown>;
-
-  if (!raw || typeof raw !== 'object') {
-    throw new SwyftRpcError(`Unexpected tick state shape for tick ${tick} on ${poolAddress}`);
-  }
+  const raw = assertRawObject(scValToNative(retval), `tick ${tick} on ${poolAddress}`);
 
   return {
     tick,
