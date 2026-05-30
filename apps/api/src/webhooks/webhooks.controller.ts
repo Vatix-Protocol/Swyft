@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WebhooksService } from './webhooks.service';
 import { WebhookEventType } from './webhook.types';
+import { SWAGGER_TAGS } from '../swagger.constants';
 
 interface AuthRequest {
   user: { walletAddress: string };
@@ -15,7 +16,7 @@ interface WebhookListResponse {
   items: Awaited<ReturnType<WebhooksService['list']>>;
 }
 
-@ApiTags('webhooks')
+@ApiTags(SWAGGER_TAGS.WEBHOOKS)
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('webhooks')

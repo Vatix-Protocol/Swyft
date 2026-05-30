@@ -4,6 +4,10 @@ const Q96 = 2n ** 96n;
 const MAX_TICK = 887272;
 const MIN_TICK = -887272;
 
+/**
+ * Parameters for calculating a simple swap quote without pool state.
+ * Used for quick estimates before fetching full pool data.
+ */
 export interface SwapQuoteParams {
   readonly poolId: string;
   readonly tokenInId: string;
@@ -12,6 +16,10 @@ export interface SwapQuoteParams {
   readonly slippageBps: number;
 }
 
+/**
+ * Quote result from a swap operation.
+ * All amounts are strings to preserve precision.
+ */
 export interface SwapQuote {
   readonly amountOut: string;
   readonly priceImpact: number;
@@ -48,7 +56,10 @@ interface SwapStepResult {
   readonly reachedTarget: boolean;
 }
 
-/** A zero-value quote returned when inputs are missing or invalid. */
+/**
+ * A zero-value quote returned when inputs are missing or invalid.
+ * Use as a fallback when swap parameters are invalid.
+ */
 export const EMPTY_QUOTE: SwapQuote = {
   amountOut: '0',
   priceImpact: 0,
@@ -58,7 +69,11 @@ export const EMPTY_QUOTE: SwapQuote = {
   executionPrice: '0',
 };
 
-/** Returns true when a quote carries no meaningful output (e.g. empty input). */
+/**
+ * Determine if a quote represents an empty or invalid result.
+ * @param quote - The quote to check
+ * @returns true if the quote is empty (zero output), false otherwise
+ */
 export function isEmptyQuote(quote: SwapQuote): boolean {
   return quote.amountOut === '0' && quote.executionPrice === '0';
 }

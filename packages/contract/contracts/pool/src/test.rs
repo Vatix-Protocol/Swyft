@@ -196,3 +196,49 @@ fn test_full_lp_lifecycle() {
     assert!(burn_res.amount_0 > 0 || burn_res.amount_1 > 0);
     assert_eq!(client.get_state().liquidity, 0);
 }
+
+// ── Empty / Graceful handling ──────────────────────────────────────────────
+
+#[test]
+fn test_collect_returns_zero_for_nonexistent_position() {
+    let (env, id, t0, t1, _lp) = setup();
+    let client = PoolClient::new(&env, &id);
+    client.initialize(&t0, &t1, &Q96, &3000u32);
+
+    // Try to collect from a position that was never created
+    let result = client.collect(&999u64, &-60, &60);
+    assert_eq!(result.amount_0, 0);
+    assert_eq!(result.amount_1, 0);
+}
+
+#[test]
+fn test_empty_pool_with_zero_liquidity() {
+    let (env, id, t0, t1, lp) = setup();
+    let client = PoolClient::new(&env, &id);
+    client.initialize(&t0, &t1, &Q96, &3000u32);
+
+    // Pool starts with zero liquidity
+    let state = client.get_state();
+    assert_eq!(state.liquidity, 0);
+
+    // Minting out-of-range keeps liquidity at zero
+    client.mint(&lp, &120, &240, &500_000u128);
+    let state = client.get_state();
+    assert_eq!(state.liquidity, 0);
+}
+
+#[test]
+fn test_collect_after_position_burn() {
+    let (env, id, t0, t1, lp) = setup();
+    let client = PoolClient::new(&env, &id);
+    client.initialize(&t0, &t1, &Q96, &3000u32);
+
+    // Add and then fully burn liquidity
+    client.mint(&1u64, &-60, &60, &1_000_000u128);
+    client.burn(&1u64, &-60, &60, &1_000_000u128);
+
+    // Trying to collect from the burned position returns zero
+    let result = client.collect(&1u64, &-60, &60);
+    assert_eq!(result.amount_0, 0);
+    assert_eq!(result.amount_1, 0);
+}

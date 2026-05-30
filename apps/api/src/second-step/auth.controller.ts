@@ -9,8 +9,9 @@ import { ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { AuthService, VerifyResponse } from './auth.service';
 import { VerifyWalletDto } from './dto/verify-wallet.dto';
+import { SWAGGER_TAGS } from '../swagger.constants';
 
-@ApiTags('auth')
+@ApiTags(SWAGGER_TAGS.AUTH)
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}

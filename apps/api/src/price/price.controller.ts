@@ -10,11 +10,12 @@ import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/
 import { PriceService, SpotPriceResponse } from './price.service';
 import { CacheService, TTL } from '../cache/cache.service';
 import { PriceCandleDto } from './dto/price-candle.dto';
+import { SWAGGER_TAGS } from '../swagger.constants';
 
 const VALID_INTERVALS = ['1m', '5m', '1h', '1d'] as const;
 type CandleInterval = (typeof VALID_INTERVALS)[number];
 
-@ApiTags('prices')
+@ApiTags(SWAGGER_TAGS.PRICES)
 @Controller('prices')
 export class PriceController {
   constructor(

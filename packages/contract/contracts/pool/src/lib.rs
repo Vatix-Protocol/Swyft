@@ -14,6 +14,16 @@ const KEY_TICKS: Symbol = symbol_short!("TICKS");
 const KEY_BITMAP: Symbol = symbol_short!("BITMAP");
 const KEY_POSITIONS: Symbol = symbol_short!("POSITIONS");
 
+// ── User-facing messages for empty states ────────────────────────────────────
+/// Message for empty liquidity pool state.
+pub const EMPTY_POOL_MESSAGE: &str = "No liquidity available. Add liquidity to get started.";
+/// Message for non-existent or removed position.
+pub const EMPTY_POSITION_MESSAGE: &str = "Position does not exist or has been fully removed.";
+/// Message for zero liquidity in range.
+pub const ZERO_LIQUIDITY_MESSAGE: &str = "Zero liquidity in current range. Add liquidity to continue.";
+/// Message for zero accumulated fees.
+pub const NO_FEES_MESSAGE: &str = "No accumulated fees to collect.";
+
 // ── Types ────────────────────────────────────────────────────────────────────
 #[contracttype]
 #[derive(Clone)]
@@ -428,18 +438,23 @@ impl Pool {
     ///
     /// # Returns
     /// A [`CollectResult`] with the token amounts collected as fees.
-    ///
-    /// # Errors
-    /// Panics with `PoolError::NotInitialized` if the position does not exist.
+    /// Returns zeroed result (0, 0) if the position does not exist.
     pub fn collect(
         env: Env,
         position_id: u64,
         tick_lower: i32,
         tick_upper: i32,
     ) -> CollectResult {
-        let state = load_state(&env);
+        let state = match env.storage().instance().get::<_, PoolState>(&KEY_STATE) {
+            Some(s) => s,
+            None => return CollectResult { amount_0: 0, amount_1: 0 }, // Pool not initialized
+        };
+
         let positions_key = (KEY_POSITIONS, position_id);
-        let mut position = env.storage().persistent().get(&positions_key).unwrap_or_else(|| panic_with_pool_error(&env, PoolError::NotInitialized));
+        let mut position = match env.storage().persistent().get(&positions_key) {
+            Some(p) => p,
+            None => return CollectResult { amount_0: 0, amount_1: 0 }, // Position doesn't exist
+        };
 
         let (fee_growth_inside_0_x128, fee_growth_inside_1_x128) = get_fee_growth_inside(&env, tick_lower, tick_upper, state.tick, &state);
 
