@@ -31,38 +31,32 @@ export const toRawAmount = (s: string): RawAmount => s as RawAmount;
 
 /** Identifies a pool by its two token addresses. */
 export interface PoolId {
-  token0: StellarAddress;
-  token1: StellarAddress;
+  readonly token0: string;
+  readonly token1: string;
 }
 
 /** Parameters for building an exact-input single-hop swap transaction. */
 export interface SwapTxParams {
   /** On-chain pool contract address. */
-  poolId: StellarAddress;
+  readonly poolId: string;
   /** Contract address of the token being sold. */
-  tokenInId: StellarAddress;
+  readonly tokenInId: string;
   /** Contract address of the token being bought. */
-  tokenOutId: StellarAddress;
-  /**
-   * Raw amount of `tokenIn` to sell.
-   * Represented as a decimal string to avoid JS bigint precision loss.
-   */
-  amountIn: RawAmount;
-  /**
-   * Slippage-adjusted minimum amount of `tokenOut` to accept.
-   * Represented as a decimal string to avoid JS bigint precision loss.
-   */
-  minimumReceived: RawAmount;
+  readonly tokenOutId: string;
+  /** Raw amount of `tokenIn` to sell (as a string to avoid JS bigint loss). */
+  readonly amountIn: string;
+  /** Slippage-adjusted minimum amount of `tokenOut` to receive. */
+  readonly minimumReceived: string;
   /** Stellar account address of the transaction submitter / recipient. */
-  ownerAddress: StellarAddress;
+  readonly ownerAddress: string;
 }
 
 /** An unsigned Soroban transaction envelope ready for wallet signing. */
 export interface SwapUnsignedTx {
   /** Base-64 encoded XDR of the transaction envelope. */
-  xdr: XdrBase64;
+  readonly xdr: string;
   /** Discriminant so callers can narrow the union type. */
-  type: "swap";
+  readonly type: 'swap';
 }
 
 // ── Builder ───────────────────────────────────────────────────────────────────
@@ -75,7 +69,7 @@ export interface SwapUnsignedTx {
  * @returns An unsigned transaction envelope in XDR format.
  */
 export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
-  const payload = JSON.stringify({ op: "swap", ...params });
-  const xdr = btoa(payload) as XdrBase64;
-  return { xdr, type: "swap" };
+  const payload = JSON.stringify({ op: 'swap', ...params });
+  const xdr = btoa(payload);
+  return { xdr, type: 'swap' };
 }

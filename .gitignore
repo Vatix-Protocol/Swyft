@@ -24,6 +24,8 @@ __snapshots__/
 .nyc_output/
 junit.xml
 test-results/
+playwright-report/
+*.lcov
 
 # logs
 *.log
@@ -44,14 +46,11 @@ Thumbs.db
 .gitkeep
 *.tsbuildinfo
 
-# Vercel / deployment
-.vercel
-next-env.d.ts
-
 # Rust / Soroban
+Cargo.lock
 *.wasm
-Cargo.lock.bak
+target/
 
-# pnpm
-.pnp
-.pnp.*
+# package manager lock files (keep pnpm-lock.yaml, ignore others)
+package-lock.json
+yarn.lock

@@ -181,17 +181,54 @@ function TokenPickerButton({
 // SwapWidget
 // ---------------------------------------------------------------------------
 
+/** Minimal wallet state required by SwapWidget. */
 interface WalletState {
+  /** Connected wallet address, or `null` when disconnected. */
   address: string | null;
 }
 
+/** Props for the {@link SwapWidget} component. */
 interface Props {
+  /**
+   * Current wallet state. Pass `{ address: null }` when no wallet is
+   * connected — the widget will render a "Connect wallet" prompt.
+   */
   wallet: WalletState;
+  /**
+   * Called whenever the user selects a new "token in".
+   * Receives `null` when the selection is cleared.
+   */
   onTokenInChange?: (token: Token | null) => void;
+  /**
+   * Called whenever the user selects a new "token out".
+   * Receives `null` when the selection is cleared.
+   */
   onTokenOutChange?: (token: Token | null) => void;
+  /**
+   * Called after a swap transaction is confirmed and the confirmation
+   * modal is dismissed. Use this to refresh balances or history.
+   */
   onSwapSuccess?: () => void;
 }
 
+/**
+ * Self-contained swap widget for the Swyft concentrated-liquidity DEX.
+ *
+ * Handles token selection, quote fetching, slippage configuration, and
+ * swap confirmation in a single composable component.
+ *
+ * @param props - {@link Props}
+ * @returns A React element containing the full swap UI, or a loading
+ *   skeleton / error state while token data is being fetched.
+ *
+ * @example
+ * ```tsx
+ * <SwapWidget
+ *   wallet={{ address: connectedAddress }}
+ *   onSwapSuccess={() => refetchBalances()}
+ * />
+ * ```
+ */
 export function SwapWidget({
   wallet,
   onTokenInChange,

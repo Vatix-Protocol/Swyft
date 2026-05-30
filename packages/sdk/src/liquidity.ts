@@ -1,49 +1,76 @@
 export interface BurnTxParams {
-  positionId: string;
-  poolId: string;
-  liquidityBps: number; // 0–10000, basis points of total liquidity to remove
-  ownerAddress: string;
+  readonly positionId: string;
+  readonly poolId: string;
+  /** Basis points of total liquidity to remove (0–10000). */
+  readonly liquidityBps: number;
+  readonly ownerAddress: string;
 }
 
 export interface CollectTxParams {
-  positionId: string;
-  poolId: string;
-  ownerAddress: string;
+  readonly positionId: string;
+  readonly poolId: string;
+  readonly ownerAddress: string;
 }
 
-export interface UnsignedTx {
-  xdr: string; // base64 XDR envelope — stub value until Soroban sim is wired
-  type: "burn" | "collect";
+/** Unsigned burn (remove-liquidity) transaction envelope. */
+export interface BurnUnsignedTx {
+  /** Base-64 encoded XDR envelope — stub value until Soroban sim is wired. */
+  readonly xdr: string;
+  readonly type: 'burn';
+}
+
+/** Unsigned collect-fees transaction envelope. */
+export interface CollectUnsignedTx {
+  /** Base-64 encoded XDR envelope — stub value until Soroban sim is wired. */
+  readonly xdr: string;
+  readonly type: 'collect';
+}
+
+/** Discriminated union of all unsigned liquidity-management transaction types. */
+export type UnsignedTx = BurnUnsignedTx | CollectUnsignedTx;
+
+/** Token amounts returned when removing liquidity. */
+export interface RemoveAmountsResult {
+  readonly amount0: string;
+  readonly amount1: string;
 }
 
 /**
  * Builds an unsigned burn (remove liquidity) transaction XDR.
  * Stub — replace with real Soroban contract invocation via stellar-sdk.
  */
-export function buildBurnTx(params: BurnTxParams): UnsignedTx {
-  const payload = JSON.stringify({ op: "burn", ...params });
-  const xdr = Buffer.from(payload).toString("base64");
-  return { xdr, type: "burn" };
+export function buildBurnTx(params: BurnTxParams): BurnUnsignedTx {
+  const payload = JSON.stringify({ op: 'burn', ...params });
+  const xdr = Buffer.from(payload).toString('base64');
+  return { xdr, type: 'burn' };
 }
 
 /**
  * Builds an unsigned collect-fees transaction XDR.
  * Stub — replace with real Soroban contract invocation via stellar-sdk.
  */
-export function buildCollectTx(params: CollectTxParams): UnsignedTx {
-  const payload = JSON.stringify({ op: "collect", ...params });
-  const xdr = Buffer.from(payload).toString("base64");
-  return { xdr, type: "collect" };
+export function buildCollectTx(params: CollectTxParams): CollectUnsignedTx {
+  const payload = JSON.stringify({ op: 'collect', ...params });
+  const xdr = Buffer.from(payload).toString('base64');
+  return { xdr, type: 'collect' };
 }
 
-/** Estimate token amounts returned for a given liquidity removal percentage. */
+/**
+ * Estimates token amounts returned for a given liquidity removal percentage.
+ *
+ * @param liquidity - Current position liquidity as a decimal string.
+ * @param pct - Percentage of liquidity to remove (0–100).
+ * @param currentPrice - Current pool price (token1/token0).
+ * @param lowerTick - Lower tick bound of the position.
+ * @param upperTick - Upper tick bound of the position.
+ */
 export function estimateRemoveAmounts(
   liquidity: string,
-  pct: number, // 0–100
+  pct: number,
   currentPrice: number,
   lowerTick: number,
-  upperTick: number
-): { amount0: string; amount1: string } {
+  upperTick: number,
+): RemoveAmountsResult {
   const liq = parseFloat(liquidity);
   const fraction = pct / 100;
 
@@ -81,8 +108,8 @@ export async function estimateRemoveAmountsAsync(
   pct: number,
   currentPrice: number,
   lowerTick: number,
-  upperTick: number
-): Promise<{ amount0: string; amount1: string }> {
+  upperTick: number,
+): Promise<RemoveAmountsResult> {
   return new Promise((resolve) => {
     // Defer to next tick so callers can render loading UI
     Promise.resolve().then(() => {

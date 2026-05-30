@@ -97,8 +97,28 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Returns true when all required string fields on a job payload are
+   * non-empty. Logs a warning and skips persistence for empty payloads so
+   * a malformed event never crashes the worker or breaks downstream consumers.
+   */
+  private guardEmptyData(jobId: string | undefined, data: Record<string, unknown>): boolean {
+    const empty = Object.entries(data).filter(
+      ([, v]) => v === null || v === undefined || v === '',
+    );
+    if (empty.length > 0) {
+      this.logger.warn(
+        `Skipping job ${jobId ?? 'unknown'} — empty fields: ${empty.map(([k]) => k).join(', ')}. ` +
+        'Check the upstream event emitter; no data was persisted for this event.',
+      );
+      return false;
+    }
+    return true;
+  }
+
   private async handlePoolCreated(job: Job<PoolCreatedJobData>) {
     const d = job.data;
+    if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>)) return;
     await this.prisma.poolCreated.upsert({
       where: { eventId: d.eventId },
       update: {},
@@ -115,6 +135,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
   private async handleSwapProcessed(job: Job<SwapProcessedJobData>) {
     const d = job.data;
+    if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>)) return;
     await this.prisma.swapProcessed.upsert({
       where: { eventId: d.eventId },
       update: {},
@@ -134,6 +155,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
   private async handlePositionMinted(job: Job<PositionMintedJobData>) {
     const d = job.data;
+    if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>)) return;
     await this.prisma.positionMinted.upsert({
       where: { eventId: d.eventId },
       update: {},
@@ -152,6 +174,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
   private async handlePositionBurned(job: Job<PositionBurnedJobData>) {
     const d = job.data;
+    if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>)) return;
     await this.prisma.positionBurned.upsert({
       where: { eventId: d.eventId },
       update: {},
@@ -170,6 +193,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
   private async handleFeesCollected(job: Job<FeesCollectedJobData>) {
     const d = job.data;
+    if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>)) return;
     await this.prisma.feesCollected.upsert({
       where: { eventId: d.eventId },
       update: {},
