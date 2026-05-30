@@ -1,6 +1,13 @@
 import { SorobanRpc, Contract, xdr, scValToNative } from '@stellar/stellar-sdk';
 import { PoolState, PositionState, TickState, SwyftRpcError } from './types';
 
+/**
+ * Explanatory copy for empty position state.
+ * Used by the UI layer when no positions are found.
+ */
+export const EMPTY_POSITION_MESSAGE =
+  'No positions found. Make a deposit to get started.';
+
 async function callContract(
   rpcUrl: string,
   contractAddress: string,
@@ -48,8 +55,17 @@ export async function getPool({
   const retval = await callContract(rpcUrl, poolAddress, 'get_pool_state');
   const raw = scValToNative(retval) as Record<string, unknown>;
 
+  // Return empty pool state if data is null, undefined, or not an object
   if (!raw || typeof raw !== 'object') {
-    throw new SwyftRpcError(`Unexpected pool state shape from ${poolAddress}`);
+    return {
+      poolAddress,
+      sqrtPrice: '0',
+      currentTick: 0,
+      liquidity: '0',
+      feeTier: 0,
+      token0: '',
+      token1: '',
+    };
   }
 
   return {
@@ -74,8 +90,16 @@ export async function getPosition({
   const retval = await callContract(rpcUrl, positionNftId, 'get_position');
   const raw = scValToNative(retval) as Record<string, unknown>;
 
+  // Return empty position state if data is null, undefined, or not an object
   if (!raw || typeof raw !== 'object') {
-    throw new SwyftRpcError(`Unexpected position state shape from ${positionNftId}`);
+    return {
+      positionNftId,
+      owner: '',
+      pool: '',
+      lowerTick: 0,
+      upperTick: 0,
+      liquidity: '0',
+    };
   }
 
   return {
@@ -101,8 +125,14 @@ export async function getTick({
   const retval = await callContract(rpcUrl, poolAddress, 'get_tick', [tickArg]);
   const raw = scValToNative(retval) as Record<string, unknown>;
 
+  // Return empty tick state if data is null, undefined, or not an object
   if (!raw || typeof raw !== 'object') {
-    throw new SwyftRpcError(`Unexpected tick state shape for tick ${tick} on ${poolAddress}`);
+    return {
+      tick,
+      liquidityNet: '0',
+      liquidityGross: '0',
+      feeGrowthOutside: '0',
+    };
   }
 
   return {

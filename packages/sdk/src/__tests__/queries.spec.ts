@@ -114,6 +114,22 @@ describe('getPosition', () => {
     });
   });
 
+  it('returns empty PositionState when data is null or undefined', async () => {
+    mockSimulate.mockResolvedValue({ result: { retval: {} } });
+    mockScValToNative.mockReturnValue(null);
+
+    const pos = await getPosition({ rpcUrl: 'https://rpc.example.com', positionNftId: 'CNFT' });
+
+    expect(pos).toEqual({
+      positionNftId: 'CNFT',
+      owner: '',
+      pool: '',
+      lowerTick: 0,
+      upperTick: 0,
+      liquidity: '0',
+    });
+  });
+
   it('throws SwyftRpcError on simulation error', async () => {
     const { SorobanRpc: MockRpc } = jest.requireMock('@stellar/stellar-sdk') as {
       SorobanRpc: { Api: { isSimulationError: jest.Mock }; Server: jest.Mock };
