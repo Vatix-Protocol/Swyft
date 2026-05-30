@@ -1,6 +1,7 @@
 import {
   Injectable,
   Logger,
+  NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
@@ -37,6 +38,8 @@ export function normalizePair(a: string, b: string): [string, string] {
 export function spotPriceCacheKey(tokenA: string, tokenB: string): string {
   const [a, b] = normalizePair(tokenA, tokenB);
   return `price:spot:${a}:${b}`;
+}
+
 export interface PriceCandle {
   timestamp: number;
   open: string;
@@ -124,7 +127,6 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
     const cached = await this.cache.get<PriceEvent>(key);
     if (cached) return cached;
     return null;
-    return this.cache.get<PriceEvent>(`price:spot:${poolId}`);
   }
 
   async getTokenPairPrice(

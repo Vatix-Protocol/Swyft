@@ -1,40 +1,40 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient()
+const prisma = new PrismaClient();
 
 // ---------------------------------------------------------------------------
 // Minimal spinner — no extra dependencies required
 // ---------------------------------------------------------------------------
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 class Spinner {
-  private frame = 0
-  private timer: ReturnType<typeof setInterval> | null = null
-  private label = ''
+  private frame = 0;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private label = '';
 
   /** Start spinning with the given label. Prevents a second start while running. */
   start(label: string): void {
-    if (this.timer) return // already running — disabled while in progress
-    this.label = label
-    this.frame = 0
-    process.stdout.write('\x1B[?25l') // hide cursor
+    if (this.timer) return; // already running — disabled while in progress
+    this.label = label;
+    this.frame = 0;
+    process.stdout.write('\x1B[?25l'); // hide cursor
     this.timer = setInterval(() => {
-      const icon = SPINNER_FRAMES[this.frame % SPINNER_FRAMES.length]
-      process.stdout.write(`\r${icon}  ${this.label}`)
-      this.frame++
-    }, 80)
+      const icon = SPINNER_FRAMES[this.frame % SPINNER_FRAMES.length];
+      process.stdout.write(`\r${icon}  ${this.label}`);
+      this.frame++;
+    }, 80);
   }
 
   /** Stop the spinner and print a final status line. */
   stop(success: boolean, message: string): void {
     if (this.timer) {
-      clearInterval(this.timer)
-      this.timer = null
+      clearInterval(this.timer);
+      this.timer = null;
     }
-    const icon = success ? '✔' : '✖'
-    process.stdout.write(`\r${icon}  ${message}\n`)
-    process.stdout.write('\x1B[?25h') // restore cursor
+    const icon = success ? '✔' : '✖';
+    process.stdout.write(`\r${icon}  ${message}\n`);
+    process.stdout.write('\x1B[?25h'); // restore cursor
   }
 }
 
@@ -42,11 +42,11 @@ class Spinner {
 // Seed steps
 // ---------------------------------------------------------------------------
 
-async function main() {
-  const spinner = new Spinner()
+export async function main() {
+  const spinner = new Spinner();
 
   // ── Tokens ────────────────────────────────────────────────────────────────
-  spinner.start('Seeding tokens…')
+  spinner.start('Seeding tokens…');
   const token0 = await prisma.token.upsert({
     where: { address: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' },
     update: {},
@@ -57,7 +57,7 @@ async function main() {
       decimals: 6,
       logoUri: 'https://example.com/usdc.png',
     },
-  })
+  });
 
   const token1 = await prisma.token.upsert({
     where: { address: 'GBDEVU63Y6NTHJQQZIKVTC23NWLQVP3WJ2RI2OTSJTNYOIGICST6DUXR' },
@@ -69,11 +69,11 @@ async function main() {
       decimals: 7,
       logoUri: 'https://example.com/xlm.png',
     },
-  })
-  spinner.stop(true, `Tokens seeded  (${token0.symbol}, ${token1.symbol})`)
+  });
+  spinner.stop(true, `Tokens seeded  (${token0.symbol}, ${token1.symbol})`);
 
   // ── Pool ──────────────────────────────────────────────────────────────────
-  spinner.start('Seeding pool…')
+  spinner.start('Seeding pool…');
   const pool = await prisma.pool.upsert({
     where: { id: 'test-pool-1' },
     update: {},
@@ -89,11 +89,11 @@ async function main() {
       volume24h: '100000000',
       feeApr: '0.05',
     },
-  })
-  spinner.stop(true, `Pool seeded    (${pool.id})`)
+  });
+  spinner.stop(true, `Pool seeded    (${pool.id})`);
 
   // ── Position ──────────────────────────────────────────────────────────────
-  spinner.start('Seeding position…')
+  spinner.start('Seeding position…');
   await prisma.position.upsert({
     where: { id: 'test-position-1' },
     update: {},
@@ -108,11 +108,11 @@ async function main() {
       feesCollected0: '0',
       feesCollected1: '0',
     },
-  })
-  spinner.stop(true, 'Position seeded (test-position-1)')
+  });
+  spinner.stop(true, 'Position seeded (test-position-1)');
 
   // ── Swaps ─────────────────────────────────────────────────────────────────
-  spinner.start('Seeding swaps…')
+  spinner.start('Seeding swaps…');
   await prisma.swap.createMany({
     data: [
       {
@@ -136,36 +136,38 @@ async function main() {
         transactionHash: 'test-tx-2',
       },
     ],
-  })
-  spinner.stop(true, 'Swaps seeded   (2 records)')
+  });
+  spinner.stop(true, 'Swaps seeded   (2 records)');
 
   // ── Price candles ─────────────────────────────────────────────────────────
-  spinner.start('Seeding price candles…')
+  spinner.start('Seeding price candles…');
   await prisma.priceCandle.createMany({
     data: [
       {
         poolId: pool.id,
-        open: '1.0',
-        high: '1.05',
-        low: '0.95',
-        close: '1.02',
-        volume: '1000000',
-        timestamp: new Date(),
+        open: 1.0,
+        high: 1.05,
+        low: 0.95,
+        close: 1.02,
+        volumeUsd: 1000000.0,
+        periodStart: new Date(),
         interval: '1h',
       },
     ],
-  })
-  spinner.stop(true, 'Price candles seeded (1 record)')
+  });
+  spinner.stop(true, 'Price candles seeded (1 record)');
 
-  console.log('\nDatabase seeded successfully ✔')
+  console.log('\nDatabase seeded successfully ✔');
 }
 
-main()
-  .then(async () => {
-    await prisma.$disconnect()
-  })
-  .catch(async (e) => {
-    console.error('\nSeed failed:', e)
-    await prisma.$disconnect()
-    process.exit(1)
-  })
+if (require.main === module) {
+  main()
+    .then(async () => {
+      await prisma.$disconnect();
+    })
+    .catch(async (e) => {
+      console.error('\nSeed failed:', e);
+      await prisma.$disconnect();
+      process.exit(1);
+    });
+}

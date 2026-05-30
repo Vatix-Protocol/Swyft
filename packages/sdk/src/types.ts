@@ -1,27 +1,27 @@
 export interface PoolState {
-  poolAddress: string;
-  sqrtPrice: string;
-  currentTick: number;
-  liquidity: string;
-  feeTier: number;
-  token0: string;
-  token1: string;
+  readonly poolAddress: string;
+  readonly sqrtPrice: string;
+  readonly currentTick: number;
+  readonly liquidity: string;
+  readonly feeTier: number;
+  readonly token0: string;
+  readonly token1: string;
 }
 
 export interface PositionState {
-  positionNftId: string;
-  owner: string;
-  pool: string;
-  lowerTick: number;
-  upperTick: number;
-  liquidity: string;
+  readonly positionNftId: string;
+  readonly owner: string;
+  readonly pool: string;
+  readonly lowerTick: number;
+  readonly upperTick: number;
+  readonly liquidity: string;
 }
 
 export interface TickState {
-  tick: number;
-  liquidityNet: string;
-  liquidityGross: string;
-  feeGrowthOutside: string;
+  readonly tick: number;
+  readonly liquidityNet: string;
+  readonly liquidityGross: string;
+  readonly feeGrowthOutside: string;
 }
 
 export class SwyftRpcError extends Error {

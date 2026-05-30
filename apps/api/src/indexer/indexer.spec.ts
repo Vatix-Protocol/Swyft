@@ -473,7 +473,89 @@ describe('IndexerWorker', () => {
     });
   });
 
-  // ─── Error handling ────────────────────────────────────────────────────────
+  // ─── Empty-data handling ───────────────────────────────────────────────────
+
+  describe('empty data handling', () => {
+    it('skips persistence and logs a warning when eventId is empty', async () => {
+      const warnSpy = jest.spyOn((worker as any).logger, 'warn').mockImplementation(() => {});
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+
+      await handler(
+        makeJob<PoolCreatedJobData>({
+          eventId: '',
+          poolId: 'pool-abc',
+          tokenA: 'XLM',
+          tokenB: 'USDC',
+          fee: '30',
+          sqrtPriceX96: '79228162514264337593543950336',
+        }),
+      );
+
+      expect(mockPrismaClient.poolCreated.upsert).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('eventId'));
+      warnSpy.mockRestore();
+    });
+
+    it('skips persistence and logs a warning when poolId is empty', async () => {
+      const warnSpy = jest.spyOn((worker as any).logger, 'warn').mockImplementation(() => {});
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+
+      await handler(
+        makeJob<SwapProcessedJobData>({
+          eventId: 'evt-1',
+          poolId: '',
+          sender: '0xSender',
+          recipient: '0xRecipient',
+          amount0: '1000',
+          amount1: '500',
+          sqrtPriceX96: '79228162514264337593543950336',
+          liquidity: '1000000',
+          tick: 0,
+        }),
+      );
+
+      expect(mockPrismaClient.swapProcessed.upsert).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('poolId'));
+      warnSpy.mockRestore();
+    });
+
+    it('skips persistence when FeesCollected recipient is empty', async () => {
+      const warnSpy = jest.spyOn((worker as any).logger, 'warn').mockImplementation(() => {});
+      const handler = getHandlerForQueue(QUEUE_NAMES.FEES_COLLECTED);
+
+      await handler(
+        makeJob<FeesCollectedJobData>({
+          eventId: 'evt-fees-empty',
+          poolId: 'pool-abc',
+          recipient: '',
+          amount0: '5000',
+          amount1: '2500',
+        }),
+      );
+
+      expect(mockPrismaClient.feesCollected.upsert).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Check the upstream event emitter'),
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('processes normally when all fields are present', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.FEES_COLLECTED);
+
+      await handler(
+        makeJob<FeesCollectedJobData>({
+          eventId: 'evt-fees-ok',
+          poolId: 'pool-abc',
+          recipient: '0xRecipient',
+          amount0: '5000',
+          amount1: '2500',
+        }),
+      );
+
+      expect(mockPrismaClient.feesCollected.upsert).toHaveBeenCalledTimes(1);
+    });
+  });
 
   describe('error propagation', () => {
     it('propagates Prisma errors from handlePoolCreated', async () => {

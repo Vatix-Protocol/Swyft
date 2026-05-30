@@ -133,46 +133,6 @@ export class PoolsService {
     return exists ? ({ id } as PoolDetail) : null;
   }
 
-  async invalidatePoolCache(poolId: string): Promise<void> {
-    await this.cache.invalidate(`pool:${poolId}`);
-  }
-
-  async getPoolTicks(poolId: string, query: GetTicksQueryDto): Promise<TickData[]> {
-    // Build cache key with optional filters
-    const cacheKey = this.getTicksCacheKey(poolId, query);
-    
-    // Try to get from cache first
-    const cached = await this.cache.get<TickData[]>(cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    // Build query for repository
-    const queryInput: GetTicksQuery = {
-      poolId,
-      lowerTick: query.lowerTick,
-      upperTick: query.upperTick,
-    };
-
-    // Fetch from database
-    const ticks = await this.poolsRepository.getTicks(queryInput);
-
-    // Cache the result - ticks data should be cached longer since it updates less frequently
-    // Cache for 5 minutes (300 seconds)
-    await this.cache.set(cacheKey, ticks, 300);
-
-    return ticks;
-  }
-
-  private getTicksCacheKey(poolId: string, query: GetTicksQueryDto): string {
-    return [
-      'pool:ticks:v1',
-      `poolId=${poolId}`,
-      `lower=${query.lowerTick ?? 'none'}`,
-      `upper=${query.upperTick ?? 'none'}`,
-    ].join(':');
-  }
-
   async getPoolTicks(
     poolId: string,
     lowerTick?: number,

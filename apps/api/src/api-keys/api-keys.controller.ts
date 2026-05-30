@@ -2,12 +2,13 @@ import { Body, Controller, Delete, Get, Param, Post, Request, UseGuards } from '
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ApiKeysService } from './api-keys.service';
+import { SWAGGER_TAGS } from '../swagger.constants';
 
 interface AuthRequest {
   user: { walletAddress: string };
 }
 
-@ApiTags('auth')
+@ApiTags(SWAGGER_TAGS.AUTH)
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('auth/api-keys')

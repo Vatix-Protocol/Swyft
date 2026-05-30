@@ -4,8 +4,9 @@ import { CurrentWallet } from '../auth/current-wallet.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { GetPositionsQueryDto } from './dto/get-positions-query.dto';
 import { PositionsListResponse, PositionsService } from './positions.service';
+import { SWAGGER_TAGS } from '../swagger.constants';
 
-@ApiTags('positions')
+@ApiTags(SWAGGER_TAGS.POSITIONS)
 @ApiBearerAuth()
 @Controller('positions')
 @UseGuards(JwtAuthGuard)

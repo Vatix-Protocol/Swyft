@@ -22,6 +22,10 @@ coverage/
 *.snap
 __snapshots__/
 .nyc_output/
+junit.xml
+test-results/
+playwright-report/
+*.lcov
 
 # logs
 *.log
@@ -41,3 +45,12 @@ Thumbs.db
 # misc
 .gitkeep
 *.tsbuildinfo
+
+# Rust / Soroban
+Cargo.lock
+*.wasm
+target/
+
+# package manager lock files (keep pnpm-lock.yaml, ignore others)
+package-lock.json
+yarn.lock

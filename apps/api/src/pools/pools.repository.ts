@@ -90,4 +90,11 @@ export class PoolsRepository {
       },
     });
   }
+
+  async poolExists(id: string): Promise<boolean> {
+    const count = await this.prisma.pool.count({
+      where: { id },
+    });
+    return count > 0;
+  }
 }

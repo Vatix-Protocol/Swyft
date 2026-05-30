@@ -1,44 +1,93 @@
-import { PoolState, TickState } from "./types";
+import { PoolState, TickState } from './types';
 
 const Q96 = 2n ** 96n;
 const MAX_TICK = 887272;
 const MIN_TICK = -887272;
 
+/**
+ * Parameters for calculating a simple swap quote without pool state.
+ * Used for quick estimates before fetching full pool data.
+ */
 export interface SwapQuoteParams {
-  poolId: string;
-  tokenInId: string;
-  tokenOutId: string;
-  amountIn: string;
-  slippageBps: number;
+  readonly poolId: string;
+  readonly tokenInId: string;
+  readonly tokenOutId: string;
+  readonly amountIn: string;
+  readonly slippageBps: number;
 }
 
+/**
+ * Quote result from a swap operation.
+ * All amounts are strings to preserve precision.
+ */
 export interface SwapQuote {
-  amountOut: string;
-  priceImpact: number;
-  lpFee: string;
-  protocolFee: string;
-  minimumReceived: string;
-  executionPrice: string;
+  readonly amountOut: string;
+  readonly priceImpact: number;
+  readonly lpFee: string;
+  readonly protocolFee: string;
+  readonly minimumReceived: string;
+  readonly executionPrice: string;
 }
 
-/** A zero-value quote returned when inputs are missing or invalid. */
+/** Pool state extended with optional tick ladder for local simulation. */
+export type PoolStateWithTicks = PoolState & { readonly ticks?: readonly TickState[] };
+
+export interface LocalSwapQuoteParams {
+  readonly poolState: PoolStateWithTicks;
+  readonly tokenIn: string;
+  readonly amountIn: string | bigint;
+  /** Slippage tolerance in basis points (0–10000). */
+  readonly slippage: number;
+}
+
+export interface LocalSwapQuote {
+  readonly amountOut: string;
+  readonly priceImpact: number;
+  readonly fee: string;
+  readonly minimumReceived: string;
+  readonly sqrtPriceLimitX96: string;
+}
+
+/** Intermediate result of a single tick-crossing swap step. */
+interface SwapStepResult {
+  readonly amountIn: bigint;
+  readonly amountOut: bigint;
+  readonly nextSqrtPrice: bigint;
+  readonly reachedTarget: boolean;
+}
+
+/**
+ * A zero-value quote returned when inputs are missing or invalid.
+ * Use as a fallback when swap parameters are invalid.
+ */
 export const EMPTY_QUOTE: SwapQuote = {
-  amountOut: "0",
+  amountOut: '0',
   priceImpact: 0,
-  lpFee: "0",
-  protocolFee: "0",
-  minimumReceived: "0",
-  executionPrice: "0",
+  lpFee: '0',
+  protocolFee: '0',
+  minimumReceived: '0',
+  executionPrice: '0',
 };
 
-/** Returns true when a quote carries no meaningful output (e.g. empty input). */
+/**
+ * Determine if a quote represents an empty or invalid result.
+ * @param quote - The quote to check
+ * @returns true if the quote is empty (zero output), false otherwise
+ */
 export function isEmptyQuote(quote: SwapQuote): boolean {
-  return quote.amountOut === "0" && quote.executionPrice === "0";
+  return quote.amountOut === '0' && quote.executionPrice === '0';
 }
 
+/**
+ * Calculates a local swap quote.
+ *
+ * @param params - Quote inputs for the swap.
+ * @returns A swap quote including output amount, price impact, fees, and minimum received.
+ */
 export function calculateSwapQuote(params: SwapQuoteParams): SwapQuote {
   if (!params?.amountIn) return EMPTY_QUOTE;
   const amountIn = parseFloat(params.amountIn);
+
   if (!amountIn || amountIn <= 0) {
     return EMPTY_QUOTE;
   }
@@ -50,37 +99,22 @@ export function calculateSwapQuote(params: SwapQuoteParams): SwapQuote {
   const amountOut = (reserveOut * amountInAfterFee) / (reserveIn + amountInAfterFee);
   const spotPrice = reserveOut / reserveIn;
   const executionPrice = amountOut / amountIn;
-  const priceImpact = Math.max(0, ((spotPrice - executionPrice) / spotPrice) * 100);
+  const priceImpactPct = Math.max(0, ((spotPrice - executionPrice) / spotPrice) * 100);
   const minimumReceived = amountOut * (1 - params.slippageBps / 10_000);
   return {
     amountOut: amountOut.toFixed(7),
-    priceImpact: parseFloat(priceImpact.toFixed(4)),
+    priceImpact: parseFloat(priceImpactPct.toFixed(4)),
     lpFee: lpFeeAmt.toFixed(7),
-    protocolFee: "0",
+    protocolFee: '0',
     minimumReceived: minimumReceived.toFixed(7),
     executionPrice: executionPrice.toFixed(7),
   };
 }
 
-export interface LocalSwapQuoteParams {
-  poolState: PoolState & { ticks?: TickState[] };
-  tokenIn: string;
-  amountIn: string | bigint;
-  slippage: number;
-}
-
-export interface LocalSwapQuote {
-  amountOut: string;
-  priceImpact: number;
-  fee: string;
-  minimumReceived: string;
-  sqrtPriceLimitX96: string;
-}
-
 export function getSwapQuote(params: LocalSwapQuoteParams): LocalSwapQuote {
   const amountIn = toBigIntAmount(params.amountIn);
   if (amountIn <= 0n) {
-    throw new Error("amountIn must be greater than zero");
+    throw new Error('amountIn must be greater than zero');
   }
 
   const zeroForOne = direction(params.poolState, params.tokenIn);
@@ -89,13 +123,13 @@ export function getSwapQuote(params: LocalSwapQuoteParams): LocalSwapQuote {
   let currentTick = params.poolState.currentTick;
 
   if (liquidity <= 0n) {
-    throw new Error("zero liquidity in current range");
+    throw new Error('zero liquidity in current range');
   }
 
   const fee = mulDivRoundingUp(amountIn, feeUnits(params.poolState.feeTier), 1_000_000n);
   let remaining = amountIn - fee;
   if (remaining <= 0n) {
-    throw new Error("amountIn is fully consumed by fees");
+    throw new Error('amountIn is fully consumed by fees');
   }
 
   let amountOut = 0n;
@@ -103,14 +137,14 @@ export function getSwapQuote(params: LocalSwapQuoteParams): LocalSwapQuote {
 
   while (remaining > 0n) {
     if (liquidity <= 0n) {
-      throw new Error("zero liquidity in range");
+      throw new Error('zero liquidity in range');
     }
 
     const nextTick = ticks.shift();
     const targetTick = nextTick?.tick ?? (zeroForOne ? MIN_TICK : MAX_TICK);
     const targetSqrtPrice = sqrtRatioAtTick(targetTick);
 
-    const step = zeroForOne
+    const step: SwapStepResult = zeroForOne
       ? swapToken0ForToken1Step(remaining, liquidity, sqrtPrice, targetSqrtPrice)
       : swapToken1ForToken0Step(remaining, liquidity, sqrtPrice, targetSqrtPrice);
 
@@ -123,7 +157,7 @@ export function getSwapQuote(params: LocalSwapQuoteParams): LocalSwapQuote {
     }
 
     if (!nextTick) {
-      throw new Error("amount exceeds available liquidity");
+      throw new Error('amount exceeds available liquidity');
     }
 
     liquidity = zeroForOne
@@ -136,7 +170,7 @@ export function getSwapQuote(params: LocalSwapQuoteParams): LocalSwapQuote {
 
   return {
     amountOut: amountOut.toString(),
-    priceImpact: priceImpact(params.poolState.sqrtPrice, sqrtPrice),
+    priceImpact: calcPriceImpact(params.poolState.sqrtPrice, sqrtPrice),
     fee: fee.toString(),
     minimumReceived: minimumReceived.toString(),
     sqrtPriceLimitX96: sqrtPrice.toString(),
@@ -146,11 +180,11 @@ export function getSwapQuote(params: LocalSwapQuoteParams): LocalSwapQuote {
 function direction(pool: PoolState, tokenIn: string): boolean {
   if (tokenIn === pool.token0) return true;
   if (tokenIn === pool.token1) return false;
-  throw new Error("invalid token direction");
+  throw new Error('invalid token direction');
 }
 
 function sortedTicks(
-  ticks: TickState[],
+  ticks: readonly TickState[],
   zeroForOne: boolean,
   currentTick: number,
 ): TickState[] {
@@ -164,7 +198,7 @@ function swapToken0ForToken1Step(
   liquidity: bigint,
   sqrtPrice: bigint,
   targetSqrtPrice: bigint,
-) {
+): SwapStepResult {
   const amountToTarget = getAmount0Delta(targetSqrtPrice, sqrtPrice, liquidity, true);
 
   if (amountRemaining >= amountToTarget) {
@@ -190,7 +224,7 @@ function swapToken1ForToken0Step(
   liquidity: bigint,
   sqrtPrice: bigint,
   targetSqrtPrice: bigint,
-) {
+): SwapStepResult {
   const amountToTarget = getAmount1Delta(sqrtPrice, targetSqrtPrice, liquidity, true);
 
   if (amountRemaining >= amountToTarget) {
@@ -215,7 +249,7 @@ function getAmount0Delta(
   sqrtA: bigint,
   sqrtB: bigint,
   liquidity: bigint,
-  roundUp: boolean,
+  roundUp: boolean
 ): bigint {
   const [lower, upper] = sqrtA < sqrtB ? [sqrtA, sqrtB] : [sqrtB, sqrtA];
   const numerator = liquidity * (upper - lower) * Q96;
@@ -227,7 +261,7 @@ function getAmount1Delta(
   sqrtA: bigint,
   sqrtB: bigint,
   liquidity: bigint,
-  roundUp: boolean,
+  roundUp: boolean
 ): bigint {
   const [lower, upper] = sqrtA < sqrtB ? [sqrtA, sqrtB] : [sqrtB, sqrtA];
   const numerator = liquidity * (upper - lower);
@@ -237,7 +271,7 @@ function getAmount1Delta(
 function getNextSqrtPriceFromAmount0In(
   sqrtPrice: bigint,
   liquidity: bigint,
-  amountIn: bigint,
+  amountIn: bigint
 ): bigint {
   const numerator = liquidity * sqrtPrice * Q96;
   const denominator = liquidity * Q96 + amountIn * sqrtPrice;
@@ -249,7 +283,7 @@ function sqrtRatioAtTick(tick: number): bigint {
   return BigInt(Math.floor(ratio * Number(Q96)));
 }
 
-function priceImpact(startSqrt: string, endSqrt: bigint): number {
+function calcPriceImpact(startSqrt: string, endSqrt: bigint): number {
   const start = Number(BigInt(startSqrt));
   const end = Number(endSqrt);
   if (!Number.isFinite(start) || !Number.isFinite(end) || start === 0) return 0;
@@ -260,20 +294,20 @@ function priceImpact(startSqrt: string, endSqrt: bigint): number {
 
 function applySlippage(amountOut: bigint, slippage: number): bigint {
   const bps = BigInt(Math.max(0, Math.floor(slippage)));
-  if (bps > 10_000n) throw new Error("slippage cannot exceed 10000 bps");
+  if (bps > 10_000n) throw new Error('slippage cannot exceed 10000 bps');
   return (amountOut * (10_000n - bps)) / 10_000n;
 }
 
 function feeUnits(feeTier: number): bigint {
   if (!Number.isInteger(feeTier) || feeTier < 0 || feeTier >= 1_000_000) {
-    throw new Error("invalid fee tier");
+    throw new Error('invalid fee tier');
   }
   return BigInt(feeTier);
 }
 
 function toBigIntAmount(value: string | bigint): bigint {
-  if (typeof value === "bigint") return value;
-  if (!/^\d+$/.test(value)) throw new Error("amountIn must be an integer string");
+  if (typeof value === 'bigint') return value;
+  if (!/^\d+$/.test(value)) throw new Error('amountIn must be an integer string');
   return BigInt(value);
 }
 

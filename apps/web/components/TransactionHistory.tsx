@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useSwaps, SwapSnapshot } from "@/hooks/useSwaps";
-import { useLpActivity, LpActivity } from "@/hooks/useLpActivity";
+import { useLpActivity, LpActivity, LpActivityType } from "@/hooks/useLpActivity";
 import { SWYFT_NETWORK } from "@/lib/constants";
 
 type Tab = "swaps" | "lp";
@@ -24,7 +24,7 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
   const filteredLpActivity = filterByDate(lpData?.items || [], startDate, endDate);
 
   const totalPages = Math.ceil(
-    (activeTab === "swaps" ? swapsData?.total : lpData?.total || 0) / 20
+    (activeTab === "swaps" ? (swapsData?.total ?? 0) : (lpData?.total ?? 0)) / 20
   );
 
   function filterByDate<T extends { timestamp: number }>(items: T[], start: string, end: string): T[] {
@@ -36,16 +36,16 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
     return items.filter((item) => item.timestamp >= startTime && item.timestamp <= endTime);
   }
 
-  function getExplorerUrl(txHash: string) {
+  function getExplorerUrl(txHash: string): string {
     const network = SWYFT_NETWORK.toLowerCase();
     return `https://stellar.expert/explorer/${network}/tx/${txHash}`;
   }
 
-  function formatDate(timestamp: number) {
+  function formatDate(timestamp: number): string {
     return new Date(timestamp * 1000).toLocaleString();
   }
 
-  function truncateHash(hash: string) {
+  function truncateHash(hash: string): string {
     return `${hash.slice(0, 8)}...${hash.slice(-8)}`;
   }
 
@@ -270,7 +270,7 @@ function LpTable({ activities, loading, error, getExplorerUrl, formatDate, trunc
     );
   }
 
-  const getTypeColor = (type: string) => {
+  const getTypeColor = (type: LpActivityType): string => {
     switch (type) {
       case "mint":
         return "text-emerald-600 dark:text-emerald-400";
@@ -278,12 +278,10 @@ function LpTable({ activities, loading, error, getExplorerUrl, formatDate, trunc
         return "text-red-600 dark:text-red-400";
       case "fee_collection":
         return "text-amber-600 dark:text-amber-400";
-      default:
-        return "text-zinc-600 dark:text-zinc-400";
     }
   };
 
-  const getTypeLabel = (type: string) => {
+  const getTypeLabel = (type: LpActivityType): string => {
     switch (type) {
       case "mint":
         return "Add";
@@ -291,8 +289,6 @@ function LpTable({ activities, loading, error, getExplorerUrl, formatDate, trunc
         return "Remove";
       case "fee_collection":
         return "Fees";
-      default:
-        return type;
     }
   };
 

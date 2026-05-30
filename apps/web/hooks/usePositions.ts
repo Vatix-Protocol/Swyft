@@ -35,24 +35,34 @@ export function usePosition(id: string | null, authToken: string | null) {
 export function usePositions(authToken: string | null) {
   const [positions, setPositions] = useState<PositionSnapshot[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authToken) { setPositions([]); return; }
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
     fetch(`${API_BASE}/positions?status=active`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load positions");
+        return r.json();
+      })
       .then((data: { items?: PositionSnapshot[] }) => {
         if (!cancelled) setPositions(data.items ?? []);
       })
-      .catch(() => { if (!cancelled) setPositions([]); })
+      .catch((e: Error) => {
+        if (!cancelled) {
+          setPositions([]);
+          setError(e.message);
+        }
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
   }, [authToken]);
 
-  return { positions, loading };
+  return { positions, loading, error };
 }

@@ -117,3 +117,4 @@ describe('PoolsService', () => {
       expect(cache.get).toHaveBeenCalledWith(expect.stringContaining(poolId));
     });
   });
+});

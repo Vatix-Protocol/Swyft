@@ -47,6 +47,7 @@ export const createMockPoolsRepository = () => ({
   listActivePools: jest.fn(),
   upsertPoolState: jest.fn(),
   getTicksByPoolId: jest.fn(),
+  poolExists: jest.fn().mockResolvedValue(true),
 });
 
 // ─── Redis mock factory ───────────────────────────────────────────────────────
