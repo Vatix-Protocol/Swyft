@@ -44,15 +44,15 @@ export function tickToPrice(
 }
 
 export interface AmountsForLiquidityParams {
-  sqrtPriceX96: bigint;
-  sqrtPriceLowerX96: bigint;
-  sqrtPriceUpperX96: bigint;
-  liquidity: bigint;
+  readonly sqrtPriceX96: bigint;
+  readonly sqrtPriceLowerX96: bigint;
+  readonly sqrtPriceUpperX96: bigint;
+  readonly liquidity: bigint;
 }
 
 export interface AmountsResult {
-  amount0: bigint;
-  amount1: bigint;
+  readonly amount0: bigint;
+  readonly amount1: bigint;
 }
 
 /**
@@ -92,17 +92,13 @@ export function getAmountsForLiquidity({
 }
 
 export interface LiquidityForAmountsParams {
-  sqrtPriceX96: bigint;
-  sqrtPriceLowerX96: bigint;
-  sqrtPriceUpperX96: bigint;
-  amount0: bigint;
-  amount1: bigint;
+  readonly sqrtPriceX96: bigint;
+  readonly sqrtPriceLowerX96: bigint;
+  readonly sqrtPriceUpperX96: bigint;
+  readonly amount0: bigint;
+  readonly amount1: bigint;
 }
 
-/**
- * Returns the maximum liquidity achievable for the given token amounts and price range.
- * Mirrors the inverse of amounts_for_liquidity.
- */
 /**
  * Returns the maximum liquidity achievable for the given token amounts and price range.
  *
@@ -142,33 +138,43 @@ export function getLiquidityForAmounts({
   }
 }
 
+/**
+ * Parameters for computing token amounts returned from a liquidity burn.
+ *
+ * All price fields are **Q64.96 fixed-point sqrt prices** — the same
+ * representation used on-chain and by {@link AmountsForLiquidityParams}.
+ */
 export interface AmountsDeltaParams {
-  currentPrice: bigint;   // sqrtPriceX96
-  lowerPrice: bigint;     // sqrtPriceLowerX96
-  upperPrice: bigint;     // sqrtPriceUpperX96
-  liquidityDelta: bigint; // liquidity to burn (positive)
+  /** Current sqrt price in Q64.96 format (sqrtPriceX96). */
+  readonly sqrtPriceX96: bigint;
+  /** Lower bound sqrt price in Q64.96 format. */
+  readonly sqrtPriceLowerX96: bigint;
+  /** Upper bound sqrt price in Q64.96 format. */
+  readonly sqrtPriceUpperX96: bigint;
+  /** Liquidity delta to burn — must be non-negative. */
+  readonly liquidityDelta: bigint;
 }
 
 /**
  * Returns token amounts returned for a partial or full burn.
  * Equivalent to calling getAmountsForLiquidity with liquidityDelta.
  *
- * @param params.currentPrice - current sqrtPrice (Q64.96)
- * @param params.lowerPrice - lower sqrtPrice (Q64.96)
- * @param params.upperPrice - upper sqrtPrice (Q64.96)
+ * @param params.sqrtPriceX96 - current sqrtPrice (Q64.96)
+ * @param params.sqrtPriceLowerX96 - lower sqrtPrice (Q64.96)
+ * @param params.sqrtPriceUpperX96 - upper sqrtPrice (Q64.96)
  * @param params.liquidityDelta - liquidity to burn (bigint)
  * @returns Object with `amount0` and `amount1` as bigint
  */
 export function getAmountsDelta({
-  currentPrice,
-  lowerPrice,
-  upperPrice,
+  sqrtPriceX96,
+  sqrtPriceLowerX96,
+  sqrtPriceUpperX96,
   liquidityDelta,
 }: AmountsDeltaParams): AmountsResult {
   return getAmountsForLiquidity({
-    sqrtPriceX96: currentPrice,
-    sqrtPriceLowerX96: lowerPrice,
-    sqrtPriceUpperX96: upperPrice,
+    sqrtPriceX96,
+    sqrtPriceLowerX96,
+    sqrtPriceUpperX96,
     liquidity: liquidityDelta,
   });
 }

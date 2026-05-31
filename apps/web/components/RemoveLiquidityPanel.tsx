@@ -37,13 +37,13 @@ export function RemoveLiquidityPanel({ position, token0Symbol, token1Symbol, aut
     let cancelled = false;
     setEstimatesLoading(true);
     // Use async SDK method to allow UI to show loading state
-    estimateRemoveAmountsAsync(
-      position.liquidity,
+    estimateRemoveAmountsAsync({
+      liquidity: position.liquidity,
       pct,
-      position.poolCurrentPrice,
-      position.lowerTick,
-      position.upperTick
-    )
+      currentPrice: position.poolCurrentPrice,
+      lowerTick: position.lowerTick,
+      upperTick: position.upperTick,
+    })
       .then((r) => { if (!cancelled) setEstimates(r); })
       .catch(() => { if (!cancelled) setEstimates({ amount0: '0', amount1: '0' }); })
       .finally(() => { if (!cancelled) setEstimatesLoading(false); });

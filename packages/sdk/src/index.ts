@@ -2,7 +2,7 @@ export { calculateSwapQuote, EMPTY_QUOTE, isEmptyQuote } from './quote';
 export type { SwapQuoteParams, SwapQuote, LocalSwapQuoteParams, LocalSwapQuote, PoolStateWithTicks } from './quote';
 
 export { buildBurnTx, buildCollectTx, estimateRemoveAmounts, estimateRemoveAmountsAsync } from './liquidity';
-export type { BurnTxParams, CollectTxParams, UnsignedTx, BurnUnsignedTx, CollectUnsignedTx, RemoveAmountsResult } from './liquidity';
+export type { BurnTxParams, CollectTxParams, UnsignedTx, BurnUnsignedTx, CollectUnsignedTx, RemoveAmountsResult, RemoveAmountsParams } from './liquidity';
 
 // #69 — Pool query helpers
 export { getPool, getPosition, getTick, EMPTY_POSITION_MESSAGE } from './queries';
