@@ -203,7 +203,38 @@ describe("PortfolioPage", () => {
     const PortfolioPage = await importPage();
     render(<PortfolioPage />);
 
-    expect(screen.getByText("No positions yet.")).toBeInTheDocument();
+    expect(screen.getByText("You have no active positions yet.")).toBeInTheDocument();
+    expect(screen.getByText("Add liquidity to a pool to get started.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Browse pools" })).toBeInTheDocument();
+  });
+
+  it("keeps a first-position next step when showing all positions with no data", async () => {
+    const PortfolioPage = await importPage();
+    render(<PortfolioPage />);
+
+    const toggle = screen.getByRole("switch", { name: /show closed/i });
+    fireEvent.click(toggle);
+
+    expect(screen.getByText("You have no positions yet.")).toBeInTheDocument();
+    expect(screen.getByText("Add liquidity to a pool to create your first position.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Browse pools" })).toBeInTheDocument();
+  });
+
+  it("explains the next step when there are closed positions but no active positions", async () => {
+    const closedPos = makePosition({ id: "pos-closed", status: "closed", closedAt: 1_700_000_000 });
+    mockUsePortfolio.mockReturnValue({
+      active: [],
+      closed: [closedPos],
+      loading: false,
+      refresh: mockRefresh,
+      totalValueUsd: 0,
+    });
+
+    const PortfolioPage = await importPage();
+    render(<PortfolioPage />);
+
+    expect(screen.getByText("No active positions found.")).toBeInTheDocument();
+    expect(screen.getByText("Add liquidity to open a new position, or show closed positions to review past ones.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Browse pools" })).toBeInTheDocument();
   });
 

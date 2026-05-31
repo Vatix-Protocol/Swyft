@@ -74,6 +74,7 @@ export default function PortfolioPage() {
   if (!address) return null;
 
   const positions = showClosed ? [...active, ...closed] : active;
+  const hasAnyPositions = active.length + closed.length > 0;
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-6 sm:py-10">
@@ -127,8 +128,25 @@ export default function PortfolioPage() {
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
           {showClosed ? (
             <>
-              <p className="text-sm text-zinc-500">No closed positions found.</p>
-              <p className="text-xs text-zinc-400">Positions you close will appear here.</p>
+              <p className="text-sm text-zinc-500">You have no positions yet.</p>
+              <p className="text-xs text-zinc-400">Add liquidity to a pool to create your first position.</p>
+              <Link
+                href="/pools"
+                className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
+              >
+                Browse pools
+              </Link>
+            </>
+          ) : hasAnyPositions ? (
+            <>
+              <p className="text-sm text-zinc-500">No active positions found.</p>
+              <p className="text-xs text-zinc-400">Add liquidity to open a new position, or show closed positions to review past ones.</p>
+              <Link
+                href="/pools"
+                className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
+              >
+                Browse pools
+              </Link>
             </>
           ) : (
             <>
