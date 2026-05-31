@@ -56,22 +56,54 @@ export function buildCollectTx(params: CollectTxParams): CollectUnsignedTx {
 }
 
 /**
+ * Parameters for estimating token amounts returned from a liquidity removal.
+ */
+export interface RemoveAmountsParams {
+  /** Current position liquidity as a decimal string. */
+  readonly liquidity: string;
+  /** Percentage of liquidity to remove (0–100). */
+  readonly pct: number;
+  /** Current pool price (token1/token0). */
+  readonly currentPrice: number;
+  /** Lower tick bound of the position. */
+  readonly lowerTick: number;
+  /** Upper tick bound of the position. */
+  readonly upperTick: number;
+}
+
+/**
  * Estimates token amounts returned for a given liquidity removal percentage.
  *
- * @param liquidity - Current position liquidity as a decimal string.
- * @param pct - Percentage of liquidity to remove (0–100).
- * @param currentPrice - Current pool price (token1/token0).
- * @param lowerTick - Lower tick bound of the position.
- * @param upperTick - Upper tick bound of the position.
+ * @param params - The removal parameters.
+ * @returns Estimated token amounts as fixed-point strings (7 decimals).
+ * @throws {RangeError} If `pct` is outside the 0–100 range.
+ * @throws {RangeError} If `liquidity` cannot be parsed as a finite number.
+ *
+ * @example
+ * ```ts
+ * const result = estimateRemoveAmounts({
+ *   liquidity: '1000000',
+ *   pct: 50,
+ *   currentPrice: 1.5,
+ *   lowerTick: -1000,
+ *   upperTick: 1000,
+ * });
+ * ```
  */
-export function estimateRemoveAmounts(
-  liquidity: string,
-  pct: number,
-  currentPrice: number,
-  lowerTick: number,
-  upperTick: number,
-): RemoveAmountsResult {
+export function estimateRemoveAmounts({
+  liquidity,
+  pct,
+  currentPrice,
+  lowerTick,
+  upperTick,
+}: RemoveAmountsParams): RemoveAmountsResult {
+  if (pct < 0 || pct > 100) {
+    throw new RangeError('pct must be between 0 and 100');
+  }
   const liq = parseFloat(liquidity);
+  if (!Number.isFinite(liq)) {
+    throw new RangeError('liquidity must be a finite number');
+  }
   const fraction = pct / 100;
 
   // Simplified geometric approximation — replace with full tick math in SDK v1
@@ -98,22 +130,20 @@ export function estimateRemoveAmounts(
 }
 
 /**
- * Async version of `estimateRemoveAmounts` that returns a Promise and can be
- * awaited by UIs that want to show a loading state while the math runs.
+ * Async version of {@link estimateRemoveAmounts} that returns a Promise and
+ * can be awaited by UIs that want to show a loading state while the math runs.
  * The computation is lightweight but wrapped in a microtask to allow
  * consumers to display spinners/skeletons.
+ *
+ * @param params - The removal parameters (same as {@link estimateRemoveAmounts}).
  */
 export async function estimateRemoveAmountsAsync(
-  liquidity: string,
-  pct: number,
-  currentPrice: number,
-  lowerTick: number,
-  upperTick: number,
+  params: RemoveAmountsParams,
 ): Promise<RemoveAmountsResult> {
   return new Promise((resolve) => {
     // Defer to next tick so callers can render loading UI
     Promise.resolve().then(() => {
-      resolve(estimateRemoveAmounts(liquidity, pct, currentPrice, lowerTick, upperTick));
+      resolve(estimateRemoveAmounts(params));
     });
   });
 }

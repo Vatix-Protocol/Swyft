@@ -157,9 +157,9 @@ describe("getAmountsDelta", () => {
       liquidity: LIQUIDITY,
     });
     const delta = getAmountsDelta({
-      currentPrice: SQRT_MID,
-      lowerPrice: SQRT_LOWER,
-      upperPrice: SQRT_UPPER,
+      sqrtPriceX96: SQRT_MID,
+      sqrtPriceLowerX96: SQRT_LOWER,
+      sqrtPriceUpperX96: SQRT_UPPER,
       liquidityDelta: LIQUIDITY,
     });
     expect(delta.amount0).toBe(direct.amount0);
@@ -168,9 +168,9 @@ describe("getAmountsDelta", () => {
 
   it("returns zero amounts for zero liquidityDelta", () => {
     const { amount0, amount1 } = getAmountsDelta({
-      currentPrice: SQRT_MID,
-      lowerPrice: SQRT_LOWER,
-      upperPrice: SQRT_UPPER,
+      sqrtPriceX96: SQRT_MID,
+      sqrtPriceLowerX96: SQRT_LOWER,
+      sqrtPriceUpperX96: SQRT_UPPER,
       liquidityDelta: 0n,
     });
     expect(amount0).toBe(0n);
