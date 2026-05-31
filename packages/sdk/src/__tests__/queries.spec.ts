@@ -83,7 +83,9 @@ describe('getPool', () => {
 
 describe('getPosition', () => {
   it('returns typed PositionState on success', async () => {
-    mockSimulate.mockResolvedValue({ result: { retval: {} } });
+    mockSimulate.mockResolvedValue({
+      result: { retval: { switch: () => ({ name: 'scvOk' }) } },
+    });
     (scValToNative as unknown as jest.Mock).mockReturnValue({
       owner: 'GOWNER',
       pool: 'CPOOL',
@@ -104,31 +106,46 @@ describe('getPosition', () => {
     });
   });
 
-  it('throws SwyftRpcError when position is empty (Option::None)', async () => {
-    mockSimulate.mockResolvedValue({ result: { retval: {} } });
+  it('returns null when position is empty (Option::None)', async () => {
+    mockSimulate.mockResolvedValue({
+      result: { retval: { switch: () => ({ name: 'scvOk' }) } },
+    });
     (scValToNative as unknown as jest.Mock).mockReturnValue(null);
 
-    await expect(
-      getPosition({ rpcUrl: 'https://rpc.example.com', positionNftId: 'CNFT' })
-    ).rejects.toBeInstanceOf(SwyftRpcError);
+    const pos = await getPosition({ rpcUrl: 'https://rpc.example.com', positionNftId: 'CNFT' });
+
+    expect(pos).toBeNull();
   });
 
-  it('throws SwyftRpcError when position is empty (decoder returns empty object)', async () => {
-    mockSimulate.mockResolvedValue({ result: { retval: {} } });
+  it('returns null when position is empty because the contract returned scvVoid', async () => {
+    mockSimulate.mockResolvedValue({ result: { retval: { switch: () => ({ name: 'scvVoid' }) } } });
     (scValToNative as unknown as jest.Mock).mockReturnValue({});
 
-    await expect(
-      getPosition({ rpcUrl: 'https://rpc.example.com', positionNftId: 'CNFT' })
-    ).rejects.toBeInstanceOf(SwyftRpcError);
+    const pos = await getPosition({ rpcUrl: 'https://rpc.example.com', positionNftId: 'CNFT' });
+
+    expect(pos).toBeNull();
   });
 
-  it('throws SwyftRpcError when position is empty (wrapped option-like { value: null })', async () => {
-    mockSimulate.mockResolvedValue({ result: { retval: {} } });
+  it('returns null when position is empty (decoder returns empty object)', async () => {
+    mockSimulate.mockResolvedValue({
+      result: { retval: { switch: () => ({ name: 'scvOk' }) } },
+    });
+    (scValToNative as unknown as jest.Mock).mockReturnValue({});
+
+    const pos = await getPosition({ rpcUrl: 'https://rpc.example.com', positionNftId: 'CNFT' });
+
+    expect(pos).toBeNull();
+  });
+
+  it('returns null when position is empty (wrapped option-like { value: null })', async () => {
+    mockSimulate.mockResolvedValue({
+      result: { retval: { switch: () => ({ name: 'scvOk' }) } },
+    });
     (scValToNative as unknown as jest.Mock).mockReturnValue({ value: null });
 
-    await expect(
-      getPosition({ rpcUrl: 'https://rpc.example.com', positionNftId: 'CNFT' })
-    ).rejects.toBeInstanceOf(SwyftRpcError);
+    const pos = await getPosition({ rpcUrl: 'https://rpc.example.com', positionNftId: 'CNFT' });
+
+    expect(pos).toBeNull();
   });
 
   it('throws SwyftRpcError on simulation error', async () => {

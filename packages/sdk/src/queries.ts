@@ -81,49 +81,40 @@ export async function getPosition({
 }: {
   rpcUrl: string;
   positionNftId: string;
-}): Promise<PositionState> {
+}): Promise<PositionState | null> {
   // positionNftId is the NFT contract address that holds the position
   const retval = await callContract(rpcUrl, positionNftId, 'get_position');
-  const raw = assertRawObject(scValToNative(retval), positionNftId);
-
-  // Contract may return void/null when the position does not exist
   if (retval.switch().name === 'scvVoid') return null;
 
-  const raw = scValToNative(retval) as Record<string, unknown>;
-  if (!raw || typeof raw !== 'object') return null;
-
-  // If the decoder yields an empty object, treat it as Option::None.
-  if (Object.keys(raw as Record<string, unknown>).length === 0) {
-    throw new SwyftRpcError(`Position is empty (token not found) on ${positionNftId}`);
+  const rawValue = scValToNative(retval);
+  if (rawValue === null || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+    return null;
   }
 
-  // Handle potential option-like wrappers: { value: null }
-  const maybeValue = (raw as Record<string, unknown>)['value'];
-  if ('value' in (raw as Record<string, unknown>) && maybeValue == null) {
-    throw new SwyftRpcError(`Position is empty (token not found) on ${positionNftId}`);
+  const raw = rawValue as Record<string, unknown>;
+  if (Object.keys(raw).length === 0) {
+    return null;
   }
 
-  // If wrapped as { value: PositionMetadata }, unwrap it.
-  const position =
-    'value' in (raw as Record<string, unknown>)
-      ? ((raw as Record<string, unknown>)['value'] ?? raw)
-      : raw;
+  const maybeValue = raw['value'];
+  if ('value' in raw && maybeValue == null) {
+    return null;
+  }
 
+  const positionData =
+    'value' in raw && maybeValue !== undefined ? maybeValue : raw;
+  if (positionData === null || typeof positionData !== 'object' || Array.isArray(positionData)) {
+    return null;
+  }
+
+  const position = positionData as Record<string, unknown>;
   return {
     positionNftId,
-    owner: String((position as Record<string, unknown>)['owner'] ?? ''),
-    pool: String((position as Record<string, unknown>)['pool'] ?? ''),
-    lowerTick: Number(
-      (position as Record<string, unknown>)['lower_tick'] ??
-        (position as Record<string, unknown>)['lowerTick'] ??
-        0
-    ),
-    upperTick: Number(
-      (position as Record<string, unknown>)['upper_tick'] ??
-        (position as Record<string, unknown>)['upperTick'] ??
-        0
-    ),
-    liquidity: String((position as Record<string, unknown>)['liquidity'] ?? '0'),
+    owner: String(position['owner'] ?? ''),
+    pool: String(position['pool'] ?? ''),
+    lowerTick: Number(position['lower_tick'] ?? position['lowerTick'] ?? 0),
+    upperTick: Number(position['upper_tick'] ?? position['upperTick'] ?? 0),
+    liquidity: String(position['liquidity'] ?? '0'),
   };
 }
 
