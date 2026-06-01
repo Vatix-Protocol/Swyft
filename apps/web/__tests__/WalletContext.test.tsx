@@ -35,7 +35,7 @@ describe('WalletContext', () => {
     loading: false,
     connect: vi.fn(async () => undefined),
     disconnect: vi.fn(),
-    signTransaction: null,
+    signTransaction: vi.fn(async () => ''),
   };
 
   beforeEach(() => {

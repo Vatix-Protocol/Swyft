@@ -85,7 +85,18 @@ export function isEmptyQuote(quote: SwapQuote): boolean {
  * @returns A swap quote including output amount, price impact, fees, and minimum received.
  */
 export function calculateSwapQuote(params: SwapQuoteParams): SwapQuote {
-  if (!params?.amountIn) return EMPTY_QUOTE;
+  if (
+    !params ||
+    !params.amountIn ||
+    params.amountIn.trim().length === 0 ||
+    !params.tokenInId ||
+    !params.tokenOutId ||
+    params.slippageBps < 0 ||
+    params.slippageBps > 10000
+  ) {
+    return EMPTY_QUOTE;
+  }
+
   const amountIn = parseFloat(params.amountIn);
 
   if (!amountIn || amountIn <= 0) {

@@ -3,7 +3,7 @@
 import { createContext, useContext, ReactNode } from "react";
 import { useWallet, WalletState } from "@/hooks/useWallet";
 
-const WalletContext = createContext<WalletState | null>(null);
+const WalletContext = createContext<WalletState | undefined>(undefined);
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const wallet = useWallet();

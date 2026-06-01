@@ -23,6 +23,20 @@ fn setup() -> (Env, Address, Address, Address, Address) {
     (env, contract_id, minter, pool, user)
 }
 
+fn setup_without_mock_auths() -> (Env, Address, Address, Address, Address) {
+    let env = Env::default();
+
+    let contract_id = env.register_contract(None, PositionNft);
+    let minter = Address::generate(&env);
+    let pool = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    let client = PositionNftClient::new(&env, &contract_id);
+    client.initialize(&minter);
+
+    (env, contract_id, minter, pool, user)
+}
+
 // ── initialize ────────────────────────────────────────────────────────────────
 
 #[test]
@@ -53,6 +67,14 @@ fn test_mint_returns_incrementing_ids() {
     assert_eq!(id0, 0u64);
     assert_eq!(id1, 1u64);
     assert_eq!(client.next_id(), 2u64);
+}
+
+#[test]
+#[should_panic]
+fn test_mint_panics_when_caller_is_not_authorized() {
+    let (env, contract_id, _minter, pool, user) = setup_without_mock_auths();
+    let client = PositionNftClient::new(&env, &contract_id);
+    client.mint(&user, &pool, &0i32, &60i32, &100u128);
 }
 
 #[test]

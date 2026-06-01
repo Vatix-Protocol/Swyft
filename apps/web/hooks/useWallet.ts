@@ -25,7 +25,7 @@ export interface WalletState {
   loading: boolean;
   connect: () => Promise<void>;
   disconnect: () => void;
-  signTransaction: ((xdr: string) => Promise<string>) | null;
+  signTransaction: (xdr: string) => Promise<string>;
 }
 
 export function useWallet(): WalletState {
