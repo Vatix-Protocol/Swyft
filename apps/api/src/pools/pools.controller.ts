@@ -23,6 +23,16 @@ import { SWAGGER_TAGS } from '../swagger.constants';
 
 @ApiTags(SWAGGER_TAGS.POOLS)
 @Controller('pools')
+/**
+ * PoolsController — HTTP API surface for pool-related operations.
+ *
+ * Exported endpoints:
+ * - `GET /pools` : List active pools with pagination and filtering.
+ * - `GET /pools/:id` : Get full pool details by ID.
+ * - `GET /pools/:id/ticks` : Retrieve initialized ticks for a pool.
+ *
+ * Each handler documents accepted params and response shapes.
+ */
 export class PoolsController {
   constructor(
     private readonly poolsService: PoolsService,

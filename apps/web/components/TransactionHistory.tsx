@@ -168,7 +168,7 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
 interface SwapTableProps {
   swaps: SwapSnapshot[];
   loading: boolean;
-  error: Error | null;
+  error: unknown;
   getExplorerUrl: (hash: string) => string;
   formatDate: (timestamp: number) => string;
   truncateHash: (hash: string) => string;
@@ -256,7 +256,7 @@ function SwapTable({ swaps, loading, error, getExplorerUrl, formatDate, truncate
 interface LpTableProps {
   activities: LpActivity[];
   loading: boolean;
-  error: Error | null;
+  error: unknown;
   getExplorerUrl: (hash: string) => string;
   formatDate: (timestamp: number) => string;
   truncateHash: (hash: string) => string;
