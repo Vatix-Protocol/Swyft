@@ -35,9 +35,15 @@ export interface PoolId {
   readonly token1: string;
 }
 
-/** Parameters for building an exact-input single-hop swap transaction. */
+/**
+ * Parameters for building an exact-input single-hop swap transaction.
+ *
+ * @remarks
+ * This interface is intended for a simplified swap builder and does not
+ * include advanced route construction or multi-hop trade details.
+ */
 export interface SwapTxParams {
-  /** On-chain pool contract address. */
+  /** On-chain pool contract address used to execute the swap. */
   readonly poolId: StellarAddress;
   /** Contract address of the token being sold. */
   readonly tokenInId: StellarAddress;
@@ -45,16 +51,18 @@ export interface SwapTxParams {
   readonly tokenOutId: StellarAddress;
   /** Raw amount of `tokenIn` to sell (as a string to avoid JS bigint loss). */
   readonly amountIn: RawAmount;
-  /** Slippage-adjusted minimum amount of `tokenOut` to receive. */
+  /** Minimum amount of `tokenOut` that must be received after slippage. */
   readonly minimumReceived: RawAmount;
   /** Stellar account address of the transaction submitter / recipient. */
   readonly ownerAddress: StellarAddress;
 }
 
-/** An unsigned Soroban transaction envelope ready for wallet signing. */
+/**
+ * An unsigned Soroban swap transaction envelope ready for wallet signing.
+ */
 export interface SwapUnsignedTx {
   /** Base-64 encoded XDR of the transaction envelope. */
-  readonly xdr: string;
+  readonly xdr: XdrBase64;
   /** Discriminant so callers can narrow the union type. */
   readonly type: 'swap';
 }
@@ -62,14 +70,16 @@ export interface SwapUnsignedTx {
 // ── Builder ───────────────────────────────────────────────────────────────────
 
 /**
- * Builds an unsigned swap transaction XDR.
- * Stub — replace with real Soroban router contract invocation via stellar-sdk.
+ * Builds an unsigned swap transaction XDR from provided swap parameters.
  *
- * @param params - Swap parameters including pool, tokens, amounts, and signer.
- * @returns An unsigned transaction envelope in XDR format.
+ * The returned transaction is a stub payload that should be replaced with a
+ * real Soroban router invocation in production.
+ *
+ * @param params - Swap parameters including pool ID, token IDs, amounts, and owner.
+ * @returns An unsigned swap transaction envelope in base-64 XDR format.
  */
 export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
   const payload = JSON.stringify({ op: 'swap', ...params });
-  const xdr = btoa(payload);
+  const xdr = btoa(payload) as XdrBase64;
   return { xdr, type: 'swap' };
 }

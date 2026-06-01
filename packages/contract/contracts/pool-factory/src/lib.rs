@@ -19,6 +19,7 @@ pub enum FactoryError {
     IdenticalTokens = 4,
     DuplicatePool = 5,
     PoolWasmHashMissing = 6,
+    LoadingInProgress = 7,
 }
 
 #[contracttype]
@@ -37,6 +38,7 @@ enum DataKey {
     MathLib,
     PoolWasmHash,
     Pools,
+    Loading,
 }
 
 #[contracttype]
@@ -89,6 +91,7 @@ impl PoolFactory {
         env.storage()
             .instance()
             .set(&DataKey::Pools, &Map::<PoolKey, Address>::new(&env));
+        env.storage().instance().set(&DataKey::Loading, &false);
     }
 
     /// Deploys a new CL pool contract for the token pair and fee tier.
@@ -103,6 +106,7 @@ impl PoolFactory {
     /// The address of the newly deployed pool contract.
     pub fn create_pool(env: Env, token_a: Address, token_b: Address, fee_tier: u32) -> Address {
         ensure_initialized(&env);
+        ensure_not_loading(&env);
         validate_fee_tier(&env, fee_tier);
 
         let (token0, token1) = normalize_pair(&env, token_a, token_b);
@@ -123,11 +127,13 @@ impl PoolFactory {
             .get::<DataKey, BytesN<32>>(&DataKey::PoolWasmHash)
             .unwrap_or_else(|| panic_with_error!(&env, FactoryError::PoolWasmHashMissing));
 
+        set_loading(&env, true);
         let salt = env.crypto().sha256(&key.to_xdr(&env));
         let pool = env.deployer().with_current_contract(salt).deploy(wasm_hash);
 
         pools.set(key.clone(), pool.clone());
         env.storage().instance().set(&DataKey::Pools, &pools);
+        set_loading(&env, false);
 
         let event = PoolCreatedEvent {
             token_a: key.token_a,
@@ -212,6 +218,18 @@ impl PoolFactory {
         env.storage().instance().get(&DataKey::PoolWasmHash).unwrap()
     }
 
+    /// Returns whether the factory is currently processing a long-running write.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban environment handle.
+    ///
+    /// # Returns
+    /// `true` when the factory is in a loading state, otherwise `false`.
+    pub fn get_is_loading(env: Env) -> bool {
+        ensure_initialized(&env);
+        is_loading(&env)
+    }
+
     /// Returns the supported fee tiers for pools deployed by this factory.
     ///
     /// # Parameters
@@ -237,6 +255,7 @@ impl PoolFactory {
     /// Nothing.
     pub fn set_pool_wasm_hash(env: Env, wasm_hash: BytesN<32>) {
         ensure_initialized(&env);
+        ensure_not_loading(&env);
         require_owner(&env);
         env.storage().instance().set(&DataKey::PoolWasmHash, &wasm_hash);
     }
@@ -251,6 +270,7 @@ impl PoolFactory {
     /// Nothing.
     pub fn set_math_lib(env: Env, math_lib: Address) {
         ensure_initialized(&env);
+        ensure_not_loading(&env);
         require_owner(&env);
         env.storage().instance().set(&DataKey::MathLib, &math_lib);
     }
@@ -265,6 +285,7 @@ impl PoolFactory {
     /// Nothing.
     pub fn set_owner(env: Env, new_owner: Address) {
         ensure_initialized(&env);
+        ensure_not_loading(&env);
         require_owner(&env);
         env.storage().instance().set(&DataKey::Owner, &new_owner);
     }
@@ -311,6 +332,23 @@ fn read_pools(env: &Env) -> Map<PoolKey, Address> {
         .instance()
         .get::<DataKey, Map<PoolKey, Address>>(&DataKey::Pools)
         .unwrap_or(Map::new(env))
+}
+
+fn is_loading(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get::<DataKey, bool>(&DataKey::Loading)
+        .unwrap_or(false)
+}
+
+fn ensure_not_loading(env: &Env) {
+    if is_loading(env) {
+        panic_with_error!(env, FactoryError::LoadingInProgress);
+    }
+}
+
+fn set_loading(env: &Env, value: bool) {
+    env.storage().instance().set(&DataKey::Loading, &value);
 }
 
 #[cfg(test)]
@@ -437,6 +475,37 @@ mod tests {
         
         let pool = client.get_pool(&token_a, &token_b, &FEE_TIER_03);
         assert!(pool.is_none());
+    }
+
+    #[test]
+    fn test_get_is_loading_defaults_false() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, [1; 32]);
+
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+        assert_eq!(client.get_is_loading(), false);
+    }
+
+    #[test]
+    fn test_create_pool_clears_loading_state() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, [1; 32]);
+
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+
+        let token_a = Address::generate(&env);
+        let token_b = Address::generate(&env);
+
+        client.create_pool(&token_a, &token_b, &FEE_TIER_03);
+        assert_eq!(client.get_is_loading(), false);
     }
 
     #[test]
