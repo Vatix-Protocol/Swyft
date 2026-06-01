@@ -274,6 +274,12 @@ describe('IndexerWorker', () => {
       expect(completedCalls).toHaveLength(Object.keys(QUEUE_NAMES).length);
       expect(failedCalls).toHaveLength(Object.keys(QUEUE_NAMES).length);
     });
+
+    it('has a loading state property on the worker', async () => {
+      expect(worker.isLoading).toBe(false);
+      await worker.onModuleInit();
+      expect(worker.isLoading).toBe(false);
+    });
   });
 
   describe('onModuleDestroy()', () => {

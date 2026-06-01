@@ -543,7 +543,7 @@ impl Pool {
     /// * `sqrt_price_limit_x96` - Price limit in Q64.96 format; swap stops if this price is reached.
     ///
     /// # Returns
-    /// A [`SwapResult`] with `amount_in` consumed and `amount_out` received.
+    /// A [`SwapResult`] with the input amount consumed and the output amount returned.
     pub fn swap(
         env: Env,
         token_in: Address,
@@ -552,26 +552,39 @@ impl Pool {
         exact_input: bool,
         sqrt_price_limit_x96: u128,
     ) -> SwapResult {
-        // Simplified swap implementation for fee testing
-        // In practice, this would do the full swap logic
+        // Simplified swap implementation for fee testing.
+        // In practice, this would do the full swap logic.
         let fee_amount = amount_in / 1000; // 0.1% fee
-        Self::accrue_fees(env, fee_amount, 0); // Assume token0 fee
+
+        Self::accrue_fees(env.clone(), fee_amount, 0); // Assume token0 fee
+
         SwapResult {
             amount_in,
             amount_out: amount_in - fee_amount,
         }
     }
+
+    /// Update global fee growth accumulators for collected protocol fees.
+    ///
+    /// # Arguments
+    /// * `fee_0` - Protocol fee amount collected in token0 units.
+    /// * `fee_1` - Protocol fee amount collected in token1 units.
+    fn accrue_fees(env: Env, fee_0: u128, fee_1: u128) {
         let mut state = load_state(&env);
         if state.liquidity > 0 {
-            // fee_growth_delta = (fee_amount << 128) / liquidity
-            // But since fee_amount might be small, we need to be careful
-            // For simplicity, assume fee_amount is already scaled appropriately
-            // In practice, this should use mulDiv
             state.fee_growth_global_0_x128 = state.fee_growth_global_0_x128.wrapping_add(
-                if fee_0 > 0 { (fee_0 << 128) / state.liquidity } else { 0 }
+                if fee_0 > 0 {
+                    (fee_0 << 128) / state.liquidity
+                } else {
+                    0
+                },
             );
             state.fee_growth_global_1_x128 = state.fee_growth_global_1_x128.wrapping_add(
-                if fee_1 > 0 { (fee_1 << 128) / state.liquidity } else { 0 }
+                if fee_1 > 0 {
+                    (fee_1 << 128) / state.liquidity
+                } else {
+                    0
+                },
             );
         }
         env.storage().instance().set(&KEY_STATE, &state);
