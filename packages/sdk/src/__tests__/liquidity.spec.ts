@@ -79,6 +79,17 @@ describe("estimateRemoveAmounts", () => {
   it("throws RangeError for non-finite liquidity", () => {
     expect(() => estimateRemoveAmounts({ ...base, liquidity: "NaN" })).toThrow(RangeError);
   });
+
+  it("throws RangeError for Infinity liquidity string", () => {
+    expect(() => estimateRemoveAmounts({ ...base, liquidity: "Infinity" })).toThrow(RangeError);
+  });
+
+  it("scales proportionally with liquidity amount", () => {
+    const single = estimateRemoveAmounts(base);
+    const triple = estimateRemoveAmounts({ ...base, liquidity: "3000000" });
+    expect(parseFloat(triple.amount0)).toBeCloseTo(parseFloat(single.amount0) * 3, 5);
+    expect(parseFloat(triple.amount1)).toBeCloseTo(parseFloat(single.amount1) * 3, 5);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -198,8 +198,17 @@ function SwapTable({ swaps, loading, error, getExplorerUrl, formatDate, truncate
   if (!loading && swaps.length === 0) {
     return (
       <div className="text-center py-12">
-        <p className="text-zinc-500 dark:text-zinc-400 mb-2">No swap history found</p>
-        <p className="text-sm text-zinc-400 dark:text-zinc-500">Your swap transactions will appear here</p>
+        <p className="text-zinc-500 dark:text-zinc-400 mb-2">No swap history yet</p>
+        <p className="text-sm text-zinc-400 dark:text-zinc-500">
+          Your swaps will appear here once they are indexed.{" "}
+          <span className="text-zinc-500 dark:text-zinc-400">
+            Head to the{" "}
+            <a href="/" className="underline hover:text-indigo-500 transition-colors">
+              Swap page
+            </a>{" "}
+            to make your first trade.
+          </span>
+        </p>
       </div>
     );
   }
@@ -275,8 +284,17 @@ function LpTable({ activities, loading, error, getExplorerUrl, formatDate, trunc
   if (!loading && activities.length === 0) {
     return (
       <div className="text-center py-12">
-        <p className="text-zinc-500 dark:text-zinc-400 mb-2">No LP activity found</p>
-        <p className="text-sm text-zinc-400 dark:text-zinc-500">Your liquidity operations will appear here</p>
+        <p className="text-zinc-500 dark:text-zinc-400 mb-2">No LP activity yet</p>
+        <p className="text-sm text-zinc-400 dark:text-zinc-500">
+          Your liquidity events will appear here once they are indexed.{" "}
+          <span className="text-zinc-500 dark:text-zinc-400">
+            Visit the{" "}
+            <a href="/pools" className="underline hover:text-indigo-500 transition-colors">
+              Pools page
+            </a>{" "}
+            to add liquidity and start earning fees.
+          </span>
+        </p>
       </div>
     );
   }

@@ -22,6 +22,9 @@ export const SWAGGER_TAGS = {
 
   /** Authentication and authorization endpoints. */
   AUTH: 'auth',
+
+  /** Indexer status and queue-health endpoints. */
+  INDEXER: 'indexer',
 } as const;
 
 /** Valid Swagger tag values supported by the Swyft API. */

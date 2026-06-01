@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { IndexerWorker } from './indexer.worker';
+import { IndexerController } from './indexer.controller';
 import { createQueue, QUEUE_NAMES } from './queues';
 
 export const QUEUE_POOL_CREATED = 'QUEUE_POOL_CREATED';
@@ -9,6 +10,7 @@ export const QUEUE_POSITION_BURNED = 'QUEUE_POSITION_BURNED';
 export const QUEUE_FEES_COLLECTED = 'QUEUE_FEES_COLLECTED';
 
 @Module({
+  controllers: [IndexerController],
   providers: [
     IndexerWorker,
     { provide: QUEUE_POOL_CREATED, useFactory: () => createQueue(QUEUE_NAMES.POOL_CREATED) },
@@ -18,6 +20,7 @@ export const QUEUE_FEES_COLLECTED = 'QUEUE_FEES_COLLECTED';
     { provide: QUEUE_FEES_COLLECTED, useFactory: () => createQueue(QUEUE_NAMES.FEES_COLLECTED) },
   ],
   exports: [
+    IndexerWorker,
     QUEUE_POOL_CREATED,
     QUEUE_SWAP_PROCESSED,
     QUEUE_POSITION_MINTED,

@@ -563,9 +563,123 @@ mod tests {
     fn test_name() {
         let (env, factory_id) = setup();
         let client = PoolFactoryClient::new(&env, &factory_id);
-        
+
         let name = client.name();
         assert_eq!(name, Symbol::new(&env, "pool_factory"));
+    }
+
+    // ── get_pools ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_get_pools_empty_after_init() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, &[1; 32]);
+
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+
+        let pools = client.get_pools();
+        assert_eq!(pools.len(), 0, "no pools should exist immediately after init");
+    }
+
+    #[test]
+    #[should_panic(expected = "FactoryError(NotInitialized)")]
+    fn test_get_pools_not_initialized() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+
+        // Must panic because the factory has not been initialized
+        client.get_pools();
+    }
+
+    // ── get_is_loading edge cases ─────────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "FactoryError(NotInitialized)")]
+    fn test_get_is_loading_not_initialized() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+
+        // Must panic because the factory has not been initialized
+        client.get_is_loading();
+    }
+
+    // ── get_supported_fee_tiers ───────────────────────────────────────────────
+
+    #[test]
+    fn test_get_supported_fee_tiers_values() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, &[1; 32]);
+
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+
+        let tiers = client.get_supported_fee_tiers();
+        // Exactly 3 tiers: 0.05 %, 0.3 %, 1 %
+        assert_eq!(tiers.len(), 3);
+        assert_eq!(tiers.get(0), FEE_TIER_005);
+        assert_eq!(tiers.get(1), FEE_TIER_03);
+        assert_eq!(tiers.get(2), FEE_TIER_1);
+    }
+
+    // ── set_owner, set_math_lib, set_pool_wasm_hash not-initialized guards ────
+
+    #[test]
+    #[should_panic(expected = "FactoryError(NotInitialized)")]
+    fn test_set_owner_not_initialized() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+
+        let new_owner = Address::generate(&env);
+        client.set_owner(&new_owner);
+    }
+
+    #[test]
+    #[should_panic(expected = "FactoryError(NotInitialized)")]
+    fn test_set_math_lib_not_initialized() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+
+        let new_lib = Address::generate(&env);
+        client.set_math_lib(&new_lib);
+    }
+
+    #[test]
+    #[should_panic(expected = "FactoryError(NotInitialized)")]
+    fn test_set_pool_wasm_hash_not_initialized() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+
+        let new_hash = BytesN::<32>::from_array(&env, &[9; 32]);
+        client.set_pool_wasm_hash(&new_hash);
+    }
+
+    // ── get_pool query guards ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_get_pool_returns_none_for_all_fee_tiers_when_empty() {
+        let (env, factory_id) = setup();
+        let client = PoolFactoryClient::new(&env, &factory_id);
+
+        let owner = Address::generate(&env);
+        let math_lib = Address::generate(&env);
+        let pool_wasm_hash = BytesN::<32>::from_array(&env, &[1; 32]);
+
+        client.initialize(&owner, &math_lib, &pool_wasm_hash);
+
+        let token_a = Address::generate(&env);
+        let token_b = Address::generate(&env);
+
+        // None of the three fee tiers should return a pool since none was created
+        assert!(client.get_pool(&token_a, &token_b, &FEE_TIER_005).is_none());
+        assert!(client.get_pool(&token_a, &token_b, &FEE_TIER_03).is_none());
+        assert!(client.get_pool(&token_a, &token_b, &FEE_TIER_1).is_none());
     }
 }
 
