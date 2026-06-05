@@ -68,7 +68,7 @@ describe('prisma seed', () => {
 
     // Import the module and explicitly call main() — the require.main === module
     // guard in seed.ts prevents main() from auto-running during import in tests.
-    const { main } = await import('../../../../prisma/seed');
+    const { main } = await import('../../../prisma/seed');
     await main();
   }
 
