@@ -172,7 +172,11 @@ describe('PriceService', () => {
       expect(mockCache.invalidate).toHaveBeenCalledWith(
         spotPriceCacheKey('XLM', 'USDC'),
       );
-  it('subscribes to Redis channel on first client', () => {
+    });
+  });
+
+  describe('subscribe/unsubscribe', () => {
+    it('subscribes to Redis channel on first client', () => {
     const client = mockClient();
     service.subscribe(client, 'pool-1');
     expect(mockSub.subscribe).toHaveBeenCalledWith('prices:pool-1');
