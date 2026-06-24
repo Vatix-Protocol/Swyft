@@ -25,6 +25,9 @@ export const SWAGGER_TAGS = {
 
   /** Indexer status and queue-health endpoints. */
   INDEXER: 'indexer',
+
+  /** Transaction relay endpoints. */
+  TRANSACTIONS: 'transactions',
 } as const;
 
 /** Valid Swagger tag values supported by the Swyft API. */

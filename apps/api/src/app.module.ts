@@ -18,6 +18,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { CandlesModule } from './candles/candles.module';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { StatsModule } from './stats/stats.module';
+import { TransactionsModule } from './transactions/transactions.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { StatsModule } from './stats/stats.module';
     WebhooksModule,
     CandlesModule,
     StatsModule,
+    TransactionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
