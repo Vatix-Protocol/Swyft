@@ -44,14 +44,21 @@ jest.mock('bullmq', () => ({
 
 // ─── Prisma mock ──────────────────────────────────────────────────────────────
 
-const mockUpsert = jest.fn().mockResolvedValue({});
+const mockUpsert = () => jest.fn().mockResolvedValue({});
 
 const mockPrismaClient = {
-  poolCreated: { upsert: mockUpsert },
-  swapProcessed: { upsert: mockUpsert },
-  positionMinted: { upsert: mockUpsert },
-  positionBurned: { upsert: mockUpsert },
-  feesCollected: { upsert: mockUpsert },
+  token: { upsert: mockUpsert() },
+  pool: { upsert: mockUpsert(), update: mockUpsert() },
+  swap: { upsert: mockUpsert() },
+  position: { upsert: mockUpsert() },
+  poolCreated: { upsert: mockUpsert() },
+  swapProcessed: { upsert: mockUpsert() },
+  positionMinted: { upsert: mockUpsert() },
+  positionBurned: { upsert: mockUpsert() },
+  feesCollected: { upsert: mockUpsert() },
+  $transaction: jest.fn((operations: Promise<unknown>[]) =>
+    Promise.all(operations),
+  ),
   $disconnect: jest.fn().mockResolvedValue(undefined),
 };
 
@@ -399,6 +406,26 @@ describe('IndexerWorker', () => {
       );
     });
 
+    it('projects the event into Pool and Token tables', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      await handler(makeJob(data));
+
+      expect(mockPrismaClient.token.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { address: data.tokenA } }),
+      );
+      expect(mockPrismaClient.token.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { address: data.tokenB } }),
+      );
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: data.poolId },
+          create: expect.objectContaining({
+            currentSqrtPrice: data.sqrtPriceX96,
+          }),
+        }),
+      );
+    });
+
     it('is idempotent — calling twice does not throw', async () => {
       const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
       await handler(makeJob(data));
@@ -455,12 +482,31 @@ describe('IndexerWorker', () => {
       const call = mockPrismaClient.swapProcessed.upsert.mock.calls[0][0];
       expect(call.create.tick).toBe(42);
     });
+
+    it('projects a swap into the canonical Swap and Pool tables', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await handler(makeJob(data));
+
+      expect(mockPrismaClient.swap.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { eventId: data.eventId },
+          create: expect.objectContaining({
+            poolId: data.poolId,
+            tickAfter: data.tick,
+          }),
+        }),
+      );
+      expect(mockPrismaClient.pool.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: data.poolId } }),
+      );
+    });
   });
 
   describe('handlePositionMinted()', () => {
     const data: PositionMintedJobData = {
       eventId: 'evt-mint-1',
       poolId: 'pool-abc',
+      tokenId: '1',
       owner: '0xOwner',
       tickLower: -887272,
       tickUpper: 887272,
@@ -484,12 +530,26 @@ describe('IndexerWorker', () => {
         }),
       );
     });
+
+    it('upserts the current Position by pool and token ID', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.POSITION_MINTED);
+      await handler(makeJob(data));
+
+      expect(mockPrismaClient.position.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            poolId_tokenId: { poolId: data.poolId, tokenId: data.tokenId },
+          },
+        }),
+      );
+    });
   });
 
   describe('handlePositionBurned()', () => {
     const data: PositionBurnedJobData = {
       eventId: 'evt-burn-1',
       poolId: 'pool-abc',
+      tokenId: '1',
       owner: '0xOwner',
       tickLower: -887272,
       tickUpper: 887272,
@@ -509,6 +569,17 @@ describe('IndexerWorker', () => {
             owner: data.owner,
             liquidity: data.liquidity,
           }),
+        }),
+      );
+    });
+
+    it('marks a zero-liquidity position as closed', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.POSITION_BURNED);
+      await handler(makeJob({ ...data, liquidity: '0' }));
+
+      expect(mockPrismaClient.position.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: expect.objectContaining({ closedAt: expect.any(Date) }),
         }),
       );
     });

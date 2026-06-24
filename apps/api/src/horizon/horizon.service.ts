@@ -1,9 +1,11 @@
 import {
+  Inject,
   Injectable,
   Logger,
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { Queue } from 'bullmq';
 import { Horizon } from '@stellar/stellar-sdk';
 import { PriceService, PriceEvent } from '../price/price.service';
 import { PoolsService } from '../pools/pools.service';
@@ -17,11 +19,22 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
   private readonly contractId: string;
   private cursor = 'now';
   private timer: NodeJS.Timeout | null = null;
+  private polling = false;
+  private stopped = false;
 
   constructor(
     private readonly priceService: PriceService,
     private readonly poolsService: PoolsService,
     private readonly cache: CacheService,
+    private readonly prisma: PrismaService,
+    @Inject(QUEUE_POOL_CREATED)
+    private readonly poolCreatedQueue: Queue<PoolCreatedJobData>,
+    @Inject(QUEUE_SWAP_PROCESSED)
+    private readonly swapProcessedQueue: Queue<SwapProcessedJobData>,
+    @Inject(QUEUE_POSITION_MINTED)
+    private readonly positionMintedQueue: Queue<PositionMintedJobData>,
+    @Inject(QUEUE_POSITION_BURNED)
+    private readonly positionBurnedQueue: Queue<PositionBurnedJobData>,
   ) {
     this.server = new Horizon.Server(
       process.env.HORIZON_URL ?? 'https://horizon-testnet.stellar.org',
@@ -29,20 +42,27 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
     this.contractId = process.env.POOL_CONTRACT_ID ?? '';
   }
 
-  onModuleInit() {
+  async onModuleInit() {
     if (!this.contractId) {
       this.logger.warn('POOL_CONTRACT_ID not set — Horizon indexer disabled');
       return;
     }
+    const checkpoint = await this.prisma.indexerCursor.findUnique({
+      where: { id: this.cursorId() },
+    });
+    this.cursor = checkpoint?.cursor ?? 'now';
     void this.poll();
     this.timer = setInterval(() => void this.poll(), 5_000);
   }
 
   onModuleDestroy() {
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
   }
 
   private async poll(): Promise<void> {
+    if (this.polling || this.stopped) return;
+    this.polling = true;
     try {
       const page = await this.server
         .effects()
@@ -60,8 +80,8 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
             currentPrice: event.currentPrice,
           });
           await this.cache.publish(
-            `prices:${event.poolId}`,
-            JSON.stringify(event),
+            `prices:${priceEvent.poolId}`,
+            JSON.stringify(priceEvent),
           );
         }
 
@@ -75,12 +95,15 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
       }
     } catch (err) {
       this.logger.warn(`Horizon poll error: ${(err as Error).message}`);
+    } finally {
+      this.polling = false;
     }
   }
 
   private toPrice(r: IndexerEffectRecord): PriceEvent | null {
     if (!r.amount) return null;
-    const price = parseFloat(r.amount);
+    const price = Number(r.amount);
+    if (!Number.isFinite(price) || price < 0) return null;
     return {
       poolId: this.contractId,
       currentPrice: r.amount,

@@ -124,6 +124,7 @@ export async function main() {
     spinner.start('Seeding swaps…');
     const swapData: Prisma.SwapCreateManyInput[] = [
       {
+        eventId: 'seed-swap-event-1',
         poolId: pool.id,
         senderAddress: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ',
         recipientAddress: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ',
@@ -134,6 +135,7 @@ export async function main() {
         transactionHash: 'test-tx-1',
       },
       {
+        eventId: 'seed-swap-event-2',
         poolId: pool.id,
         senderAddress: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ',
         recipientAddress: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ',

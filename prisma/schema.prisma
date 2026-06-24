@@ -34,6 +34,8 @@ model Pool {
 
 model Swap {
   id                String   @id @default(cuid())
+  /// Stable on-chain event identifier. This makes event delivery idempotent.
+  eventId           String   @unique
   poolId            String
   senderAddress     String
   recipientAddress  String
@@ -75,6 +77,7 @@ model Position {
   @@index([ownerAddress])
   @@index([createdAt])
   @@index([closedAt])
+  @@unique([poolId, tokenId])
 }
 
 model Tick {
@@ -234,4 +237,15 @@ model FeesCollected {
 
   @@index([poolId])
   @@map("fees_collected")
+}
+
+/// Durable checkpoint for external indexers. A persisted cursor prevents a
+/// process restart from silently skipping events that were fetched but not yet
+/// handed to BullMQ.
+model IndexerCursor {
+  id        String   @id
+  cursor    String
+  updatedAt DateTime @updatedAt
+
+  @@map("indexer_cursor")
 }
