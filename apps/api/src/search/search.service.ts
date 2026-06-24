@@ -94,8 +94,8 @@ export class SearchService {
           token_b."symbol" AS "tokenBSymbol",
           p."fee"
         FROM "pool_created" p
-        LEFT JOIN "token" token_a ON lower(token_a."contractAddress") = lower(p."tokenA")
-        LEFT JOIN "token" token_b ON lower(token_b."contractAddress") = lower(p."tokenB")
+        LEFT JOIN "token" token_a ON lower(token_a."address") = lower(p."tokenA")
+        LEFT JOIN "token" token_b ON lower(token_b."address") = lower(p."tokenB")
         WHERE
           lower(p."poolId") = lower($1)
           OR token_a."symbol" ILIKE $2
