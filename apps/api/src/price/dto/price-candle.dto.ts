@@ -1,21 +1,21 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class PriceCandleDto {
-  @ApiProperty({ description: 'Candle timestamp' })
-  timestamp: number;
+  @ApiProperty({ description: 'Candle timestamp (unix seconds)' })
+  time: number;
 
   @ApiProperty({ description: 'Opening price' })
-  open: string;
+  open: number;
 
   @ApiProperty({ description: 'Highest price' })
-  high: string;
+  high: number;
 
   @ApiProperty({ description: 'Lowest price' })
-  low: string;
+  low: number;
 
   @ApiProperty({ description: 'Closing price' })
-  close: string;
+  close: number;
 
   @ApiProperty({ description: 'Trading volume' })
-  volume: string;
+  volume: number;
 }

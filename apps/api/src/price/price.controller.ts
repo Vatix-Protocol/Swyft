@@ -133,7 +133,7 @@ export class PriceController {
       return cached;
     }
 
-    const candles = await this.priceService.getCandles(
+    const { poolId, candles } = await this.priceService.getCandles(
       tokenA,
       tokenB,
       interval,

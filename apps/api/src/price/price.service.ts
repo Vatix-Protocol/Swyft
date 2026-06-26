@@ -43,12 +43,12 @@ export function spotPriceCacheKey(tokenA: string, tokenB: string): string {
 }
 
 export interface PriceCandle {
-  timestamp: number;
-  open: string;
-  high: string;
-  low: string;
-  close: string;
-  volume: string;
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
 }
 
 @Injectable()
@@ -186,7 +186,7 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
     from: number,
     to: number,
     limit: number,
-  ): Promise<PriceCandle[]> {
+  ): Promise<{ poolId: string; candles: PriceCandle[] }> {
     const tokenALower = tokenA.toLowerCase();
     const tokenBLower = tokenB.toLowerCase();
 
@@ -206,7 +206,9 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!pool) {
-      return [];
+      throw new NotFoundException(
+        `No pool found for token pair ${tokenA}/${tokenB}`,
+      );
     }
 
     const fromDate = new Date(from * 1000);
@@ -225,14 +227,16 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
       take: limit,
     });
 
-    return priceCandles.map((candle) => ({
-      timestamp: Math.floor(candle.periodStart.getTime() / 1000),
-      open: candle.open.toString(),
-      high: candle.high.toString(),
-      low: candle.low.toString(),
-      close: candle.close.toString(),
-      volume: candle.volumeUsd.toString(),
+    const candles = priceCandles.map((candle) => ({
+      time: Math.floor(candle.periodStart.getTime() / 1000),
+      open: parseFloat(candle.open.toString()),
+      high: parseFloat(candle.high.toString()),
+      low: parseFloat(candle.low.toString()),
+      close: parseFloat(candle.close.toString()),
+      volume: parseFloat(candle.volumeUsd.toString()),
     }));
+
+    return { poolId: pool.id, candles };
   }
 
   private getIntervalSeconds(interval: string): number {

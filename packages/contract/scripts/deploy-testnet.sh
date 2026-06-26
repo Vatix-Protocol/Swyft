@@ -192,10 +192,12 @@ deploy_contract() {
   echo "$contract_id"
 }
 
-# ── Deployment order: math-lib → pool-factory → router → position-nft → fee-collector → oracle-adapter
+# ── Deployment order: math-lib → pool-factory → pool → cl-pool → router → position-nft → fee-collector → oracle-adapter
 
 MATH_LIB_ID=$(deploy_contract    "mathLib"       "math_lib"       "name")
 FACTORY_ID=$(deploy_contract     "poolFactory"   "pool_factory"   "name")
+POOL_ID=$(deploy_contract        "pool"          "pool"           "name")
+CL_POOL_ID=$(deploy_contract     "clPool"        "cl_pool"        "name")
 ROUTER_ID=$(deploy_contract      "router"        "router"         "name")
 POSITION_NFT_ID=$(deploy_contract "positionNft"  "position_nft"   "name")
 FEE_COLLECTOR_ID=$(deploy_contract "feeCollector" "fee_collector"  "name")

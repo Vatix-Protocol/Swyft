@@ -371,4 +371,91 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       );
     }
   }
+
+  private async projectPoolCreated(d: PoolCreatedJobData) {
+    try {
+      await this.prisma.pool.upsert({
+        where: { id: d.poolId },
+        update: { currentSqrtPrice: d.sqrtPriceX96, updatedAt: new Date() },
+        create: {
+          id: d.poolId,
+          token0Address: d.tokenA,
+          token1Address: d.tokenB,
+          feeTier: parseInt(d.fee, 10),
+          currentSqrtPrice: d.sqrtPriceX96,
+          currentTick: 0,
+          liquidity: '0',
+          tvl: '0',
+          volume24h: '0',
+          feeApr: '0',
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to project pool ${d.poolId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  private async projectSwapProcessed(d: SwapProcessedJobData) {
+    try {
+      const timestamp = d.timestamp
+        ? new Date(d.timestamp)
+        : new Date();
+      await this.prisma.swap.upsert({
+        where: { eventId: d.eventId },
+        update: {},
+        create: {
+          eventId: d.eventId,
+          poolId: d.poolId,
+          senderAddress: d.sender,
+          recipientAddress: d.recipient,
+          amount0: d.amount0,
+          amount1: d.amount1,
+          sqrtPriceAfter: d.sqrtPriceX96,
+          tickAfter: d.tick,
+          transactionHash: d.transactionHash ?? d.eventId,
+          timestamp,
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to project swap ${d.eventId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  private async projectPositionMinted(d: PositionMintedJobData) {
+    try {
+      await this.prisma.position.upsert({
+        where: { poolId_tokenId: { poolId: d.poolId, tokenId: d.tokenId } },
+        update: {},
+        create: {
+          poolId: d.poolId,
+          ownerAddress: d.owner,
+          tokenId: d.tokenId,
+          lowerTick: d.tickLower,
+          upperTick: d.tickUpper,
+          liquidity: d.liquidity,
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to project position mint ${d.eventId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  private async projectPositionBurned(d: PositionBurnedJobData) {
+    try {
+      await this.prisma.position.update({
+        where: { poolId_tokenId: { poolId: d.poolId, tokenId: d.tokenId } },
+        data: { closedAt: new Date() },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to project position burn ${d.eventId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 }

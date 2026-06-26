@@ -10,7 +10,20 @@ import { Horizon } from '@stellar/stellar-sdk';
 import { PriceService, PriceEvent } from '../price/price.service';
 import { PoolsService } from '../pools/pools.service';
 import { CacheService } from '../cache/cache.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
+import {
+  QUEUE_POOL_CREATED,
+  QUEUE_SWAP_PROCESSED,
+  QUEUE_POSITION_MINTED,
+  QUEUE_POSITION_BURNED,
+} from '../indexer/indexer.module';
+import {
+  PoolCreatedJobData,
+  SwapProcessedJobData,
+  PositionMintedJobData,
+  PositionBurnedJobData,
+} from '../indexer/queues';
 
 @Injectable()
 export class HorizonService implements OnModuleInit, OnModuleDestroy {
@@ -73,6 +86,7 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
         .call();
 
       for (const record of page.records) {
+        const typedRecord = record as unknown as IndexerEffectRecord;
         const event = this.toPrice(record);
         if (event) {
           this.priceService.broadcastPrice(event);
@@ -80,23 +94,103 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
             currentPrice: event.currentPrice,
           });
           await this.cache.publish(
-            `prices:${priceEvent.poolId}`,
-            JSON.stringify(priceEvent),
+            `prices:${event.poolId}`,
+            JSON.stringify(event),
           );
         }
 
-        // The record has now been fully handled (or intentionally ignored),
-        // so it is safe to make its ledger visible to lag monitoring. A
-        // failed persistence path throws before this point and is retried.
-        await this.advanceLedger(
-          (record as unknown as IndexerEffectRecord).ledger,
-        );
+        await this.enqueueIndexerEvents(typedRecord);
+
+        await this.advanceLedger(typedRecord.ledger);
         this.cursor = record.paging_token;
       }
     } catch (err) {
       this.logger.warn(`Horizon poll error: ${(err as Error).message}`);
     } finally {
       this.polling = false;
+    }
+  }
+
+  private async enqueueIndexerEvents(record: IndexerEffectRecord): Promise<void> {
+    const eventType = record.eventType?.toLowerCase() ?? '';
+
+    try {
+      if (eventType === 'pool_created') {
+        const jobData: PoolCreatedJobData = {
+          eventId: record.eventId ?? record.paging_token,
+          poolId: record.poolId ?? this.contractId,
+          tokenA: record.tokenA ?? '',
+          tokenB: record.tokenB ?? '',
+          fee: record.fee ?? '0',
+          sqrtPriceX96: record.sqrtPrice ?? '0',
+          ledger: record.ledger,
+        };
+        if (jobData.tokenA && jobData.tokenB) {
+          await this.poolCreatedQueue.add(jobData.eventId, jobData, {
+            removeOnComplete: true,
+          });
+        }
+      } else if (eventType === 'swap_processed') {
+        const jobData: SwapProcessedJobData = {
+          eventId: record.eventId ?? record.paging_token,
+          poolId: record.poolId ?? this.contractId,
+          sender: record.sender ?? '',
+          recipient: record.recipient ?? '',
+          amount0: record.amount0 ?? '0',
+          amount1: record.amount1 ?? '0',
+          sqrtPriceX96: record.sqrtPrice ?? '0',
+          liquidity: record.liquidity ?? '0',
+          tick: record.tick ?? 0,
+          transactionHash: record.transactionHash,
+          timestamp: record.created_at,
+          ledger: record.ledger,
+        };
+        if (jobData.sender && jobData.recipient) {
+          await this.swapProcessedQueue.add(jobData.eventId, jobData, {
+            removeOnComplete: true,
+          });
+        }
+      } else if (eventType === 'position_minted') {
+        const jobData: PositionMintedJobData = {
+          eventId: record.eventId ?? record.paging_token,
+          poolId: record.poolId ?? this.contractId,
+          tokenId: record.tokenId ?? '',
+          owner: record.owner ?? '',
+          tickLower: record.tickLower ?? 0,
+          tickUpper: record.tickUpper ?? 0,
+          liquidity: record.liquidity ?? '0',
+          amount0: record.amount0 ?? '0',
+          amount1: record.amount1 ?? '0',
+          ledger: record.ledger,
+        };
+        if (jobData.owner && jobData.tokenId) {
+          await this.positionMintedQueue.add(jobData.eventId, jobData, {
+            removeOnComplete: true,
+          });
+        }
+      } else if (eventType === 'position_burned') {
+        const jobData: PositionBurnedJobData = {
+          eventId: record.eventId ?? record.paging_token,
+          poolId: record.poolId ?? this.contractId,
+          tokenId: record.tokenId ?? '',
+          owner: record.owner ?? '',
+          tickLower: record.tickLower ?? 0,
+          tickUpper: record.tickUpper ?? 0,
+          liquidity: record.liquidity ?? '0',
+          amount0: record.amount0 ?? '0',
+          amount1: record.amount1 ?? '0',
+          ledger: record.ledger,
+        };
+        if (jobData.owner && jobData.tokenId) {
+          await this.positionBurnedQueue.add(jobData.eventId, jobData, {
+            removeOnComplete: true,
+          });
+        }
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Failed to enqueue event ${record.eventId ?? record.paging_token}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -129,4 +223,20 @@ interface IndexerEffectRecord {
   tick?: number;
   liquidity?: string;
   created_at: string;
+  eventType?: string;
+  eventId?: string;
+  poolId?: string;
+  tokenA?: string;
+  tokenB?: string;
+  fee?: string;
+  sqrtPrice?: string;
+  sender?: string;
+  recipient?: string;
+  amount0?: string;
+  amount1?: string;
+  owner?: string;
+  tokenId?: string;
+  tickLower?: number;
+  tickUpper?: number;
+  transactionHash?: string;
 }
