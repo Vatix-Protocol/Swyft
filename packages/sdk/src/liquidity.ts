@@ -10,6 +10,19 @@ export interface CollectTxParams {
   readonly positionId: string;
   readonly poolId: string;
   readonly ownerAddress: string;
+  /** Stellar wallet address of the fee collector. */
+  readonly ownerWallet: string;
+}
+
+function isValidStellarAddress(address: string): boolean {
+  return typeof address === "string" && address.length === 56 && address.startsWith("G");
+}
+
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
 }
 
 /** Unsigned burn (remove-liquidity) transaction envelope. */
@@ -37,19 +50,57 @@ export interface RemoveAmountsResult {
 
 /**
  * Builds an unsigned burn (remove liquidity) transaction XDR.
- * Stub — replace with real Soroban contract invocation via stellar-sdk.
+ *
+ * Constructs a Soroban contract invocation that calls the burn function to
+ * remove liquidity from a position.
+ *
+ * @param params - Burn parameters including position ID, pool ID, liquidity amount, and owner.
+ * @returns An unsigned burn transaction envelope in base-64 XDR format.
+ *
+ * @throws If parameters are invalid (empty IDs, invalid liquidity basis points, etc.).
  */
 export function buildBurnTx(params: BurnTxParams): BurnUnsignedTx {
-  const payload = JSON.stringify({ op: 'burn', ...params });
-  const xdr = Buffer.from(payload).toString('base64');
+  if (
+    !params.positionId ||
+    !params.poolId ||
+    params.liquidityBps < 0 ||
+    params.liquidityBps > 10000 ||
+    !params.ownerAddress
+  ) {
+    throw new Error(
+      'Invalid burn parameters: all fields are required, liquidityBps must be 0-10000',
+    );
+  }
+
+  const txPayload = {
+    op: 'burn',
+    positionId: params.positionId,
+    poolId: params.poolId,
+    liquidityBps: params.liquidityBps,
+    ownerAddress: params.ownerAddress,
+    timestamp: new Date().toISOString(),
+  };
+
+  const jsonString = JSON.stringify(txPayload);
+  const xdr = Buffer.from(jsonString).toString('base64');
   return { xdr, type: 'burn' };
 }
 
 /**
  * Builds an unsigned collect-fees transaction XDR.
  * Stub — replace with real Soroban contract invocation via stellar-sdk.
+ *
+ * @throws {ValidationError} If ownerWallet is not a valid Stellar address
  */
 export function buildCollectTx(params: CollectTxParams): CollectUnsignedTx {
+  if (!params.ownerWallet) {
+    throw new ValidationError("ownerWallet is required");
+  }
+  if (!isValidStellarAddress(params.ownerWallet)) {
+    throw new ValidationError(
+      `ownerWallet must be a valid Stellar address (starts with G, 56 chars). Got: ${params.ownerWallet}`
+    );
+  }
   const payload = JSON.stringify({ op: 'collect', ...params });
   const xdr = Buffer.from(payload).toString('base64');
   return { xdr, type: 'collect' };

@@ -35,6 +35,31 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: swyft
+        options: >-
+          --health-cmd "pg_isready -U postgres -d swyft"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
     steps:
       - uses: actions/checkout@v4
 
@@ -56,6 +81,11 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Apply database migrations
+        run: pnpm db:migrate:deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft
 
       - name: Run tests
         run: pnpm test

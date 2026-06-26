@@ -6,7 +6,7 @@ on:
       - "apps/api/prisma/**"
       - "prisma/**"
       - "apps/api/package.json"
-      - "apps/api/package-lock.json"
+      - "pnpm-lock.yaml"
       - ".github/workflows/db-migrations.yml"
 
 jobs:
@@ -36,29 +36,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: apps/api/package-lock.json
+          cache: pnpm
 
-      - name: Install API dependencies
-        working-directory: apps/api
-        run: npm ci
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Validate Prisma schema
-        working-directory: apps/api
-        run: npx prisma validate --schema ../../prisma/schema.prisma
+        run: pnpm prisma validate --schema prisma/schema.prisma
 
       - name: Generate Prisma client
-        working-directory: apps/api
-        run: npx prisma generate --schema ../../prisma/schema.prisma
+        run: pnpm prisma generate --schema prisma/schema.prisma
 
       - name: Apply migrations
-        working-directory: apps/api
-        run: npx prisma migrate deploy --schema ../../prisma/schema.prisma
+        run: pnpm prisma migrate deploy --schema prisma/schema.prisma
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft_test?schema=public
 
       - name: Check migration status
-        working-directory: apps/api
-        run: npx prisma migrate status --schema ../../prisma/schema.prisma
+        run: pnpm prisma migrate status --schema prisma/schema.prisma
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft_test?schema=public

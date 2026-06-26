@@ -3,6 +3,7 @@ import { IndexerWorker } from './indexer.worker';
 import { IndexerController } from './indexer.controller';
 import { createQueue, QUEUE_NAMES } from './queues';
 import { CacheModule } from '../cache/cache.module';
+import { WebhooksModule } from '../webhooks/webhooks.module';
 
 export const QUEUE_POOL_CREATED = 'QUEUE_POOL_CREATED';
 export const QUEUE_SWAP_PROCESSED = 'QUEUE_SWAP_PROCESSED';
@@ -11,7 +12,7 @@ export const QUEUE_POSITION_BURNED = 'QUEUE_POSITION_BURNED';
 export const QUEUE_FEES_COLLECTED = 'QUEUE_FEES_COLLECTED';
 
 @Module({
-  imports: [CacheModule],
+  imports: [CacheModule, WebhooksModule],
   controllers: [IndexerController],
   providers: [
     IndexerWorker,

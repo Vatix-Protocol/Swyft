@@ -1,3 +1,7 @@
+export enum SwapErrorCode {
+  SLIPPAGE_EXCEEDED = 'SLIPPAGE_EXCEEDED',
+}
+
 export interface SwapSnapshot {
   id: string;
   poolId: string;

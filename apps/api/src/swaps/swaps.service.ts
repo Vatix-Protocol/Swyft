@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { GetSwapsQueryDto } from './dto/get-swaps-query.dto';
-import { SwapSnapshot, SwapsQuery } from './swap.types';
+import { SwapErrorCode, SwapSnapshot, SwapsQuery } from './swap.types';
 import { SwapsRepository } from './swaps.repository';
+import { SlippageExceededException } from '../request-validation/http.exceptions';
 
 interface SwapResponse {
   id: string;
@@ -55,6 +56,14 @@ export class SwapsService {
         totalPages: total === 0 ? 0 : Math.ceil(total / normalized.limit),
         isLoading: false,
       };
+    } catch (err: unknown) {
+      if (
+        err instanceof Error &&
+        (err.message as string).includes(SwapErrorCode.SLIPPAGE_EXCEEDED)
+      ) {
+        throw new SlippageExceededException();
+      }
+      throw err;
     } finally {
       this._isLoading = false;
     }

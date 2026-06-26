@@ -128,7 +128,7 @@ export class PriceController {
 
     const cacheKey = `candles:${tokenA}:${tokenB}:${interval}:${parsedFrom}:${parsedTo}:${parsedLimit}`;
 
-    const cached = await this.cacheService.get<PriceCandleDto[]>(cacheKey);
+    const cached = await this.cacheService.get<CandlesResponseDto>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -152,7 +152,7 @@ export class PriceController {
       interval === '1m' || interval === '5m'
         ? TTL.CANDLES_FAST
         : TTL.CANDLES_SLOW;
-    const response: CandlesResponseDto = { poolId, candles };
+    const response: CandlesResponseDto = { candles };
     await this.cacheService.set(cacheKey, response, ttl);
 
     return response;

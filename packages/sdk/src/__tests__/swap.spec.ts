@@ -3,6 +3,7 @@ import {
   toStellarAddress,
   toRawAmount,
   toXdrBase64,
+  SwapValidationError,
 } from "../swap";
 
 const POOL  = toStellarAddress("CPOOL000000000000000000000000000000000000000000000000000A");
@@ -13,63 +14,112 @@ const AMOUNT_IN  = toRawAmount("1000000");
 const MIN_OUT    = toRawAmount("990000");
 
 describe("buildSwapTx", () => {
+  const validParams = {
+    poolId: POOL,
+    tokenInId: TOKEN_IN,
+    tokenOutId: TOKEN_OUT,
+    amountIn: AMOUNT_IN,
+    minimumReceived: MIN_OUT,
+    ownerAddress: OWNER,
+  };
+
   it("returns type 'swap'", () => {
-    const tx = buildSwapTx({
-      poolId: POOL,
-      tokenInId: TOKEN_IN,
-      tokenOutId: TOKEN_OUT,
-      amountIn: AMOUNT_IN,
-      minimumReceived: MIN_OUT,
-      ownerAddress: OWNER,
-    });
+    const tx = buildSwapTx(validParams);
     expect(tx.type).toBe("swap");
   });
 
-  it("returns a non-empty xdr string", () => {
-    const tx = buildSwapTx({
-      poolId: POOL,
-      tokenInId: TOKEN_IN,
-      tokenOutId: TOKEN_OUT,
-      amountIn: AMOUNT_IN,
-      minimumReceived: MIN_OUT,
-      ownerAddress: OWNER,
-    });
+  it("returns a valid XDR string", () => {
+    const tx = buildSwapTx(validParams);
     expect(typeof tx.xdr).toBe("string");
     expect(tx.xdr.length).toBeGreaterThan(0);
+    expect(() => Buffer.from(tx.xdr, "base64")).not.toThrow();
   });
 
-  it("encodes all params inside the xdr payload", () => {
-    const tx = buildSwapTx({
-      poolId: POOL,
-      tokenInId: TOKEN_IN,
-      tokenOutId: TOKEN_OUT,
-      amountIn: AMOUNT_IN,
-      minimumReceived: MIN_OUT,
-      ownerAddress: OWNER,
-    });
-    const decoded = atob(tx.xdr);
-    const payload = JSON.parse(decoded);
-    expect(payload.op).toBe("swap");
-    expect(payload.poolId).toBe(POOL);
-    expect(payload.tokenInId).toBe(TOKEN_IN);
-    expect(payload.tokenOutId).toBe(TOKEN_OUT);
-    expect(payload.amountIn).toBe(AMOUNT_IN);
-    expect(payload.minimumReceived).toBe(MIN_OUT);
-    expect(payload.ownerAddress).toBe(OWNER);
+  it("throws SwapValidationError for invalid poolId", () => {
+    expect(() =>
+      buildSwapTx({ ...validParams, poolId: toStellarAddress("invalid") })
+    ).toThrow(SwapValidationError);
   });
 
-  it("produces a different xdr for different amountIn values", () => {
-    const params = {
-      poolId: POOL,
-      tokenInId: TOKEN_IN,
-      tokenOutId: TOKEN_OUT,
-      amountIn: AMOUNT_IN,
-      minimumReceived: MIN_OUT,
-      ownerAddress: OWNER,
-    };
-    const tx1 = buildSwapTx(params);
-    const tx2 = buildSwapTx({ ...params, amountIn: toRawAmount("5000000") });
+  it("throws SwapValidationError for invalid tokenInId", () => {
+    expect(() =>
+      buildSwapTx({ ...validParams, tokenInId: toStellarAddress("NOTAVALIDADDRESS") })
+    ).toThrow(SwapValidationError);
+  });
+
+  it("throws SwapValidationError for invalid tokenOutId", () => {
+    expect(() =>
+      buildSwapTx({ ...validParams, tokenOutId: toStellarAddress("NOTAVALIDADDRESS") })
+    ).toThrow(SwapValidationError);
+  });
+
+  it("throws SwapValidationError for invalid ownerAddress", () => {
+    expect(() =>
+      buildSwapTx({ ...validParams, ownerAddress: toStellarAddress("NOTAVALIDADDRESS") })
+    ).toThrow(SwapValidationError);
+  });
+
+  it("throws SwapValidationError for zero amountIn", () => {
+    expect(() =>
+      buildSwapTx({ ...validParams, amountIn: toRawAmount("0") })
+    ).toThrow(SwapValidationError);
+  });
+
+  it("throws SwapValidationError for negative amountIn", () => {
+    expect(() =>
+      buildSwapTx({ ...validParams, amountIn: toRawAmount("-1000") })
+    ).toThrow(SwapValidationError);
+  });
+
+  it("throws SwapValidationError for zero minimumReceived", () => {
+    expect(() =>
+      buildSwapTx({ ...validParams, minimumReceived: toRawAmount("0") })
+    ).toThrow(SwapValidationError);
+  });
+
+  it("produces different XDR for different amountIn values", () => {
+    const tx1 = buildSwapTx(validParams);
+    const tx2 = buildSwapTx({ ...validParams, amountIn: toRawAmount("5000000") });
     expect(tx1.xdr).not.toBe(tx2.xdr);
+  });
+
+  it("throws when poolId is empty", () => {
+    expect(() =>
+      buildSwapTx({
+        poolId: toStellarAddress(""),
+        tokenInId: TOKEN_IN,
+        tokenOutId: TOKEN_OUT,
+        amountIn: AMOUNT_IN,
+        minimumReceived: MIN_OUT,
+        ownerAddress: OWNER,
+      })
+    ).toThrow();
+  });
+
+  it("throws when tokenInId is empty", () => {
+    expect(() =>
+      buildSwapTx({
+        poolId: POOL,
+        tokenInId: toStellarAddress(""),
+        tokenOutId: TOKEN_OUT,
+        amountIn: AMOUNT_IN,
+        minimumReceived: MIN_OUT,
+        ownerAddress: OWNER,
+      })
+    ).toThrow();
+  });
+
+  it("throws when amountIn is empty", () => {
+    expect(() =>
+      buildSwapTx({
+        poolId: POOL,
+        tokenInId: TOKEN_IN,
+        tokenOutId: TOKEN_OUT,
+        amountIn: toRawAmount(""),
+        minimumReceived: MIN_OUT,
+        ownerAddress: OWNER,
+      })
+    ).toThrow();
   });
 });
 

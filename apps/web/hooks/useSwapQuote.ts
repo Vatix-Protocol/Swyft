@@ -4,7 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { calculateSwapQuote, type SwapQuote } from "@swyft/sdk";
 import { API_BASE } from "@/lib/constants";
 
-const WS_BASE = API_BASE.replace(/^http/, "ws");
+function getWsBase(): string {
+  if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL;
+  }
+
+  const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
+  return `${protocol}://${host}`;
+}
+
 const DEBOUNCE_MS = 350;
 
 interface Params {
@@ -48,10 +57,12 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
 
     let ws: WebSocket;
     try {
-      ws = new WebSocket(`${WS_BASE}/price`);
+      ws = new WebSocket(`${getWsBase()}/price`);
     } catch {
       return;
     }
+
+    let reconnectTimer: NodeJS.Timeout | null = null;
 
     ws.onopen = () => {
       ws.send(JSON.stringify({ event: "subscribe", poolId }));
@@ -69,7 +80,10 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
       }
     };
 
-    return () => { ws.close(); };
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      ws.close();
+    };
   }, [poolId, tokenInId, tokenOutId, amountIn, slippageBps]);
 
   return { quote, loading };

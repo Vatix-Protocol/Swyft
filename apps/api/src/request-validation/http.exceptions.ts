@@ -81,3 +81,12 @@ export class BusinessRuleViolationException extends UnprocessableEntityException
     super({ message, error: 'Unprocessable Entity' });
   }
 }
+
+export class SlippageExceededException extends UnprocessableEntityException {
+  constructor() {
+    super({
+      message: 'Swap rejected: slippage tolerance exceeded',
+      error: 'Unprocessable Entity',
+    });
+  }
+}

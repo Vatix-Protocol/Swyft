@@ -28,4 +28,5 @@ export {
   ResourceNotFoundException,
   DuplicateResourceException,
   BusinessRuleViolationException,
+  SlippageExceededException,
 } from './http.exceptions';

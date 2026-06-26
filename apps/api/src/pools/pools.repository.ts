@@ -122,4 +122,29 @@ export class PoolsRepository {
     });
     return count > 0;
   }
+
+  async getPoolDetailById(poolId: string): Promise<any | null> {
+    const pool = await this.prisma.pool.findUnique({
+      where: { id: poolId },
+      include: {
+        swaps: {
+          orderBy: { timestamp: 'desc' },
+          take: 10,
+        },
+      },
+    });
+
+    if (!pool) return null;
+
+    const [token0, token1] = await Promise.all([
+      this.prisma.token.findUnique({ where: { address: pool.token0Address } }),
+      this.prisma.token.findUnique({ where: { address: pool.token1Address } }),
+    ]);
+
+    return {
+      pool,
+      token0,
+      token1,
+    };
+  }
 }

@@ -65,6 +65,10 @@ const mockPrismaClient = {
 const mockSetMaxNumber = jest.fn().mockResolvedValue(true);
 const mockCacheService = { setMaxNumber: mockSetMaxNumber };
 
+const mockWebhooksService = {
+  dispatch: jest.fn().mockResolvedValue(undefined),
+};
+
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn().mockImplementation(() => mockPrismaClient),
 }));
@@ -74,6 +78,7 @@ jest.mock('@prisma/client', () => ({
 import { Test, TestingModule } from '@nestjs/testing';
 import { IndexerWorker } from './indexer.worker';
 import { CacheService } from '../cache/cache.service';
+import { WebhooksService } from '../webhooks/webhooks.service';
 import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
 import {
   IndexerModule,
@@ -265,6 +270,7 @@ describe('IndexerWorker', () => {
       providers: [
         IndexerWorker,
         { provide: CacheService, useValue: mockCacheService },
+        { provide: WebhooksService, useValue: mockWebhooksService },
       ],
     }).compile();
 
@@ -443,6 +449,35 @@ describe('IndexerWorker', () => {
         12345,
       );
     });
+
+    it('dispatches a pool.created webhook after successful write', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      await handler(makeJob(data));
+
+      // Wait for any async promises
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(mockWebhooksService.dispatch).toHaveBeenCalledWith(
+        'pool.created',
+        expect.objectContaining({
+          poolId: data.poolId,
+          tokenA: data.tokenA,
+          tokenB: data.tokenB,
+          eventId: data.eventId,
+        }),
+      );
+    });
+
+    it('continues processing even when webhook dispatch fails', async () => {
+      mockWebhooksService.dispatch.mockRejectedValueOnce(
+        new Error('Webhook delivery failed'),
+      );
+
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      await expect(handler(makeJob(data))).resolves.not.toThrow();
+
+      expect(mockPrismaClient.poolCreated.upsert).toHaveBeenCalled();
+    });
   });
 
   describe('handleSwapProcessed()', () => {
@@ -499,6 +534,35 @@ describe('IndexerWorker', () => {
       expect(mockPrismaClient.pool.update).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: data.poolId } }),
       );
+    });
+
+    it('dispatches a swap.large webhook after successful write', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await handler(makeJob(data));
+
+      // Wait for any async promises
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(mockWebhooksService.dispatch).toHaveBeenCalledWith(
+        'swap.large',
+        expect.objectContaining({
+          poolId: data.poolId,
+          sender: data.sender,
+          recipient: data.recipient,
+          eventId: data.eventId,
+        }),
+      );
+    });
+
+    it('continues processing even when webhook dispatch fails for swap', async () => {
+      mockWebhooksService.dispatch.mockRejectedValueOnce(
+        new Error('Webhook delivery failed'),
+      );
+
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await expect(handler(makeJob(data))).resolves.not.toThrow();
+
+      expect(mockPrismaClient.swapProcessed.upsert).toHaveBeenCalled();
     });
   });
 

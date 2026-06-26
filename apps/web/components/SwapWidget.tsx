@@ -1,100 +1,17 @@
 "use client";
 
 import React, { useState } from "react";
-// import { SwapInput, PriceImpactBadge, SlippagePanel, type TokenPair, type Token } from "@swyft/ui"; // TODO: export these from @swyft/ui
+import {
+  SwapInput,
+  PriceImpactBadge,
+  SlippagePanel,
+  type Token,
+  type TokenPair,
+} from "@swyft/ui";
 import { useTokens, useRecentTokens, usePoolId } from "@/hooks/useTokens";
 import { useSwapQuote } from "@/hooks/useSwapQuote";
 import { useWalletBalances } from "@/hooks/useWalletBalances";
 import { SwapConfirmModal } from "@/components/SwapConfirmModal";
-
-// ---------------------------------------------------------------------------
-// Local type stubs — remove once @swyft/ui exports these
-// ---------------------------------------------------------------------------
-
-interface Token {
-  id: string;
-  symbol: string;
-  name: string;
-  logoUrl: string | null;
-}
-
-interface TokenPair {
-  tokenIn: Token | null;
-  tokenOut: Token | null;
-}
-
-// Placeholder components — replace with @swyft/ui imports when available
-function SwapInput({
-  label,
-  token,
-  amount,
-  balance,
-  readOnly,
-  onAmountChange,
-}: {
-  label: string;
-  token: Token | null;
-  amount: string;
-  balance?: string;
-  readOnly?: boolean;
-  onAmountChange?: (v: string) => void;
-  onTokenClick?: () => void;
-}) {
-  return (
-    <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-xs text-zinc-400">{label}</span>
-        {balance !== undefined && (
-          <span className="text-xs text-zinc-400">
-            Balance: {parseFloat(balance).toFixed(4)}
-          </span>
-        )}
-      </div>
-      <input
-        type="number"
-        min="0"
-        step="any"
-        placeholder="0.0"
-        readOnly={readOnly}
-        value={amount}
-        onChange={(e) => onAmountChange?.(e.target.value)}
-        className="w-full bg-transparent text-lg font-semibold text-zinc-900 outline-none dark:text-white"
-        aria-label={`${label} amount${token ? ` in ${token.symbol}` : ""}`}
-      />
-    </div>
-  );
-}
-
-function PriceImpactBadge({ impact }: { impact: number }) {
-  const color =
-    impact >= 5
-      ? "text-red-600 dark:text-red-400"
-      : impact >= 1
-      ? "text-amber-600 dark:text-amber-400"
-      : "text-zinc-700 dark:text-zinc-300";
-  return (
-    <span className={`font-medium ${color}`}>{impact.toFixed(2)}%</span>
-  );
-}
-
-function SlippagePanel({
-  slippageBps,
-  onChange,
-}: {
-  slippageBps: number;
-  onChange: (bps: number) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(slippageBps === 50 ? 100 : 50)}
-      className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-      aria-label={`Slippage: ${slippageBps / 100}%`}
-    >
-      {slippageBps / 100}% slippage
-    </button>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // TokenPickerButton

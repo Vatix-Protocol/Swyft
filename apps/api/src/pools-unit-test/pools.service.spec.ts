@@ -141,4 +141,115 @@ describe('PoolsService', () => {
       expect(cache.get).toHaveBeenCalledWith(expect.stringContaining(poolId));
     });
   });
+
+  // ─── findPoolById ────────────────────────────────────────────────────────────
+
+  describe('findPoolById()', () => {
+    const poolId = 'cltest123456789012345678';
+    const now = new Date('2024-06-01T12:00:00Z');
+
+    it('returns full PoolDetail shape for a known pool', async () => {
+      const poolData = {
+        pool: {
+          id: poolId,
+          token0Address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+          token1Address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+          feeTier: 3000,
+          currentSqrtPrice: '79228162514264337593543950336',
+          currentTick: 0,
+          liquidity: '1000000000000000000',
+          tvl: '5000000',
+          volume24h: '1200000',
+          feeApr: '0.15',
+          createdAt: now,
+          updatedAt: now,
+          swaps: [
+            {
+              id: 'swap_1',
+              poolId,
+              senderAddress: '0xSender1',
+              recipientAddress: '0xRecipient1',
+              amount0: '1000000',
+              amount1: '500000000000000000',
+              sqrtPriceAfter: '79228162514264337593543950336',
+              tickAfter: 0,
+              transactionHash: '0xTxHash1',
+              timestamp: now,
+            },
+          ],
+        },
+        token0: {
+          id: 'tok_usdc_1',
+          address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+          symbol: 'USDC',
+          name: 'USD Coin',
+          decimals: 6,
+          logoUri: null,
+        },
+        token1: {
+          id: 'tok_eth_1',
+          address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+          symbol: 'WETH',
+          name: 'Wrapped Ether',
+          decimals: 18,
+          logoUri: null,
+        },
+      };
+
+      repo.getPoolDetailById = jest.fn().mockResolvedValue(poolData);
+
+      const result = await service.findPoolById(poolId);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveProperty('id', poolId);
+      expect(result).toHaveProperty('token0.symbol', 'USDC');
+      expect(result).toHaveProperty('token1.symbol', 'WETH');
+      expect(result).toHaveProperty('feeTier', 3000);
+      expect(result).toHaveProperty('tvl', '5000000');
+      expect(result).toHaveProperty('volume24h', '1200000');
+      expect(result).toHaveProperty('recentSwaps');
+      expect(result?.recentSwaps).toHaveLength(1);
+      expect(result?.recentSwaps[0]).toHaveProperty('txHash', '0xTxHash1');
+    });
+
+    it('returns null for unknown pool id', async () => {
+      repo.getPoolDetailById = jest.fn().mockResolvedValue(null);
+
+      const result = await service.findPoolById('unknown_id');
+
+      expect(result).toBeNull();
+    });
+
+    it('handles missing token data with defaults', async () => {
+      const poolData = {
+        pool: {
+          id: poolId,
+          token0Address: '0xToken0',
+          token1Address: '0xToken1',
+          feeTier: 3000,
+          currentSqrtPrice: '79228162514264337593543950336',
+          currentTick: 0,
+          liquidity: '1000000000000000000',
+          tvl: '5000000',
+          volume24h: '1200000',
+          feeApr: '0.15',
+          createdAt: now,
+          updatedAt: now,
+          swaps: [],
+        },
+        token0: null,
+        token1: null,
+      };
+
+      repo.getPoolDetailById = jest.fn().mockResolvedValue(poolData);
+
+      const result = await service.findPoolById(poolId);
+
+      expect(result).toBeDefined();
+      expect(result?.token0.symbol).toBe('');
+      expect(result?.token0.decimals).toBe(18);
+      expect(result?.token1.symbol).toBe('');
+      expect(result?.token1.decimals).toBe(18);
+    });
+  });
 });
