@@ -28,6 +28,10 @@ export class TokenEnrichmentService implements OnModuleInit {
   }
 
   onModuleInit() {
+    // Avoid kicking off a real-network enrichment pass and a leaked weekly
+    // timer during automated tests (same guard used by sentry.ts).
+    if (process.env.NODE_ENV === 'test') return;
+
     void this.enrichAll();
     // Re-enrich weekly
     setInterval(() => void this.enrichAll(), 7 * 24 * 60 * 60 * 1000);
