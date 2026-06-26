@@ -1,3 +1,12 @@
+import {
+  Contract,
+  Keypair,
+  TransactionBuilder,
+  Networks,
+  xdr,
+  nativeToScVal,
+} from "@stellar/stellar-sdk";
+
 // ── Branded primitives ────────────────────────────────────────────────────────
 
 /**
@@ -70,19 +79,114 @@ export interface SwapUnsignedTx {
   readonly type: 'swap';
 }
 
+// ── Validation ────────────────────────────────────────────────────────────────
+
+function isValidStellarAddress(address: string): boolean {
+  return (
+    typeof address === "string" &&
+    address.length === 56 &&
+    (address.startsWith("G") || address.startsWith("C"))
+  );
+}
+
+function isValidAmount(amount: string): boolean {
+  try {
+    const num = parseFloat(amount);
+    return !isNaN(num) && num > 0 && Number.isFinite(num);
+  } catch {
+    return false;
+  }
+}
+
+export class SwapValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SwapValidationError";
+  }
+}
+
 // ── Builder ───────────────────────────────────────────────────────────────────
 
 /**
  * Builds an unsigned swap transaction XDR from provided swap parameters.
  *
- * The returned transaction is a stub payload that should be replaced with a
- * real Soroban router invocation in production.
+ * Constructs a real Soroban transaction that invokes the swap method on a router
+ * contract. The transaction is built with a placeholder source account and must be
+ * properly signed before submission.
  *
  * @param params - Swap parameters including pool ID, token IDs, amounts, and owner.
  * @returns An unsigned swap transaction envelope in base-64 XDR format.
+ * @throws {SwapValidationError} If parameters are invalid (invalid addresses or amounts).
  */
 export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
-  const payload = JSON.stringify({ op: 'swap', ...params });
-  const xdr = btoa(payload) as XdrBase64;
-  return { xdr, type: 'swap' };
+  if (!isValidStellarAddress(params.poolId)) {
+    throw new SwapValidationError(
+      `Invalid poolId: must be a valid Stellar address. Got: ${params.poolId}`
+    );
+  }
+  if (!isValidStellarAddress(params.tokenInId)) {
+    throw new SwapValidationError(
+      `Invalid tokenInId: must be a valid Stellar address. Got: ${params.tokenInId}`
+    );
+  }
+  if (!isValidStellarAddress(params.tokenOutId)) {
+    throw new SwapValidationError(
+      `Invalid tokenOutId: must be a valid Stellar address. Got: ${params.tokenOutId}`
+    );
+  }
+  if (!isValidStellarAddress(params.ownerAddress)) {
+    throw new SwapValidationError(
+      `Invalid ownerAddress: must be a valid Stellar address. Got: ${params.ownerAddress}`
+    );
+  }
+  if (!isValidAmount(params.amountIn)) {
+    throw new SwapValidationError(
+      `Invalid amountIn: must be a positive number. Got: ${params.amountIn}`
+    );
+  }
+  if (!isValidAmount(params.minimumReceived)) {
+    throw new SwapValidationError(
+      `Invalid minimumReceived: must be a positive number. Got: ${params.minimumReceived}`
+    );
+  }
+
+  try {
+    const contract = new Contract(params.poolId);
+
+    const amountInScVal = nativeToScVal(params.amountIn, {
+      type: "i128",
+    });
+    const minOutScVal = nativeToScVal(params.minimumReceived, {
+      type: "i128",
+    });
+    const tokenInScVal = nativeToScVal(params.tokenInId, {
+      type: "address",
+    });
+    const tokenOutScVal = nativeToScVal(params.tokenOutId, {
+      type: "address",
+    });
+
+    const swapOp = contract.call("swap", tokenInScVal, tokenOutScVal, amountInScVal, minOutScVal);
+
+    const sourceKeypair = Keypair.random();
+    const sourceAccount = {
+      accountId: sourceKeypair.publicKey(),
+      sequence: "0",
+    };
+
+    const txBuilder = new TransactionBuilder(sourceAccount, {
+      fee: "100000",
+      networkPassphrase: Networks.TESTNET_NETWORK_PASSPHRASE,
+    });
+
+    txBuilder.addOperation(swapOp);
+    const tx = txBuilder.setTimeout(30).build();
+
+    const xdrString = tx.toEnvelope().toXDR("base64");
+    return { xdr: xdrString as XdrBase64, type: "swap" };
+  } catch (err) {
+    if (err instanceof SwapValidationError) throw err;
+    const message = err instanceof Error ? err.message : String(err);
+    throw new SwapValidationError(`Failed to build swap transaction: ${message}`);
+  }
 }

@@ -41,8 +41,11 @@ export function usePriceCandles(
         `${API_BASE}/prices/${tokenA}/${tokenB}/candles?interval=${interval}&limit=168`
       );
       if (!res.ok) { setCandles([]); return; }
-      const data = (await res.json()) as { candles?: Candle[] };
-      setCandles(data.candles ?? []);
+      const data = (await res.json()) as CandlesResponse;
+      const validCandles = (data.data ?? [])
+        .filter(isValidCandle)
+        .map(mapPriceCandleToCandle);
+      setCandles(validCandles);
     } catch {
       setCandles([]);
     } finally {

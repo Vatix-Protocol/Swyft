@@ -42,6 +42,7 @@ export default function PortfolioPage() {
         positionId: position.id,
         poolId: position.poolId,
         ownerAddress: position.ownerWallet,
+        ownerWallet: position.ownerWallet,
       });
 
       const signResult = await signTransaction(xdr, { networkPassphrase: SWYFT_NETWORK_PASSPHRASE });
