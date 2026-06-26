@@ -23,6 +23,7 @@ export function usePriceCandles(
 ) {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [loading, setLoading] = useState(false);
+  const [poolId, setPoolId] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   const fetch168 = useCallback(async () => {
@@ -32,11 +33,13 @@ export function usePriceCandles(
       const res = await fetch(
         `${API_BASE}/prices/${tokenA}/${tokenB}/candles?interval=${interval}&limit=168`
       );
-      if (!res.ok) { setCandles([]); return; }
-      const data = (await res.json()) as { candles?: Candle[] };
+      if (!res.ok) { setCandles([]); setPoolId(null); return; }
+      const data = (await res.json()) as { poolId?: string; candles?: Candle[] };
       setCandles(data.candles ?? []);
+      setPoolId(data.poolId ?? null);
     } catch {
       setCandles([]);
+      setPoolId(null);
     } finally {
       setLoading(false);
     }
@@ -45,12 +48,13 @@ export function usePriceCandles(
   // Initial fetch
   useEffect(() => {
     setCandles([]);
+    setPoolId(null);
     fetch168();
   }, [fetch168]);
 
   // WebSocket for live candle updates
   useEffect(() => {
-    if (!tokenA || !tokenB) return;
+    if (!poolId) return;
     wsRef.current?.close();
 
     let ws: WebSocket;
@@ -62,32 +66,29 @@ export function usePriceCandles(
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ event: "subscribe_candles", tokenA, tokenB, interval }));
+      ws.send(JSON.stringify({ action: "subscribe", poolId }));
     };
 
     ws.onmessage = (e) => {
       try {
-        const msg = JSON.parse(e.data as string) as {
-          event?: string;
-          candle?: Candle;
-        };
-        if (msg.event !== "candle" || !msg.candle) return;
-        setCandles((prev) => {
-          if (prev.length === 0) return [msg.candle!];
-          const last = prev[prev.length - 1];
-          // Replace last candle if same timestamp, else append
-          if (last.time === msg.candle!.time) {
-            return [...prev.slice(0, -1), msg.candle!];
-          }
-          return [...prev.slice(-167), msg.candle!];
-        });
+        const msg = JSON.parse(e.data as string);
+        if (msg.event === "price" && msg.data?.poolId === poolId) {
+          setCandles((prev) => {
+            if (prev.length === 0) return [msg.data as Candle];
+            const last = prev[prev.length - 1];
+            if (last.time === (msg.data as Candle).time) {
+              return [...prev.slice(0, -1), msg.data as Candle];
+            }
+            return [...prev.slice(-167), msg.data as Candle];
+          });
+        }
       } catch {
         // ignore
       }
     };
 
     return () => { ws.close(); };
-  }, [tokenA, tokenB, interval]);
+  }, [poolId]);
 
   const currentPrice = candles.length > 0 ? candles[candles.length - 1].close : null;
 
