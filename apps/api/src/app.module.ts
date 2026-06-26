@@ -18,6 +18,8 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { CandlesModule } from './candles/candles.module';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { StatsModule } from './stats/stats.module';
+import { TokensModule } from './tokens/tokens.module';
+import { SearchModule } from './search/search.module';
 
 @Module({
   imports: [
@@ -37,6 +39,8 @@ import { StatsModule } from './stats/stats.module';
     WebhooksModule,
     CandlesModule,
     StatsModule,
+    SearchModule,
+    TokensModule,
   ],
   controllers: [AppController],
   providers: [AppService],
