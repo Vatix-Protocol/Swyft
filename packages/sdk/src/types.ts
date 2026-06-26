@@ -64,7 +64,7 @@ export interface TickState {
 export class SwyftRpcError extends Error {
   constructor(
     message: string,
-    public readonly cause?: unknown,
+    public readonly cause?: unknown
   ) {
     super(message);
     this.name = 'SwyftRpcError';

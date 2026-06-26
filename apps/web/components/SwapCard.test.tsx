@@ -111,9 +111,7 @@ describe('SwapCard', () => {
 
     it('shows slippage error message', () => {
       renderSwapCard();
-      expect(
-        screen.getByText(/price moved beyond your slippage tolerance/)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/price moved beyond your slippage tolerance/)).toBeInTheDocument();
     });
 
     it('shows retry button on slippage error', () => {
@@ -139,9 +137,7 @@ describe('SwapCard', () => {
       } as any);
 
       renderSwapCard();
-      expect(
-        screen.getByText(/Network error.*could not be submitted/)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/Network error.*could not be submitted/)).toBeInTheDocument();
     });
   });
 
@@ -158,9 +154,7 @@ describe('SwapCard', () => {
 
     it('shows success message with tx hash', () => {
       renderSwapCard();
-      expect(
-        screen.getByText('Transaction submitted successfully')
-      ).toBeInTheDocument();
+      expect(screen.getByText('Transaction submitted successfully')).toBeInTheDocument();
       expect(screen.getByText(/1234567890.*abcdef/)).toBeInTheDocument();
     });
 

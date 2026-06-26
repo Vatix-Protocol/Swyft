@@ -1,11 +1,11 @@
-"use client";
+'use client';
 
-import { useEffect, useRef } from "react";
-import type { SwapQuote } from "@swyft/sdk";
-import type { Token } from "@swyft/ui";
-import { PriceImpactBadge } from "@swyft/ui";
-import { useSwapExecution } from "@/hooks/useSwapExecution";
-import { explorerTxUrl } from "@/lib/constants";
+import { useEffect, useRef } from 'react';
+import type { SwapQuote } from '@swyft/sdk';
+import type { Token } from '@swyft/ui';
+import { PriceImpactBadge } from '@swyft/ui';
+import { useSwapExecution } from '@/hooks/useSwapExecution';
+import { explorerTxUrl } from '@/lib/constants';
 
 interface Props {
   poolId: string;
@@ -34,18 +34,18 @@ export function SwapConfirmModal({
   // Trap focus / close on Escape
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && status === "idle") onClose();
+      if (e.key === 'Escape' && status === 'idle') onClose();
     }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, [status, onClose]);
 
   // Notify parent after success so it can refresh tx history
   useEffect(() => {
-    if (status === "success") onSuccess();
+    if (status === 'success') onSuccess();
   }, [status, onSuccess]);
 
-  const isBusy = status === "signing" || status === "submitting";
+  const isBusy = status === 'signing' || status === 'submitting';
 
   function handleOverlayClick(e: React.MouseEvent) {
     if (e.target === overlayRef.current && !isBusy) onClose();
@@ -73,7 +73,7 @@ export function SwapConfirmModal({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
           <h2 className="text-base font-semibold text-zinc-900 dark:text-white">
-            {status === "success" ? "Swap confirmed" : "Confirm swap"}
+            {status === 'success' ? 'Swap confirmed' : 'Confirm swap'}
           </h2>
           {!isBusy && (
             <button
@@ -82,7 +82,14 @@ export function SwapConfirmModal({
               aria-label="Close"
               className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 transition-colors"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+                aria-hidden="true"
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -126,18 +133,22 @@ export function SwapConfirmModal({
             </div>
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
               <span>LP fee</span>
-              <span>{parseFloat(quote.lpFee).toFixed(7)} {tokenIn.symbol}</span>
+              <span>
+                {parseFloat(quote.lpFee).toFixed(7)} {tokenIn.symbol}
+              </span>
             </div>
             {parseFloat(quote.protocolFee) > 0 && (
               <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
                 <span>Protocol fee</span>
-                <span>{parseFloat(quote.protocolFee).toFixed(7)} {tokenIn.symbol}</span>
+                <span>
+                  {parseFloat(quote.protocolFee).toFixed(7)} {tokenIn.symbol}
+                </span>
               </div>
             )}
           </div>
 
           {/* Success state */}
-          {status === "success" && txHash && (
+          {status === 'success' && txHash && (
             <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 dark:border-green-800 dark:bg-green-950">
               <p className="text-xs font-medium text-green-700 dark:text-green-400 mb-1">
                 Transaction submitted successfully
@@ -149,18 +160,33 @@ export function SwapConfirmModal({
                 className="inline-flex items-center gap-1 text-xs text-green-600 underline hover:text-green-800 dark:text-green-400 dark:hover:text-green-300 font-mono"
               >
                 {txHash.slice(0, 8)}…{txHash.slice(-8)}
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                <svg
+                  className="h-3 w-3"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                  />
                 </svg>
               </a>
             </div>
           )}
 
           {/* Error states */}
-          {status === "error" && error === "slippage" && (
-            <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950">
+          {status === 'error' && error === 'slippage' && (
+            <div
+              role="alert"
+              className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950"
+            >
               <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
-                Swap failed — price moved beyond your slippage tolerance. Try increasing slippage or retry.
+                Swap failed — price moved beyond your slippage tolerance. Try increasing slippage or
+                retry.
               </p>
               <button
                 type="button"
@@ -172,8 +198,11 @@ export function SwapConfirmModal({
             </div>
           )}
 
-          {status === "error" && error === "network" && (
-            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950">
+          {status === 'error' && error === 'network' && (
+            <div
+              role="alert"
+              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950"
+            >
               <p className="text-xs font-medium text-red-700 dark:text-red-400">
                 Network error — the transaction could not be submitted.
               </p>
@@ -188,7 +217,7 @@ export function SwapConfirmModal({
           )}
 
           {/* Action buttons */}
-          {status === "success" ? (
+          {status === 'success' ? (
             <button
               type="button"
               onClick={onClose}
@@ -200,23 +229,29 @@ export function SwapConfirmModal({
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={isBusy || status === "error"}
+              disabled={isBusy || status === 'error'}
               className="w-full min-h-[44px] rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 flex items-center justify-center gap-2"
             >
-              {status === "signing" && (
+              {status === 'signing' && (
                 <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" aria-hidden="true" />
+                  <span
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                    aria-hidden="true"
+                  />
                   Waiting for signature…
                 </>
               )}
-              {status === "submitting" && (
+              {status === 'submitting' && (
                 <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" aria-hidden="true" />
+                  <span
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                    aria-hidden="true"
+                  />
                   Submitting…
                 </>
               )}
-              {(status === "idle") && "Confirm swap"}
-              {status === "error" && "Failed"}
+              {status === 'idle' && 'Confirm swap'}
+              {status === 'error' && 'Failed'}
             </button>
           )}
         </div>

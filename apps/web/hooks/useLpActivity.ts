@@ -1,9 +1,9 @@
-"use client";
+'use client';
 
-import { useQuery } from "@tanstack/react-query";
-import { API_BASE } from "@/lib/constants";
+import { useQuery } from '@tanstack/react-query';
+import { API_BASE } from '@/lib/constants';
 
-export type LpActivityType = "mint" | "burn" | "fee_collection";
+export type LpActivityType = 'mint' | 'burn' | 'fee_collection';
 
 export interface LpActivity {
   id: string;
@@ -40,10 +40,10 @@ export function useLpActivity(
   limit: number = 20
 ) {
   return useQuery({
-    queryKey: ["lp-activity", walletAddress, page, limit],
+    queryKey: ['lp-activity', walletAddress, page, limit],
     queryFn: async (): Promise<LpActivityListResponse> => {
       if (!walletAddress || !authToken) return { items: [], total: 0 };
-      
+
       const params = new URLSearchParams({
         wallet: walletAddress,
         page: page.toString(),
@@ -53,29 +53,29 @@ export function useLpActivity(
       const response = await fetch(`${API_BASE}/positions?${params}`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
-      
+
       if (!response.ok) {
-        throw new Error("Failed to fetch LP activity");
+        throw new Error('Failed to fetch LP activity');
       }
-      
+
       const data = await response.json();
-      
+
       // Transform positions into LP activity entries
       // This is a placeholder - the actual API should return LP activity directly
       // For now, we'll derive activity from position data
       const activities: LpActivity[] = (data.items || []).map((pos: RawPosition) => ({
         id: pos.id,
-        type: "mint" as LpActivityType,
+        type: 'mint' as LpActivityType,
         poolId: pos.poolId,
         token0Symbol: pos.token0,
         token1Symbol: pos.token1,
         amount0: pos.liquidity,
-        amount1: "0",
+        amount1: '0',
         txHash: pos.id, // Placeholder - should be actual tx hash
         walletAddress: pos.ownerWallet,
         timestamp: pos.createdAt,
       }));
-      
+
       return { items: activities, total: data.total || 0 };
     },
     enabled: !!walletAddress && !!authToken,

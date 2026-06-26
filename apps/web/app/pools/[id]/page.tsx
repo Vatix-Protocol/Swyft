@@ -1,25 +1,25 @@
-"use client";
+'use client';
 
-import { use } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { usePoolDetail } from "@/hooks/usePoolDetail";
-import { TokenLogo } from "@swyft/ui";
-import type { Token } from "@swyft/ui";
+import { use } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { usePoolDetail } from '@/hooks/usePoolDetail';
+import { TokenLogo } from '@swyft/ui';
+import type { Token } from '@swyft/ui';
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-function fmt(n: string | number, prefix = "$") {
-  const num = typeof n === "string" ? parseFloat(n) : n;
+function fmt(n: string | number, prefix = '$') {
+  const num = typeof n === 'string' ? parseFloat(n) : n;
   if (num >= 1_000_000) return `${prefix}${(num / 1_000_000).toFixed(2)}M`;
   if (num >= 1_000) return `${prefix}${(num / 1_000).toFixed(2)}K`;
   return `${prefix}${num.toFixed(2)}`;
 }
 
 function fmtApr(n: string | number) {
-  const num = typeof n === "string" ? parseFloat(n) : n;
+  const num = typeof n === 'string' ? parseFloat(n) : n;
   return `${(num * 100).toFixed(2)}%`;
 }
 
@@ -48,7 +48,10 @@ function PoolDetailSkeleton() {
       </div>
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+          <div
+            key={i}
+            className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900"
+          >
             <div className="h-4 w-20 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700 mb-2" />
             <div className="h-6 w-28 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
           </div>
@@ -73,17 +76,28 @@ export default function PoolDetailPage({ params }: PageProps) {
             href="/pools"
             className="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors"
           >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <svg
+              className="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+              aria-hidden="true"
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
             All Pools
           </Link>
         </div>
         <div className="text-center py-12">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-white mb-2">Pool not found</h2>
-          <p className="text-sm text-zinc-500 mb-4">The pool you're looking for doesn't exist or couldn't be loaded.</p>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-white mb-2">
+            Pool not found
+          </h2>
+          <p className="text-sm text-zinc-500 mb-4">
+            The pool you're looking for doesn't exist or couldn't be loaded.
+          </p>
           <button
-            onClick={() => router.push("/pools")}
+            onClick={() => router.push('/pools')}
             className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
           >
             Back to pools
@@ -105,7 +119,14 @@ export default function PoolDetailPage({ params }: PageProps) {
           href="/pools"
           className="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors"
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden="true"
+          >
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
           All Pools
@@ -129,9 +150,7 @@ export default function PoolDetailPage({ params }: PageProps) {
         <div className="flex gap-2">
           <button
             onClick={() =>
-              router.push(
-                `/swap?tokenIn=${pool.token0.address}&tokenOut=${pool.token1.address}`
-              )
+              router.push(`/swap?tokenIn=${pool.token0.address}&tokenOut=${pool.token1.address}`)
             }
             className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 transition-colors dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900"
           >
@@ -150,9 +169,7 @@ export default function PoolDetailPage({ params }: PageProps) {
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 mb-8">
         <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">Total Value Locked</p>
-          <p className="text-lg font-semibold text-zinc-900 dark:text-white">
-            {fmt(pool.tvl)}
-          </p>
+          <p className="text-lg font-semibold text-zinc-900 dark:text-white">{fmt(pool.tvl)}</p>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">24h Volume</p>
@@ -180,9 +197,7 @@ export default function PoolDetailPage({ params }: PageProps) {
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">Current Tick</p>
-          <p className="text-lg font-semibold text-zinc-900 dark:text-white">
-            {pool.currentTick}
-          </p>
+          <p className="text-lg font-semibold text-zinc-900 dark:text-white">{pool.currentTick}</p>
         </div>
       </div>
 

@@ -17,7 +17,9 @@ export function useMevProtection() {
   };
 
   const rpcUrl = enabled
-    ? (process.env.NEXT_PUBLIC_MEV_PROTECTED_RPC_URL ?? process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ?? 'https://soroban-testnet.stellar.org')
+    ? (process.env.NEXT_PUBLIC_MEV_PROTECTED_RPC_URL ??
+      process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ??
+      'https://soroban-testnet.stellar.org')
     : (process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ?? 'https://soroban-testnet.stellar.org');
 
   return { enabled, toggle, rpcUrl };

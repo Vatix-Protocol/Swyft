@@ -1,10 +1,10 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { SwapWidget } from "@/components/SwapWidget";
-import { PriceChart } from "@/components/PriceChart";
-import { useWalletContext } from "@/context/WalletContext";
-import type { Token } from "@swyft/ui";
+import { useState } from 'react';
+import { SwapWidget } from '@/components/SwapWidget';
+import { PriceChart } from '@/components/PriceChart';
+import { useWalletContext } from '@/context/WalletContext';
+import type { Token } from '@swyft/ui';
 
 export default function Home() {
   const wallet = useWalletContext();
@@ -20,11 +20,7 @@ export default function Home() {
           tokenASymbol={tokenIn?.symbol}
           tokenBSymbol={tokenOut?.symbol}
         />
-        <SwapWidget
-          wallet={wallet}
-          onTokenInChange={setTokenIn}
-          onTokenOutChange={setTokenOut}
-        />
+        <SwapWidget wallet={wallet} onTokenInChange={setTokenIn} onTokenOutChange={setTokenOut} />
       </div>
     </div>
   );

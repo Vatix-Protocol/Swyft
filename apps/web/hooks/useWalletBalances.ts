@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { API_BASE } from "@/lib/constants";
+import { useEffect, useState } from 'react';
+import { API_BASE } from '@/lib/constants';
 
 /**
  * Fetches token balances for a connected wallet address.
@@ -11,7 +11,10 @@ export function useWalletBalances(address: string | null, tokenIds: string[]) {
   const [balances, setBalances] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (!address || tokenIds.length === 0) { setBalances({}); return; }
+    if (!address || tokenIds.length === 0) {
+      setBalances({});
+      return;
+    }
     let cancelled = false;
 
     fetch(`${API_BASE}/balances?address=${encodeURIComponent(address)}`)
@@ -19,10 +22,14 @@ export function useWalletBalances(address: string | null, tokenIds: string[]) {
       .then((data: Record<string, string>) => {
         if (!cancelled) setBalances(data);
       })
-      .catch(() => { if (!cancelled) setBalances({}); });
+      .catch(() => {
+        if (!cancelled) setBalances({});
+      });
 
-    return () => { cancelled = true; };
-  }, [address, tokenIds.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+    };
+  }, [address, tokenIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return balances;
 }

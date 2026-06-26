@@ -41,15 +41,15 @@ console.log(tick.liquidityNet, tick.feeGrowthOutside);
 
 Fetches current pool state from Soroban RPC.
 
-| Field | Type | Description |
-|---|---|---|
-| `poolAddress` | `string` | Contract address queried |
-| `sqrtPrice` | `string` | √P as a fixed-point string |
-| `currentTick` | `number` | Active tick index |
-| `liquidity` | `string` | Active liquidity |
-| `feeTier` | `number` | Fee in hundredths of a bip (e.g. 3000 = 0.3%) |
-| `token0` | `string` | Token 0 contract address |
-| `token1` | `string` | Token 1 contract address |
+| Field         | Type     | Description                                   |
+| ------------- | -------- | --------------------------------------------- |
+| `poolAddress` | `string` | Contract address queried                      |
+| `sqrtPrice`   | `string` | √P as a fixed-point string                    |
+| `currentTick` | `number` | Active tick index                             |
+| `liquidity`   | `string` | Active liquidity                              |
+| `feeTier`     | `number` | Fee in hundredths of a bip (e.g. 3000 = 0.3%) |
+| `token0`      | `string` | Token 0 contract address                      |
+| `token1`      | `string` | Token 1 contract address                      |
 
 ### `getPosition({ rpcUrl, positionNftId }): Promise<PositionState>`
 

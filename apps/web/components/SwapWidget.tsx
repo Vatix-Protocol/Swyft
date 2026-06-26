@@ -1,17 +1,11 @@
-"use client";
+'use client';
 
-import React, { useState } from "react";
-import {
-  SwapInput,
-  PriceImpactBadge,
-  SlippagePanel,
-  type Token,
-  type TokenPair,
-} from "@swyft/ui";
-import { useTokens, useRecentTokens, usePoolId } from "@/hooks/useTokens";
-import { useSwapQuote } from "@/hooks/useSwapQuote";
-import { useWalletBalances } from "@/hooks/useWalletBalances";
-import { SwapConfirmModal } from "@/components/SwapConfirmModal";
+import React, { useState } from 'react';
+import { SwapInput, PriceImpactBadge, SlippagePanel, type Token, type TokenPair } from '@swyft/ui';
+import { useTokens, useRecentTokens, usePoolId } from '@/hooks/useTokens';
+import { useSwapQuote } from '@/hooks/useSwapQuote';
+import { useWalletBalances } from '@/hooks/useWalletBalances';
+import { SwapConfirmModal } from '@/components/SwapConfirmModal';
 
 // ---------------------------------------------------------------------------
 // TokenPickerButton
@@ -41,11 +35,7 @@ function TokenPickerButton({
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-zinc-900 shadow-sm ring-1 ring-zinc-200 hover:ring-indigo-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-700 dark:text-white dark:ring-zinc-600"
       >
-        {token ? (
-          token.symbol
-        ) : (
-          <span className="text-indigo-600">Select</span>
-        )}
+        {token ? token.symbol : <span className="text-indigo-600">Select</span>}
         <svg
           className="h-3.5 w-3.5 text-zinc-400"
           fill="none"
@@ -54,11 +44,7 @@ function TokenPickerButton({
           strokeWidth={2}
           aria-hidden="true"
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M19 9l-7 7-7-7"
-          />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
 
@@ -69,9 +55,7 @@ function TokenPickerButton({
           className="absolute right-0 top-full z-30 mt-1 max-h-48 w-40 overflow-y-auto rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
         >
           {available.length === 0 ? (
-            <li className="px-3 py-2 text-xs text-zinc-400">
-              No tokens available
-            </li>
+            <li className="px-3 py-2 text-xs text-zinc-400">No tokens available</li>
           ) : (
             available.map((t) => (
               <li key={t.id} role="option" aria-selected={t.id === token?.id}>
@@ -163,14 +147,11 @@ export function SwapWidget({
   const { tokens, loading: tokensLoading, error: tokensError } = useTokens();
   const { recentIds: _recentIds, pushRecent } = useRecentTokens();
   const [pair, setPair] = useState<TokenPair>({ tokenIn: null, tokenOut: null });
-  const [amountIn, setAmountIn] = useState("");
+  const [amountIn, setAmountIn] = useState('');
   const [slippageBps, setSlippageBps] = useState(50);
   const [showModal, setShowModal] = useState(false);
 
-  const { poolId, poolExists } = usePoolId(
-    pair.tokenIn?.id ?? null,
-    pair.tokenOut?.id ?? null,
-  );
+  const { poolId, poolExists } = usePoolId(pair.tokenIn?.id ?? null, pair.tokenOut?.id ?? null);
   const { quote, loading: quoteLoading } = useSwapQuote({
     poolId,
     tokenInId: pair.tokenIn?.id ?? null,
@@ -179,21 +160,14 @@ export function SwapWidget({
     slippageBps,
   });
 
-  const tokenIds = [pair.tokenIn?.id, pair.tokenOut?.id].filter(
-    Boolean,
-  ) as string[];
+  const tokenIds = [pair.tokenIn?.id, pair.tokenOut?.id].filter(Boolean) as string[];
   const balances = useWalletBalances(wallet.address, tokenIds);
 
-  const inBalance = pair.tokenIn
-    ? (balances[pair.tokenIn.id] ?? undefined)
-    : undefined;
-  const outBalance = pair.tokenOut
-    ? (balances[pair.tokenOut.id] ?? undefined)
-    : undefined;
+  const inBalance = pair.tokenIn ? (balances[pair.tokenIn.id] ?? undefined) : undefined;
+  const outBalance = pair.tokenOut ? (balances[pair.tokenOut.id] ?? undefined) : undefined;
 
   const insufficient =
-    inBalance !== undefined &&
-    parseFloat(amountIn || "0") > parseFloat(inBalance);
+    inBalance !== undefined && parseFloat(amountIn || '0') > parseFloat(inBalance);
 
   const swapDisabled =
     !wallet.address ||
@@ -231,7 +205,7 @@ export function SwapWidget({
     setPair({ tokenIn: pair.tokenOut, tokenOut: pair.tokenIn });
     onTokenInChange?.(pair.tokenOut ?? null);
     onTokenOutChange?.(pair.tokenIn ?? null);
-    setAmountIn(quote?.amountOut ?? "");
+    setAmountIn(quote?.amountOut ?? '');
   }
 
   const highImpact = quote && quote.priceImpact >= 5;
@@ -282,9 +256,7 @@ export function SwapWidget({
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
             Unable to load tokens
           </p>
-          <p className="text-xs text-zinc-400">
-            Check your connection and try again.
-          </p>
+          <p className="text-xs text-zinc-400">Check your connection and try again.</p>
         </div>
       </div>
     );
@@ -303,18 +275,14 @@ export function SwapWidget({
             strokeWidth={1.5}
             aria-hidden="true"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3 7h18M3 12h18M3 17h18"
-            />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M3 12h18M3 17h18" />
           </svg>
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
             No tokens available
           </p>
           <p className="text-xs text-zinc-400">
-            No tradeable tokens have been listed yet. Add liquidity to a pool
-            first, then return here to swap.
+            No tradeable tokens have been listed yet. Add liquidity to a pool first, then return
+            here to swap.
           </p>
         </div>
       </div>
@@ -327,9 +295,7 @@ export function SwapWidget({
       <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
-          <h2 className="text-base font-semibold text-zinc-900 dark:text-white">
-            Swap
-          </h2>
+          <h2 className="text-base font-semibold text-zinc-900 dark:text-white">Swap</h2>
           <SlippagePanel slippageBps={slippageBps} onChange={setSlippageBps} />
         </div>
 
@@ -384,7 +350,7 @@ export function SwapWidget({
             <SwapInput
               label="You receive"
               token={pair.tokenOut}
-              amount={quoteLoading ? "" : (quote?.amountOut ?? "")}
+              amount={quoteLoading ? '' : (quote?.amountOut ?? '')}
               balance={outBalance}
               readOnly
               onTokenClick={() => {}}
@@ -413,8 +379,7 @@ export function SwapWidget({
               <div className="flex items-center justify-between">
                 <span>Rate</span>
                 <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                  1 {pair.tokenIn.symbol} ={" "}
-                  {parseFloat(quote.executionPrice).toFixed(6)}{" "}
+                  1 {pair.tokenIn.symbol} = {parseFloat(quote.executionPrice).toFixed(6)}{' '}
                   {pair.tokenOut.symbol}
                 </span>
               </div>
@@ -425,8 +390,7 @@ export function SwapWidget({
               <div className="flex items-center justify-between">
                 <span>Min. received</span>
                 <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                  {parseFloat(quote.minimumReceived).toFixed(6)}{" "}
-                  {pair.tokenOut.symbol}
+                  {parseFloat(quote.minimumReceived).toFixed(6)} {pair.tokenOut.symbol}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -439,8 +403,7 @@ export function SwapWidget({
                 <div className="flex items-center justify-between">
                   <span>Protocol fee</span>
                   <span>
-                    {parseFloat(quote.protocolFee).toFixed(7)}{" "}
-                    {pair.tokenIn.symbol}
+                    {parseFloat(quote.protocolFee).toFixed(7)} {pair.tokenIn.symbol}
                   </span>
                 </div>
               )}
@@ -449,10 +412,7 @@ export function SwapWidget({
 
           {/* No pool warning */}
           {poolExists === false && pair.tokenIn && pair.tokenOut && (
-            <p
-              role="alert"
-              className="text-xs text-amber-600 dark:text-amber-400"
-            >
+            <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">
               No pool exists for this pair. Try a different token combination.
             </p>
           )}
@@ -478,8 +438,8 @@ export function SwapWidget({
                 />
               </svg>
               <p className="text-xs font-medium text-red-700 dark:text-red-400">
-                Price impact is {quote!.priceImpact.toFixed(2)}% — this trade
-                may result in significant losses.
+                Price impact is {quote!.priceImpact.toFixed(2)}% — this trade may result in
+                significant losses.
               </p>
             </div>
           )}
@@ -494,44 +454,44 @@ export function SwapWidget({
           >
             {quoteLoading ? (
               <>
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" aria-hidden="true" />
+                <span
+                  className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                  aria-hidden="true"
+                />
                 Fetching quote…
               </>
-            ) : !wallet.address
-              ? "Connect wallet to swap"
-              : !pair.tokenIn || !pair.tokenOut
-              ? "Select tokens"
-              : !amountIn || parseFloat(amountIn) <= 0
-              ? "Enter an amount"
-              : insufficient
-              ? "Insufficient balance"
-              : "Swap"}
+            ) : !wallet.address ? (
+              'Connect wallet to swap'
+            ) : !pair.tokenIn || !pair.tokenOut ? (
+              'Select tokens'
+            ) : !amountIn || parseFloat(amountIn) <= 0 ? (
+              'Enter an amount'
+            ) : insufficient ? (
+              'Insufficient balance'
+            ) : (
+              'Swap'
+            )}
           </button>
         </div>
       </div>
 
       {/* Confirmation modal */}
-      {showModal &&
-        quote &&
-        pair.tokenIn &&
-        pair.tokenOut &&
-        wallet.address &&
-        poolId && (
-          <SwapConfirmModal
-            poolId={poolId}
-            tokenIn={pair.tokenIn}
-            tokenOut={pair.tokenOut}
-            amountIn={amountIn}
-            quote={quote}
-            walletAddress={wallet.address}
-            onClose={() => setShowModal(false)}
-            onSuccess={() => {
-              setShowModal(false);
-              setAmountIn("");
-              onSwapSuccess?.();
-            }}
-          />
-        )}
+      {showModal && quote && pair.tokenIn && pair.tokenOut && wallet.address && poolId && (
+        <SwapConfirmModal
+          poolId={poolId}
+          tokenIn={pair.tokenIn}
+          tokenOut={pair.tokenOut}
+          amountIn={amountIn}
+          quote={quote}
+          walletAddress={wallet.address}
+          onClose={() => setShowModal(false)}
+          onSuccess={() => {
+            setShowModal(false);
+            setAmountIn('');
+            onSwapSuccess?.();
+          }}
+        />
+      )}
     </>
   );
 }

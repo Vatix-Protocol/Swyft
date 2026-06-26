@@ -53,6 +53,7 @@ This PR implements a complete position NFT contract for the Swyft protocol, enab
 ### Documentation
 
 ✅ **README.md** - Complete contract documentation
+
 - Feature overview
 - Type definitions and error codes
 - Function signatures with parameters and return values
@@ -62,6 +63,7 @@ This PR implements a complete position NFT contract for the Swyft protocol, enab
 - SDK integration examples
 
 ✅ **INTEGRATION.md** - Step-by-step integration guide
+
 - How to integrate with Pool contract
 - Pool initialization changes
 - Mint/burn function updates
@@ -71,17 +73,17 @@ This PR implements a complete position NFT contract for the Swyft protocol, enab
 
 ## Acceptance Criteria Verification
 
-| Criterion | Status | Implementation |
-|-----------|--------|-----------------|
-| mint creates position NFT | ✅ | `mint()` function returns unique token_id |
-| burn destroys position NFT | ✅ | `burn()` function removes from storage |
-| transfer moves NFT between addresses | ✅ | `transfer()` function with owner verification |
-| NFT metadata: pool, ticks, liquidity, timestamp | ✅ | `PositionMetadata` struct with all fields |
-| Only pool contract can mint/burn | ✅ | `require_minter()` enforces authorization |
-| owner_of returns current owner | ✅ | `owner_of()` function |
-| Token IDs unique and auto-incrementing | ✅ | `next_id` counter with validation |
-| Transfer events emitted | ✅ | Events on mint, burn, and transfer |
-| Metadata readable by SDK and frontend | ✅ | `get_position()` returns PositionMetadata |
+| Criterion                                       | Status | Implementation                                |
+| ----------------------------------------------- | ------ | --------------------------------------------- |
+| mint creates position NFT                       | ✅     | `mint()` function returns unique token_id     |
+| burn destroys position NFT                      | ✅     | `burn()` function removes from storage        |
+| transfer moves NFT between addresses            | ✅     | `transfer()` function with owner verification |
+| NFT metadata: pool, ticks, liquidity, timestamp | ✅     | `PositionMetadata` struct with all fields     |
+| Only pool contract can mint/burn                | ✅     | `require_minter()` enforces authorization     |
+| owner_of returns current owner                  | ✅     | `owner_of()` function                         |
+| Token IDs unique and auto-incrementing          | ✅     | `next_id` counter with validation             |
+| Transfer events emitted                         | ✅     | Events on mint, burn, and transfer            |
+| Metadata readable by SDK and frontend           | ✅     | `get_position()` returns PositionMetadata     |
 
 ## Code Quality
 
@@ -129,6 +131,7 @@ cargo test --lib
 ### Expected Test Output
 
 All tests should pass:
+
 ```
 test test_initialize_success ... ok
 test test_initialize_twice_fails ... ok
@@ -213,6 +216,7 @@ None - this is a new contract with no changes to existing contracts.
 ## Rollback Plan
 
 In case of issues:
+
 1. Deploy new position NFT contract (if code changes needed)
 2. Update pool factory to use new NFT address for new pools
 3. Existing positions remain accessible via old NFT contract
@@ -254,22 +258,26 @@ Closes: [Feature Request] Position NFT Contract
 ## How to Test This PR Locally
 
 ### 1. Build the contract
+
 ```bash
 cd packages/contract
 stellar contract build
 ```
 
 ### 2. Run the tests
+
 ```bash
 cargo test --manifest-path contracts/position-nft/Cargo.toml
 ```
 
 ### 3. Review the generated WASM
+
 ```bash
 ls -lh target/wasm32-unknown-unknown/release/position_nft.wasm
 ```
 
 ### 4. (Optional) Deploy to testnet
+
 ```bash
 stellar contract deploy \
   --wasm target/wasm32-unknown-unknown/release/position_nft.wasm \

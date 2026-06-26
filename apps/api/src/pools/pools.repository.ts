@@ -123,7 +123,7 @@ export class PoolsRepository {
     return count > 0;
   }
 
-  async getPoolDetailById(poolId: string): Promise<any | null> {
+  async getPoolDetailById(poolId: string): Promise<any> {
     const pool = await this.prisma.pool.findUnique({
       where: { id: poolId },
       include: {

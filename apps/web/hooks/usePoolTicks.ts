@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { API_BASE } from "@/lib/constants";
+import { useEffect, useState } from 'react';
+import { API_BASE } from '@/lib/constants';
 
 export interface TickData {
   tick: number;
@@ -31,26 +31,35 @@ export function usePoolTicks(poolId: string | null) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!poolId) { setTicks([]); return; }
+    if (!poolId) {
+      setTicks([]);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
 
     fetch(`${API_BASE}/pools/${poolId}/ticks`)
       .then((r) => {
-        if (!r.ok) throw new Error("Failed to load tick data");
+        if (!r.ok) throw new Error('Failed to load tick data');
         return r.json() as Promise<TickData[]>;
       })
-      .then((data) => { if (!cancelled) setTicks(data); })
+      .then((data) => {
+        if (!cancelled) setTicks(data);
+      })
       .catch(() => {
         if (!cancelled) {
           setTicks(generateSyntheticTicks());
           setError(null);
         }
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [poolId]);
 
   return { ticks, loading, error };
@@ -72,9 +81,13 @@ export function usePools() {
       .catch(() => {
         if (!cancelled) setPools(MOCK_POOLS);
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return { pools, loading };
@@ -102,12 +115,12 @@ function generateSyntheticTicks(): TickData[] {
 
 export const MOCK_POOLS: PoolDetail[] = [
   {
-    id: "pool-xlm-usdc-030",
-    token0: "XLM",
-    token1: "USDC",
-    token0Symbol: "XLM",
-    token1Symbol: "USDC",
-    feeTier: "0.30%",
+    id: 'pool-xlm-usdc-030',
+    token0: 'XLM',
+    token1: 'USDC',
+    token0Symbol: 'XLM',
+    token1Symbol: 'USDC',
+    feeTier: '0.30%',
     currentPrice: 0.1085,
     currentTick: -22000,
     tvl: 4_200_000,
@@ -115,12 +128,12 @@ export const MOCK_POOLS: PoolDetail[] = [
     volume24h: 340_000,
   },
   {
-    id: "pool-xlm-usdc-005",
-    token0: "XLM",
-    token1: "USDC",
-    token0Symbol: "XLM",
-    token1Symbol: "USDC",
-    feeTier: "0.05%",
+    id: 'pool-xlm-usdc-005',
+    token0: 'XLM',
+    token1: 'USDC',
+    token0Symbol: 'XLM',
+    token1Symbol: 'USDC',
+    feeTier: '0.05%',
     currentPrice: 0.1085,
     currentTick: -22000,
     tvl: 8_100_000,
@@ -128,12 +141,12 @@ export const MOCK_POOLS: PoolDetail[] = [
     volume24h: 1_200_000,
   },
   {
-    id: "pool-btc-xlm-100",
-    token0: "BTC",
-    token1: "XLM",
-    token0Symbol: "BTC",
-    token1Symbol: "XLM",
-    feeTier: "1.00%",
+    id: 'pool-btc-xlm-100',
+    token0: 'BTC',
+    token1: 'XLM',
+    token0Symbol: 'BTC',
+    token1Symbol: 'XLM',
+    feeTier: '1.00%',
     currentPrice: 850000,
     currentTick: 131000,
     tvl: 2_900_000,

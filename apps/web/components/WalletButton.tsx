@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { useState, useRef, useEffect } from "react";
-import { useWalletContext } from "@/context/WalletContext";
-import { SWYFT_NETWORK } from "@/lib/constants";
+import { useState, useRef, useEffect } from 'react';
+import { useWalletContext } from '@/context/WalletContext';
+import { SWYFT_NETWORK } from '@/lib/constants';
 
 function truncate(addr: string) {
   return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
@@ -18,8 +18,8 @@ export function WalletButton() {
     function handleClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
   function copyAddress() {
@@ -31,7 +31,10 @@ export function WalletButton() {
 
   if (loading) {
     return (
-      <div className="h-9 w-32 animate-pulse rounded-full bg-zinc-200 dark:bg-zinc-700" aria-label="Loading wallet" />
+      <div
+        className="h-9 w-32 animate-pulse rounded-full bg-zinc-200 dark:bg-zinc-700"
+        aria-label="Loading wallet"
+      />
     );
   }
 
@@ -63,10 +66,13 @@ export function WalletButton() {
                 onClick={copyAddress}
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
               >
-                {copied ? "Copied!" : "Copy address"}
+                {copied ? 'Copied!' : 'Copy address'}
               </button>
               <button
-                onClick={() => { disconnect(); setOpen(false); }}
+                onClick={() => {
+                  disconnect();
+                  setOpen(false);
+                }}
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950 transition-colors"
               >
                 Disconnect
@@ -85,12 +91,12 @@ export function WalletButton() {
         disabled={connecting}
         className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-60 transition-colors"
       >
-        {connecting ? "Connecting…" : "Connect wallet"}
+        {connecting ? 'Connecting…' : 'Connect wallet'}
       </button>
 
-      {error === "NOT_INSTALLED" && (
+      {error === 'NOT_INSTALLED' && (
         <p className="text-xs text-red-500">
-          Freighter not found.{" "}
+          Freighter not found.{' '}
           <a
             href="https://freighter.app"
             target="_blank"
@@ -101,10 +107,8 @@ export function WalletButton() {
           </a>
         </p>
       )}
-      {error === "REJECTED" && (
-        <p className="text-xs text-red-500">Connection rejected.</p>
-      )}
-      {error === "WRONG_NETWORK" && (
+      {error === 'REJECTED' && <p className="text-xs text-red-500">Connection rejected.</p>}
+      {error === 'WRONG_NETWORK' && (
         <p className="text-xs text-red-500">
           Switch Freighter to <strong>{SWYFT_NETWORK}</strong> and try again.
         </p>

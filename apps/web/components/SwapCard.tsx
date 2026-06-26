@@ -77,7 +77,10 @@ export function SwapCard() {
         {/* Loading state */}
         {isLoading && (
           <div className="mb-3 flex items-center gap-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
-            <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" aria-hidden="true" />
+            <span
+              className="h-3 w-3 animate-spin rounded-full border-2 border-blue-400 border-t-transparent"
+              aria-hidden="true"
+            />
             {status === 'signing' ? 'Waiting for signature…' : 'Submitting transaction…'}
           </div>
         )}

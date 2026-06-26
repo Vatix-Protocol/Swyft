@@ -8,33 +8,34 @@ Swyft is a decentralized exchange built on Stellar using Soroban smart contracts
 
 ## Why Swyft?
 
-| | Swyft | Traditional Stellar DEXes |
-|---|---|---|
-| Liquidity model | Concentrated (v3-style) | Full-range only |
-| Capital efficiency | High — LPs set custom price ranges | Low |
-| MEV protection | Yes | No |
-| Developer SDK | TypeScript (`@swyft/sdk`) | None |
-| Open source | MIT | Varies |
+|                    | Swyft                              | Traditional Stellar DEXes |
+| ------------------ | ---------------------------------- | ------------------------- |
+| Liquidity model    | Concentrated (v3-style)            | Full-range only           |
+| Capital efficiency | High — LPs set custom price ranges | Low                       |
+| MEV protection     | Yes                                | No                        |
+| Developer SDK      | TypeScript (`@swyft/sdk`)          | None                      |
+| Open source        | MIT                                | Varies                    |
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Smart contracts | Rust / Soroban |
-| Backend API | NestJS — REST + WebSocket |
-| Database | PostgreSQL + Redis (Prisma, BullMQ) |
-| Frontend | Next.js 14, Tailwind CSS, Radix UI |
-| SDK | TypeScript (`@swyft/sdk`) |
-| Wallets | Freighter / xBull |
-| Monorepo | Turborepo + pnpm workspaces |
-| CI/CD | GitHub Actions |
-| License | MIT |
+| Layer           | Technology                          |
+| --------------- | ----------------------------------- |
+| Smart contracts | Rust / Soroban                      |
+| Backend API     | NestJS — REST + WebSocket           |
+| Database        | PostgreSQL + Redis (Prisma, BullMQ) |
+| Frontend        | Next.js 14, Tailwind CSS, Radix UI  |
+| SDK             | TypeScript (`@swyft/sdk`)           |
+| Wallets         | Freighter / xBull                   |
+| Monorepo        | Turborepo + pnpm workspaces         |
+| CI/CD           | GitHub Actions                      |
+| License         | MIT                                 |
 
 ---
 
 ## Repo Structure
+
 ```
 swyft/
 ├── apps/
@@ -61,6 +62,7 @@ swyft/
 - Docker (for local Postgres + Redis)
 
 ### Local dev
+
 ```bash
 # Clone the repo
 git clone https://github.com/Vatix-Protocol/Swyft.git
@@ -80,12 +82,14 @@ pnpm dev
 This starts the Next.js dApp, NestJS API, and watches contract changes simultaneously via Turborepo.
 
 ### Run contract tests
+
 ```bash
 cd packages/contracts
 stellar-cli contract test
 ```
 
 ### Run API tests
+
 ```bash
 pnpm --filter api test
 ```
@@ -93,6 +97,7 @@ pnpm --filter api test
 ---
 
 ## Architecture
+
 ```
 Browser (Freighter / xBull wallet)
           │
@@ -113,14 +118,14 @@ The NestJS backend indexes Soroban events from Stellar Horizon, caches pool stat
 
 ## Roadmap
 
-| Phase | Timeline | Focus | Status |
-|---|---|---|---|
-| Phase 0 — Foundation | M1–2 | Monorepo, CI, contributor onboarding | 🟡 In progress |
-| Phase 1 — Core contracts | M2–5 | Soroban CL pool, router, position NFT | ⚪ Planned |
-| Phase 2 — Backend & SDK | M4–7 | NestJS API, indexer, `@swyft/sdk` | ⚪ Planned |
-| Phase 3 — Frontend | M6–9 | Swap UI, LP management, pool browser | ⚪ Planned |
-| Phase 4 — Mainnet | M9–12 | Audit, mainnet deploy, liquidity bootstrap | ⚪ Planned |
-| Phase 5 — Growth | M12+ | Governance, fee tiers, integrations | ⚪ Future |
+| Phase                    | Timeline | Focus                                      | Status         |
+| ------------------------ | -------- | ------------------------------------------ | -------------- |
+| Phase 0 — Foundation     | M1–2     | Monorepo, CI, contributor onboarding       | 🟡 In progress |
+| Phase 1 — Core contracts | M2–5     | Soroban CL pool, router, position NFT      | ⚪ Planned     |
+| Phase 2 — Backend & SDK  | M4–7     | NestJS API, indexer, `@swyft/sdk`          | ⚪ Planned     |
+| Phase 3 — Frontend       | M6–9     | Swap UI, LP management, pool browser       | ⚪ Planned     |
+| Phase 4 — Mainnet        | M9–12    | Audit, mainnet deploy, liquidity bootstrap | ⚪ Planned     |
+| Phase 5 — Growth         | M12+     | Governance, fee tiers, integrations        | ⚪ Future      |
 
 Full roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 
@@ -138,15 +143,15 @@ Look for issues labelled [`good first issue`](https://github.com/your-org/swyft/
 
 ### Issue labels
 
-| Label | Meaning |
-|---|---|
+| Label              | Meaning                           |
+| ------------------ | --------------------------------- |
 | `good first issue` | No deep protocol knowledge needed |
-| `bounty` | Financial reward attached |
-| `contracts` | Soroban / Rust work |
-| `backend` | NestJS / API work |
-| `frontend` | Next.js / React work |
-| `sdk` | TypeScript SDK work |
-| `docs` | Documentation |
+| `bounty`           | Financial reward attached         |
+| `contracts`        | Soroban / Rust work               |
+| `backend`          | NestJS / API work                 |
+| `frontend`         | Next.js / React work              |
+| `sdk`              | TypeScript SDK work               |
+| `docs`             | Documentation                     |
 
 ### PR conventions
 
@@ -180,4 +185,4 @@ Please do not open public GitHub issues for security vulnerabilities. See [`SECU
 
 ---
 
-*Swyft is in active development. Contracts are unaudited. Do not use on mainnet until a security audit has been completed.*
+_Swyft is in active development. Contracts are unaudited. Do not use on mainnet until a security audit has been completed._

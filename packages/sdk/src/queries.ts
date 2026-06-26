@@ -1,12 +1,18 @@
-import { rpc, Contract, xdr, scValToNative, Transaction, FeeBumpTransaction } from '@stellar/stellar-sdk';
+import {
+  rpc,
+  Contract,
+  xdr,
+  scValToNative,
+  Transaction,
+  FeeBumpTransaction,
+} from '@stellar/stellar-sdk';
 import { PoolState, PositionState, TickState, SwyftRpcError } from './types';
 
 /**
  * Explanatory copy for empty position state.
  * Used by the UI layer when no positions are found.
  */
-export const EMPTY_POSITION_MESSAGE =
-  'No positions found. Make a deposit to get started.';
+export const EMPTY_POSITION_MESSAGE = 'No positions found. Make a deposit to get started.';
 
 async function callContract(
   rpcUrl: string,
@@ -24,7 +30,7 @@ async function callContract(
     // path only needs the operation XDR; replace with a fully-built transaction once
     // the Soroban signing flow is wired up.
     const result = await server.simulateTransaction(
-      op as unknown as Transaction | FeeBumpTransaction,
+      op as unknown as Transaction | FeeBumpTransaction
     );
 
     if (rpc.Api.isSimulationError(result)) {
@@ -39,10 +45,7 @@ async function callContract(
   } catch (err) {
     if (err instanceof SwyftRpcError) throw err;
     const message = err instanceof Error ? err.message : String(err);
-    throw new SwyftRpcError(
-      `RPC call failed for ${method} on ${contractAddress}: ${message}`,
-      err,
-    );
+    throw new SwyftRpcError(`RPC call failed for ${method} on ${contractAddress}: ${message}`, err);
   }
 }
 
@@ -74,7 +77,7 @@ function assertRawObject(raw: unknown, context: string): Record<string, unknown>
 function extractString(
   obj: Record<string, unknown>,
   keys: readonly string[],
-  fallback: string,
+  fallback: string
 ): string {
   for (const key of keys) {
     const value = obj[key];
@@ -97,7 +100,7 @@ function extractString(
 function extractNumber(
   obj: Record<string, unknown>,
   keys: readonly string[],
-  fallback: number,
+  fallback: number
 ): number {
   for (const key of keys) {
     const value = obj[key];
@@ -174,8 +177,7 @@ export async function getPosition({
     return null;
   }
 
-  const positionData =
-    'value' in raw && maybeValue !== undefined ? maybeValue : raw;
+  const positionData = 'value' in raw && maybeValue !== undefined ? maybeValue : raw;
   if (positionData === null || typeof positionData !== 'object' || Array.isArray(positionData)) {
     return null;
   }
