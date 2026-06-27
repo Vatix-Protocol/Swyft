@@ -8,6 +8,7 @@ import { Worker, Job, QueueEvents } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
 import { CacheService } from '../cache/cache.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
+import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
 import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
 import {
   QUEUE_NAMES,
@@ -32,6 +33,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly cache: CacheService,
     private readonly webhooks: WebhooksService,
+    private readonly tokenEnrichment: TokenEnrichmentService,
   ) {}
 
   get isLoading(): boolean {
@@ -417,6 +419,12 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
           feeApr: '0',
         },
       });
+
+      // Enrich both tokens with on-chain metadata after the pool is persisted.
+      await Promise.allSettled([
+        this.tokenEnrichment.enrichToken(d.tokenA),
+        this.tokenEnrichment.enrichToken(d.tokenB),
+      ]);
     } catch (err) {
       this.logger.error(
         `Failed to project pool ${d.poolId}: ${err instanceof Error ? err.message : String(err)}`,
