@@ -56,7 +56,10 @@ describe('PriceController', () => {
       priceService.getTokenPairPrice.mockResolvedValue(mockSpotResponse);
       const result = await controller.getPrice('USDC', 'XLM');
       expect(result).toEqual(mockSpotResponse);
-      expect(priceService.getTokenPairPrice).toHaveBeenCalledWith('USDC', 'XLM');
+      expect(priceService.getTokenPairPrice).toHaveBeenCalledWith(
+        'USDC',
+        'XLM',
+      );
     });
 
     it('propagates NotFoundException when no pool exists', async () => {
@@ -71,7 +74,10 @@ describe('PriceController', () => {
 
   describe('getCandles()', () => {
     it('returns { candles: [...] } shape from real candle data', async () => {
-      priceService.getCandles.mockResolvedValue([mockCandle]);
+      priceService.getCandles.mockResolvedValue({
+        poolId: 'pool-1',
+        candles: [mockCandle],
+      });
       const result = await controller.getCandles('USDC', 'XLM', '1h');
       expect(result).toEqual({ candles: [mockCandle] });
     });
@@ -85,7 +91,10 @@ describe('PriceController', () => {
     });
 
     it('throws NotFoundException when no candles exist for the pair', async () => {
-      priceService.getCandles.mockResolvedValue([]);
+      priceService.getCandles.mockResolvedValue({
+        poolId: 'pool-1',
+        candles: [],
+      });
       await expect(controller.getCandles('USDC', 'XLM', '1h')).rejects.toThrow(
         NotFoundException,
       );
@@ -117,7 +126,10 @@ describe('PriceController', () => {
     });
 
     it('caches the response after a successful fetch', async () => {
-      priceService.getCandles.mockResolvedValue([mockCandle]);
+      priceService.getCandles.mockResolvedValue({
+        poolId: 'pool-1',
+        candles: [mockCandle],
+      });
       await controller.getCandles('USDC', 'XLM', '1h');
       expect(cacheService.set).toHaveBeenCalledWith(
         expect.any(String),

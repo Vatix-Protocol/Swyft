@@ -21,30 +21,29 @@
  *   pnpm --filter contracts test:integration
  */
 
-import { Keypair } from "@stellar/stellar-sdk";
-import * as fs from "fs";
-import * as path from "path";
-import { execSync } from "child_process";
+import { Keypair } from '@stellar/stellar-sdk';
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-const NETWORK = "testnet";
-const RPC_URL = "https://soroban-testnet.stellar.org";
-const HORIZON_URL = "https://horizon-testnet.stellar.org";
-const FRIENDBOT_URL = "https://friendbot.stellar.org";
+const NETWORK = 'testnet';
+const RPC_URL = 'https://soroban-testnet.stellar.org';
+const HORIZON_URL = 'https://horizon-testnet.stellar.org';
+const FRIENDBOT_URL = 'https://friendbot.stellar.org';
 
-const DEPLOYER_SECRET =
-  process.env.TESTNET_DEPLOYER_SECRET_KEY ?? Keypair.random().secret();
+const DEPLOYER_SECRET = process.env.TESTNET_DEPLOYER_SECRET_KEY ?? Keypair.random().secret();
 
-const WASM_DIR = path.join(__dirname, "../target/wasm32-unknown-unknown/release");
+const WASM_DIR = path.join(__dirname, '../target/wasm32-unknown-unknown/release');
 
 // ---------------------------------------------------------------------------
 // Supported fee tiers (must match PoolFactory constants)
 // ---------------------------------------------------------------------------
-const FEE_TIER_005 = 500;   // 0.05%
-const FEE_TIER_03  = 3_000; // 0.30%
+const FEE_TIER_005 = 500; // 0.05%
+const FEE_TIER_03 = 3_000; // 0.30%
 
 // Q64.96 representation of price 1:1
 const Q96 = BigInt(2) ** BigInt(96);
@@ -54,7 +53,7 @@ const SQRT_PRICE_ONE_TO_ONE = Q96; // price = 1
 // Loading state — terminal spinner with state tracking
 // ---------------------------------------------------------------------------
 
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /**
  * Loading state tracker for assertions.
@@ -81,10 +80,10 @@ class LoadingStateTracker {
    */
   finishLoading(): void {
     if (!this.isLoading) {
-      fail("Attempted to finish loading when no operation was in progress");
+      fail('Attempted to finish loading when no operation was in progress');
     }
     this.isLoading = false;
-    assert(!this.isLoading, "loading state is cleared after operation completes");
+    assert(!this.isLoading, 'loading state is cleared after operation completes');
   }
 
   /**
@@ -219,7 +218,7 @@ async function getNativeBalance(publicKey: string): Promise<number> {
   const res = await fetch(`${HORIZON_URL}/accounts/${publicKey}`);
   if (!res.ok) return 0;
   const data = (await res.json()) as HorizonAccountResponse;
-  const native = data.balances.find((b) => b.asset_type === "native");
+  const native = data.balances.find((b) => b.asset_type === 'native');
   return native ? parseFloat(native.balance) : 0;
 }
 
@@ -234,10 +233,10 @@ async function getNativeBalance(publicKey: string): Promise<number> {
  * @returns stdout trimmed as string
  */
 function stellarCli(args: string): string {
-  return execSync(
-    `stellar ${args} --network ${NETWORK} --source ${DEPLOYER_SECRET}`,
-    { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
-  ).trim();
+  return execSync(`stellar ${args} --network ${NETWORK} --source ${DEPLOYER_SECRET}`, {
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim();
 }
 
 /**
@@ -250,11 +249,9 @@ function deployContract(wasmName: string): string {
   if (!fs.existsSync(wasmPath)) {
     fail(`WASM not found: ${wasmPath}. Build first with: pnpm build`);
   }
-  const output = stellarCli(
-    `contract deploy --wasm ${wasmPath}`
-  );
+  const output = stellarCli(`contract deploy --wasm ${wasmPath}`);
   // Output is the contract ID on a single line.
-  return output.split("\n").pop()!.trim();
+  return output.split('\n').pop()!.trim();
 }
 
 /**
@@ -264,15 +261,9 @@ function deployContract(wasmName: string): string {
  * @param args - array of JSON-stringified arguments to pass as `--arg`
  * @returns raw stdout from the CLI (may be empty string)
  */
-function invokeContract(
-  contractId: string,
-  functionName: string,
-  args: string[] = []
-): string {
-  const argStr = args.map((a) => `--arg '${a}'`).join(" ");
-  return stellarCli(
-    `contract invoke --id ${contractId} --fn ${functionName} ${argStr}`
-  );
+function invokeContract(contractId: string, functionName: string, args: string[] = []): string {
+  const argStr = args.map((a) => `--arg '${a}'`).join(' ');
+  return stellarCli(`contract invoke --id ${contractId} --fn ${functionName} ${argStr}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -294,24 +285,24 @@ interface Deployments {
  * @returns Object containing the deployed contract IDs for each contract
  */
 async function deployAll(): Promise<Deployments> {
-  log("Deploying contracts to testnet…");
+  log('Deploying contracts to testnet…');
 
-  const mathLib = deployContract("math_lib");
+  const mathLib = deployContract('math_lib');
   log(`  math-lib       → ${mathLib}`);
 
-  const positionNft = deployContract("position_nft");
+  const positionNft = deployContract('position_nft');
   log(`  position-nft   → ${positionNft}`);
 
-  const clPool = deployContract("cl_pool");
+  const clPool = deployContract('cl_pool');
   log(`  cl-pool        → ${clPool}`);
 
-  const clPool2 = deployContract("cl_pool");
+  const clPool2 = deployContract('cl_pool');
   log(`  cl-pool2       → ${clPool2}`);
 
-  const poolFactory = deployContract("pool_factory");
+  const poolFactory = deployContract('pool_factory');
   log(`  pool-factory   → ${poolFactory}`);
 
-  const router = deployContract("router");
+  const router = deployContract('router');
   log(`  router         → ${router}`);
 
   return { mathLib, positionNft, clPool, clPool2, poolFactory, router };
@@ -346,7 +337,9 @@ function scU32(n: number): string {
  * @returns JSON string of the form `{"u128":{"hi":…,"lo":…}}`
  */
 function scU128(n: bigint): string {
-  return JSON.stringify({ u128: { hi: Number(n >> BigInt(64)), lo: Number(n & ((BigInt(1) << BigInt(64)) - BigInt(1))) } });
+  return JSON.stringify({
+    u128: { hi: Number(n >> BigInt(64)), lo: Number(n & ((BigInt(1) << BigInt(64)) - BigInt(1))) },
+  });
 }
 
 /**
@@ -396,25 +389,25 @@ function safeParseBigInt(raw: string | null | undefined, fallback = BigInt(0)): 
 // ---------------------------------------------------------------------------
 
 async function runTests(): Promise<void> {
-  console.log("=".repeat(70));
-  console.log(" Swyft E2E Integration Test — Stellar Testnet");
-  console.log("=".repeat(70));
+  console.log('='.repeat(70));
+  console.log(' Swyft E2E Integration Test — Stellar Testnet');
+  console.log('='.repeat(70));
 
   // 0 ─── Verify loading state and disabled-action assertions ────────────────
-  log("Step 0: Verifying loading state and disabled-action behavior");
+  log('Step 0: Verifying loading state and disabled-action behavior');
 
   // Test that actions are disabled while loading: attempting to start a second
   // operation while loading should fail
   try {
-    await withSpinner("Testing disabled-action behavior", async () => {
+    await withSpinner('Testing disabled-action behavior', async () => {
       // Attempt to start a nested loading operation while already loading
       // This should throw an error due to loading state check
       try {
-        loadingState.startLoading("nested operation");
-        fail("nested loading operation should have been prevented");
+        loadingState.startLoading('nested operation');
+        fail('nested loading operation should have been prevented');
       } catch (err) {
-        if ((err as any).message?.includes("Attempted to start")) {
-          pass("nested loading operation correctly prevented (actions disabled while loading)");
+        if ((err as any).message?.includes('Attempted to start')) {
+          pass('nested loading operation correctly prevented (actions disabled while loading)');
         } else {
           throw err;
         }
@@ -423,72 +416,68 @@ async function runTests(): Promise<void> {
       return new Promise((resolve) => setTimeout(resolve, 10));
     });
   } catch (err) {
-    if (!(err as any).message?.includes("prevented")) {
+    if (!(err as any).message?.includes('prevented')) {
       throw err;
     }
   }
 
   // 1 ─── Fund test accounts ─────────────────────────────────────────────────
-  log("Step 1: Funding test accounts via Stellar Friendbot");
+  log('Step 1: Funding test accounts via Stellar Friendbot');
 
-  const deployer   = Keypair.fromSecret(DEPLOYER_SECRET);
-  const lp         = Keypair.random();
-  const swapper    = Keypair.random();
+  const deployer = Keypair.fromSecret(DEPLOYER_SECRET);
+  const lp = Keypair.random();
+  const swapper = Keypair.random();
 
-  await withSpinner("Funding accounts via Friendbot", () =>
+  await withSpinner('Funding accounts via Friendbot', () =>
     Promise.all([fundAccount(deployer), fundAccount(lp), fundAccount(swapper)])
   );
 
-  const deployerNative = await withSpinner("Checking deployer XLM balance", () =>
+  const deployerNative = await withSpinner('Checking deployer XLM balance', () =>
     getNativeBalance(deployer.publicKey())
   );
   assert(deployerNative > 0, `deployer has XLM balance (${deployerNative} XLM)`);
 
   // 2 ─── Deploy contracts ───────────────────────────────────────────────────
-  log("Step 2: Deploying contracts");
+  log('Step 2: Deploying contracts');
 
   const contracts = await deployAll();
 
   // 3 ─── Initialize contracts ───────────────────────────────────────────────
-  log("Step 3: Initialising contracts");
+  log('Step 3: Initialising contracts');
 
   // Initialize pool-factory
-  invokeContract(contracts.poolFactory, "initialize", [
+  invokeContract(contracts.poolFactory, 'initialize', [
     scAddressArg(deployer.publicKey()),
     scAddressArg(contracts.mathLib),
     scAddressArg(contracts.clPool), // use first pool WASM hash as default
   ]);
-  pass("pool-factory initialized");
+  pass('pool-factory initialized');
 
   // Initialize position-nft (minter = cl-pool)
-  invokeContract(contracts.positionNft, "initialize", [
-    scAddressArg(contracts.clPool),
-  ]);
-  pass("position-nft initialized with cl-pool as minter");
+  invokeContract(contracts.positionNft, 'initialize', [scAddressArg(contracts.clPool)]);
+  pass('position-nft initialized with cl-pool as minter');
 
   // Initialize first CL pool (token pair A/B, 0.3% fee)
-  const TOKEN_A = "GABC" + deployer.publicKey().slice(4); // simulated asset
-  const TOKEN_B = "GXYZ" + deployer.publicKey().slice(4); // simulated asset
+  const TOKEN_A = 'GABC' + deployer.publicKey().slice(4); // simulated asset
+  const TOKEN_B = 'GXYZ' + deployer.publicKey().slice(4); // simulated asset
 
-  invokeContract(contracts.clPool, "initialize", [
+  invokeContract(contracts.clPool, 'initialize', [
     scAddressArg(TOKEN_A),
     scAddressArg(TOKEN_B),
     scU32(FEE_TIER_03),
     scU128(SQRT_PRICE_ONE_TO_ONE),
     scAddressArg(contracts.positionNft),
   ]);
-  pass("cl-pool initialized at 1:1 price, 0.3% fee");
+  pass('cl-pool initialized at 1:1 price, 0.3% fee');
 
   // Initialize router
-  invokeContract(contracts.router, "initialize", [
-    scAddressArg(contracts.poolFactory),
-  ]);
-  pass("router initialized");
+  invokeContract(contracts.router, 'initialize', [scAddressArg(contracts.poolFactory)]);
+  pass('router initialized');
 
   // 4 ─── Create pool via factory ───────────────────────────────────────────
-  log("Step 4: Creating pool via factory");
+  log('Step 4: Creating pool via factory');
 
-  const createPoolResult = invokeContract(contracts.poolFactory, "create_pool", [
+  const createPoolResult = invokeContract(contracts.poolFactory, 'create_pool', [
     scAddressArg(TOKEN_A),
     scAddressArg(TOKEN_B),
     scU32(FEE_TIER_005),
@@ -496,41 +485,41 @@ async function runTests(): Promise<void> {
   const createdPoolAddress = parseSCAddress(createPoolResult);
 
   assert(
-    createdPoolAddress.length > 0 && createdPoolAddress !== "null",
+    createdPoolAddress.length > 0 && createdPoolAddress !== 'null',
     `factory created pool at address: ${createdPoolAddress}`
   );
 
   // Verify the pool is stored in the factory
-  const lookupResult = invokeContract(contracts.poolFactory, "get_pool", [
+  const lookupResult = invokeContract(contracts.poolFactory, 'get_pool', [
     scAddressArg(TOKEN_A),
     scAddressArg(TOKEN_B),
     scU32(FEE_TIER_005),
   ]);
   assert(
     lookupResult.includes(createdPoolAddress),
-    "factory correctly stores and returns pool address"
+    'factory correctly stores and returns pool address'
   );
 
   // Verify normalization: reversed token order returns same pool
-  const reversedLookup = invokeContract(contracts.poolFactory, "get_pool", [
+  const reversedLookup = invokeContract(contracts.poolFactory, 'get_pool', [
     scAddressArg(TOKEN_B),
     scAddressArg(TOKEN_A),
     scU32(FEE_TIER_005),
   ]);
   assert(
     reversedLookup.includes(createdPoolAddress),
-    "reversed token order lookup returns same pool address (normalization verified)"
+    'reversed token order lookup returns same pool address (normalization verified)'
   );
 
   // 5 ─── Add concentrated liquidity ────────────────────────────────────────
-  log("Step 5: Adding concentrated liquidity");
+  log('Step 5: Adding concentrated liquidity');
 
   const TICK_LOWER = -100;
   const TICK_UPPER = 100;
-  const LIQUIDITY  = BigInt(1_000_000);
+  const LIQUIDITY = BigInt(1_000_000);
 
-  const addLiqResult = await withSpinner("Adding concentrated liquidity", async () =>
-    invokeContract(contracts.clPool, "add_liquidity", [
+  const addLiqResult = await withSpinner('Adding concentrated liquidity', async () =>
+    invokeContract(contracts.clPool, 'add_liquidity', [
       scAddressArg(lp.publicKey()),
       scI32(TICK_LOWER),
       scI32(TICK_UPPER),
@@ -540,7 +529,7 @@ async function runTests(): Promise<void> {
   pass(`add_liquidity returned: ${addLiqResult.trim()}`);
 
   // Verify the pool has active liquidity
-  const poolLiq = invokeContract(contracts.clPool, "get_liquidity", []);
+  const poolLiq = invokeContract(contracts.clPool, 'get_liquidity', []);
   const activeLiquidity = safeParseBigInt(poolLiq);
   assert(
     activeLiquidity === LIQUIDITY,
@@ -548,15 +537,15 @@ async function runTests(): Promise<void> {
   );
 
   // 6 ─── Execute single-hop swap ────────────────────────────────────────────
-  log("Step 6: Executing single-hop swap (token0 → token1)");
+  log('Step 6: Executing single-hop swap (token0 → token1)');
 
   const SWAP_AMOUNT_IN = BigInt(1_000);
-  const PRICE_LIMIT    = BigInt(1); // effectively no floor
+  const PRICE_LIMIT = BigInt(1); // effectively no floor
 
-  const swapResult = await withSpinner("Executing single-hop swap", async () =>
-    invokeContract(contracts.clPool, "swap", [
+  const swapResult = await withSpinner('Executing single-hop swap', async () =>
+    invokeContract(contracts.clPool, 'swap', [
       scAddressArg(swapper.publicKey()),
-      JSON.stringify(true),  // zero_for_one
+      JSON.stringify(true), // zero_for_one
       scU128(SWAP_AMOUNT_IN),
       scU128(PRICE_LIMIT),
     ])
@@ -564,44 +553,44 @@ async function runTests(): Promise<void> {
   pass(`swap executed, deltas: ${swapResult.trim()}`);
 
   // Verify price moved after swap
-  const sqrtPriceAfter = invokeContract(contracts.clPool, "get_sqrt_price", []);
+  const sqrtPriceAfter = invokeContract(contracts.clPool, 'get_sqrt_price', []);
   assert(
     safeParseBigInt(sqrtPriceAfter) < SQRT_PRICE_ONE_TO_ONE,
-    "sqrt price decreased after zero-for-one swap"
+    'sqrt price decreased after zero-for-one swap'
   );
 
   // Verify fee growth accumulated
-  const feeGrowth = invokeContract(contracts.clPool, "get_fee_growth_global", []);
+  const feeGrowth = invokeContract(contracts.clPool, 'get_fee_growth_global', []);
   pass(`fee growth globals after swap: ${feeGrowth.trim()}`);
 
   // 7 ─── Second pool setup for multi-hop ───────────────────────────────────
-  log("Step 7: Setting up second pool for multi-hop swap");
+  log('Step 7: Setting up second pool for multi-hop swap');
 
-  const TOKEN_C = "GMMM" + deployer.publicKey().slice(4);
+  const TOKEN_C = 'GMMM' + deployer.publicKey().slice(4);
 
-  invokeContract(contracts.clPool2, "initialize", [
+  invokeContract(contracts.clPool2, 'initialize', [
     scAddressArg(TOKEN_B),
     scAddressArg(TOKEN_C),
     scU32(FEE_TIER_03),
     scU128(SQRT_PRICE_ONE_TO_ONE),
     scAddressArg(contracts.positionNft),
   ]);
-  pass("second cl-pool (B/C) initialized");
+  pass('second cl-pool (B/C) initialized');
 
   // Add liquidity to second pool
-  invokeContract(contracts.clPool2, "add_liquidity", [
+  invokeContract(contracts.clPool2, 'add_liquidity', [
     scAddressArg(lp.publicKey()),
     scI32(TICK_LOWER),
     scI32(TICK_UPPER),
     scU128(LIQUIDITY),
   ]);
-  pass("liquidity added to second pool (B/C)");
+  pass('liquidity added to second pool (B/C)');
 
   // 8 ─── Multi-hop swap A → B → C ─────────────────────────────────────────
-  log("Step 8: Executing multi-hop swap (A → B via pool1, then B → C via pool2)");
+  log('Step 8: Executing multi-hop swap (A → B via pool1, then B → C via pool2)');
 
   // Hop 1: A → B on pool 1
-  const hop1 = invokeContract(contracts.clPool, "swap", [
+  const hop1 = invokeContract(contracts.clPool, 'swap', [
     scAddressArg(swapper.publicKey()),
     JSON.stringify(true),
     scU128(BigInt(500)),
@@ -610,7 +599,7 @@ async function runTests(): Promise<void> {
   pass(`hop1 (A→B) executed: ${hop1.trim()}`);
 
   // Hop 2: B → C on pool 2
-  const hop2 = invokeContract(contracts.clPool2, "swap", [
+  const hop2 = invokeContract(contracts.clPool2, 'swap', [
     scAddressArg(swapper.publicKey()),
     JSON.stringify(false),
     scU128(BigInt(400)),
@@ -619,42 +608,39 @@ async function runTests(): Promise<void> {
   pass(`hop2 (B→C) executed: ${hop2.trim()}`);
 
   // 9 ─── Verify fee events and positions ───────────────────────────────────
-  log("Step 9: Verifying fee collection and position state");
+  log('Step 9: Verifying fee collection and position state');
 
-  const collectResult = invokeContract(contracts.clPool, "collect", [
+  const collectResult = invokeContract(contracts.clPool, 'collect', [
     scAddressArg(lp.publicKey()),
     JSON.stringify(0), // position_id 0
   ]);
   pass(`fees collected: ${collectResult.trim()}`);
 
   // After collecting, second collect should yield zero fees
-  const collectAgain = invokeContract(contracts.clPool, "collect", [
+  const collectAgain = invokeContract(contracts.clPool, 'collect', [
     scAddressArg(lp.publicKey()),
     JSON.stringify(0),
   ]);
   pass(`second collect (should be zero): ${collectAgain.trim()}`);
 
   // 10 ─── Remove liquidity ─────────────────────────────────────────────────
-  log("Step 10: Removing all liquidity and verifying token return");
+  log('Step 10: Removing all liquidity and verifying token return');
 
-  const removeLiqResult = invokeContract(contracts.clPool, "remove_liquidity", [
+  const removeLiqResult = invokeContract(contracts.clPool, 'remove_liquidity', [
     scAddressArg(lp.publicKey()),
-    JSON.stringify(0),       // position_id
-    scU128(LIQUIDITY),       // remove all
+    JSON.stringify(0), // position_id
+    scU128(LIQUIDITY), // remove all
   ]);
   pass(`remove_liquidity returned: ${removeLiqResult.trim()}`);
 
   // Active liquidity should be zero now
-  const finalLiq = invokeContract(contracts.clPool, "get_liquidity", []);
-  assert(
-    safeParseBigInt(finalLiq) === BigInt(0),
-    "active liquidity is zero after full removal"
-  );
+  const finalLiq = invokeContract(contracts.clPool, 'get_liquidity', []);
+  assert(safeParseBigInt(finalLiq) === BigInt(0), 'active liquidity is zero after full removal');
 
   // 11 ─── Router getter ────────────────────────────────────────────────────
-  log("Step 11: Verifying router configuration");
+  log('Step 11: Verifying router configuration');
 
-  const routerFactory = invokeContract(contracts.router, "get_factory", []);
+  const routerFactory = invokeContract(contracts.router, 'get_factory', []);
   assert(
     routerFactory.includes(contracts.poolFactory),
     `router correctly references factory (${contracts.poolFactory})`
@@ -665,14 +651,12 @@ async function runTests(): Promise<void> {
   // ---------------------------------------------------------------------------
 
   console.log();
-  console.log("=".repeat(70));
-  console.log(" ALL INTEGRATION TESTS PASSED");
-  console.log("=".repeat(70));
+  console.log('='.repeat(70));
+  console.log(' ALL INTEGRATION TESTS PASSED');
+  console.log('='.repeat(70));
   console.log();
-  console.log("Deployed contract addresses:");
-  Object.entries(contracts).forEach(([k, v]) =>
-    console.log(`  ${k.padEnd(16)} ${v}`)
-  );
+  console.log('Deployed contract addresses:');
+  Object.entries(contracts).forEach(([k, v]) => console.log(`  ${k.padEnd(16)} ${v}`));
 }
 
 // ---------------------------------------------------------------------------
@@ -680,6 +664,6 @@ async function runTests(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 runTests().catch((err) => {
-  console.error("\nIntegration test failed:", err);
+  console.error('\nIntegration test failed:', err);
   process.exit(1);
 });

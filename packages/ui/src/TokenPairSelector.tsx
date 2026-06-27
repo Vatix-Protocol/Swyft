@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { Token, TokenPair } from "./types";
-import { TokenSelectorModal } from "./TokenSelectorModal";
+import { Token, TokenPair } from './types';
+import { TokenSelectorModal } from './TokenSelectorModal';
 
 interface Props {
   /** The current token pair (tokenIn / tokenOut). Either side may be null. */
@@ -87,8 +87,7 @@ export function TokenPairSelector({
     onChange({ tokenIn: pair.tokenOut, tokenOut: pair.tokenIn });
   }
 
-  const showWarning =
-    poolExists === false && pair.tokenIn !== null && pair.tokenOut !== null;
+  const showWarning = poolExists === false && pair.tokenIn !== null && pair.tokenOut !== null;
 
   return (
     <div className="flex flex-col gap-2">
@@ -108,8 +107,19 @@ export function TokenPairSelector({
           aria-label="Swap token pair direction"
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 hover:border-indigo-400 hover:text-indigo-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-indigo-400 transition-colors"
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" />
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"
+            />
           </svg>
         </button>
 

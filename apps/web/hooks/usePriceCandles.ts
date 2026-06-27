@@ -1,9 +1,9 @@
-"use client";
+'use client';
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { API_BASE } from "@/lib/constants";
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { API_BASE } from '@/lib/constants';
 
-export type Interval = "1m" | "5m" | "1h" | "1d";
+export type Interval = '1m' | '5m' | '1h' | '1d';
 
 export interface Candle {
   time: number; // unix seconds
@@ -19,16 +19,13 @@ function getWsBase(): string {
     return process.env.NEXT_PUBLIC_WS_URL;
   }
 
-  const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const protocol =
+    typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
   const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
   return `${protocol}://${host}`;
 }
 
-export function usePriceCandles(
-  tokenA: string | null,
-  tokenB: string | null,
-  interval: Interval
-) {
+export function usePriceCandles(tokenA: string | null, tokenB: string | null, interval: Interval) {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [loading, setLoading] = useState(false);
   const [poolId, setPoolId] = useState<string | null>(null);
@@ -41,11 +38,12 @@ export function usePriceCandles(
       const res = await fetch(
         `${API_BASE}/prices/${tokenA}/${tokenB}/candles?interval=${interval}&limit=168`
       );
-      if (!res.ok) { setCandles([]); return; }
+      if (!res.ok) {
+        setCandles([]);
+        return;
+      }
       const data = (await res.json()) as CandlesResponse;
-      const validCandles = (data.data ?? [])
-        .filter(isValidCandle)
-        .map(mapPriceCandleToCandle);
+      const validCandles = (data.data ?? []).filter(isValidCandle).map(mapPriceCandleToCandle);
       setCandles(validCandles);
     } catch {
       setCandles([]);
@@ -77,13 +75,13 @@ export function usePriceCandles(
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ action: "subscribe", poolId }));
+      ws.send(JSON.stringify({ action: 'subscribe', poolId }));
     };
 
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data as string);
-        if (msg.event === "price" && msg.data?.poolId === poolId) {
+        if (msg.event === 'price' && msg.data?.poolId === poolId) {
           setCandles((prev) => {
             if (prev.length === 0) return [msg.data as Candle];
             const last = prev[prev.length - 1];

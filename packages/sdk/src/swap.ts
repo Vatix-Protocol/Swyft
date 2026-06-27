@@ -5,7 +5,7 @@ import {
   Networks,
   xdr,
   nativeToScVal,
-} from "@stellar/stellar-sdk";
+} from '@stellar/stellar-sdk';
 
 // ── Branded primitives ────────────────────────────────────────────────────────
 
@@ -14,24 +14,23 @@ import {
  * Using a branded type prevents accidentally passing a raw string where an
  * address is expected, and vice-versa.
  */
-export type StellarAddress = string & { readonly __brand: "StellarAddress" };
+export type StellarAddress = string & { readonly __brand: 'StellarAddress' };
 
 /**
  * A raw token amount represented as a decimal string to avoid JS bigint loss.
  * Example: "1000000" (1 USDC with 6 decimals).
  */
-export type RawAmount = string & { readonly __brand: "RawAmount" };
+export type RawAmount = string & { readonly __brand: 'RawAmount' };
 
 /**
  * A base-64 encoded Soroban XDR envelope string.
  */
-export type XdrBase64 = string & { readonly __brand: "XdrBase64" };
+export type XdrBase64 = string & { readonly __brand: 'XdrBase64' };
 
 // ── Helper casts ──────────────────────────────────────────────────────────────
 
 /** Cast a plain string to {@link StellarAddress}. Use only at trust boundaries. */
-export const toStellarAddress = (s: string): StellarAddress =>
-  s as StellarAddress;
+export const toStellarAddress = (s: string): StellarAddress => s as StellarAddress;
 
 /** Cast a plain string to {@link RawAmount}. Use only at trust boundaries. */
 export const toRawAmount = (s: string): RawAmount => s as RawAmount;
@@ -83,9 +82,9 @@ export interface SwapUnsignedTx {
 
 function isValidStellarAddress(address: string): boolean {
   return (
-    typeof address === "string" &&
+    typeof address === 'string' &&
     address.length === 56 &&
-    (address.startsWith("G") || address.startsWith("C"))
+    (address.startsWith('G') || address.startsWith('C'))
   );
 }
 
@@ -101,7 +100,7 @@ function isValidAmount(amount: string): boolean {
 export class SwapValidationError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "SwapValidationError";
+    this.name = 'SwapValidationError';
   }
 }
 
@@ -154,36 +153,36 @@ export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
     const contract = new Contract(params.poolId);
 
     const amountInScVal = nativeToScVal(params.amountIn, {
-      type: "i128",
+      type: 'i128',
     });
     const minOutScVal = nativeToScVal(params.minimumReceived, {
-      type: "i128",
+      type: 'i128',
     });
     const tokenInScVal = nativeToScVal(params.tokenInId, {
-      type: "address",
+      type: 'address',
     });
     const tokenOutScVal = nativeToScVal(params.tokenOutId, {
-      type: "address",
+      type: 'address',
     });
 
-    const swapOp = contract.call("swap", tokenInScVal, tokenOutScVal, amountInScVal, minOutScVal);
+    const swapOp = contract.call('swap', tokenInScVal, tokenOutScVal, amountInScVal, minOutScVal);
 
     const sourceKeypair = Keypair.random();
     const sourceAccount = {
       accountId: sourceKeypair.publicKey(),
-      sequence: "0",
+      sequence: '0',
     };
 
     const txBuilder = new TransactionBuilder(sourceAccount, {
-      fee: "100000",
+      fee: '100000',
       networkPassphrase: Networks.TESTNET_NETWORK_PASSPHRASE,
     });
 
     txBuilder.addOperation(swapOp);
     const tx = txBuilder.setTimeout(30).build();
 
-    const xdrString = tx.toEnvelope().toXDR("base64");
-    return { xdr: xdrString as XdrBase64, type: "swap" };
+    const xdrString = tx.toEnvelope().toXDR('base64');
+    return { xdr: xdrString as XdrBase64, type: 'swap' };
   } catch (err) {
     if (err instanceof SwapValidationError) throw err;
     const message = err instanceof Error ? err.message : String(err);

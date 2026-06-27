@@ -12,10 +12,7 @@ describe('SwapsService', () => {
     repo = { listSwaps: jest.fn() } as unknown as jest.Mocked<SwapsRepository>;
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        SwapsService,
-        { provide: SwapsRepository, useValue: repo },
-      ],
+      providers: [SwapsService, { provide: SwapsRepository, useValue: repo }],
     }).compile();
 
     service = module.get<SwapsService>(SwapsService);

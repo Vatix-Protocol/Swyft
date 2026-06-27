@@ -1,4 +1,7 @@
-import { InvalidInputException, BusinessRuleViolationException } from '../request-validation/http.exceptions';
+import {
+  InvalidInputException,
+  BusinessRuleViolationException,
+} from '../request-validation/http.exceptions';
 import { TransactionsService } from './transactions.service';
 
 describe('TransactionsService', () => {
@@ -32,7 +35,9 @@ describe('TransactionsService', () => {
         }),
     } as Response);
 
-    await expect(service.submit('bad')).rejects.toBeInstanceOf(InvalidInputException);
+    await expect(service.submit('bad')).rejects.toBeInstanceOf(
+      InvalidInputException,
+    );
   });
 
   it('throws BusinessRuleViolationException for tx_too_late', async () => {
@@ -45,7 +50,9 @@ describe('TransactionsService', () => {
         }),
     } as Response);
 
-    await expect(service.submit('old')).rejects.toBeInstanceOf(BusinessRuleViolationException);
+    await expect(service.submit('old')).rejects.toBeInstanceOf(
+      BusinessRuleViolationException,
+    );
   });
 
   it('throws BusinessRuleViolationException for op_ codes (slippage)', async () => {
@@ -58,12 +65,16 @@ describe('TransactionsService', () => {
         }),
     } as Response);
 
-    await expect(service.submit('slip')).rejects.toBeInstanceOf(BusinessRuleViolationException);
+    await expect(service.submit('slip')).rejects.toBeInstanceOf(
+      BusinessRuleViolationException,
+    );
   });
 
   it('throws BusinessRuleViolationException when fetch fails', async () => {
     jest.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
 
-    await expect(service.submit('xdr')).rejects.toBeInstanceOf(BusinessRuleViolationException);
+    await expect(service.submit('xdr')).rejects.toBeInstanceOf(
+      BusinessRuleViolationException,
+    );
   });
 });

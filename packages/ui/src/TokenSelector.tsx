@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { Token } from "./types";
-import { TokenSelectorModal } from "./TokenSelectorModal";
+import { Token } from './types';
+import { TokenSelectorModal } from './TokenSelectorModal';
 
 export interface TokenSelectorProps {
   /** Full list of tokens available for selection. */

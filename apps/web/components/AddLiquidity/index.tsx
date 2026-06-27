@@ -1,27 +1,45 @@
-"use client";
+'use client';
 
-import { useAddLiquidity, tickToPrice } from "@/hooks/useAddLiquidity";
-import { usePoolTicks } from "@/hooks/usePoolTicks";
-import { useWalletContext } from "@/context/WalletContext";
-import { PoolSelector } from "./PoolSelector";
-import { RangeSelector } from "./RangeSelector";
-import { AmountInputs } from "./AmountInputs";
-import { PositionPreview } from "./PositionPreview";
+import { useAddLiquidity, tickToPrice } from '@/hooks/useAddLiquidity';
+import { usePoolTicks } from '@/hooks/usePoolTicks';
+import { useWalletContext } from '@/context/WalletContext';
+import { PoolSelector } from './PoolSelector';
+import { RangeSelector } from './RangeSelector';
+import { AmountInputs } from './AmountInputs';
+import { PositionPreview } from './PositionPreview';
 
 export function AddLiquidity() {
   const {
-    pool, lowerTick, upperTick, lowerPrice, upperPrice,
-    amount0, amount1, txStatus, txHash, txError, positionNftId,
-    isFullRange, preview,
-    setPool, setLowerTick, setUpperTick, setLowerPrice, setUpperPrice,
-    setAmount0, setAmount1, setFullRange, submit, reset,
+    pool,
+    lowerTick,
+    upperTick,
+    lowerPrice,
+    upperPrice,
+    amount0,
+    amount1,
+    txStatus,
+    txHash,
+    txError,
+    positionNftId,
+    isFullRange,
+    preview,
+    setPool,
+    setLowerTick,
+    setUpperTick,
+    setLowerPrice,
+    setUpperPrice,
+    setAmount0,
+    setAmount1,
+    setFullRange,
+    submit,
+    reset,
   } = useAddLiquidity();
 
   const { ticks } = usePoolTicks(pool?.id ?? null);
   const { address, signTransaction } = useWalletContext();
 
-  const token0Symbol = pool?.token0Symbol ?? pool?.token0 ?? "Token A";
-  const token1Symbol = pool?.token1Symbol ?? pool?.token1 ?? "Token B";
+  const token0Symbol = pool?.token0Symbol ?? pool?.token0 ?? 'Token A';
+  const token1Symbol = pool?.token1Symbol ?? pool?.token1 ?? 'Token B';
 
   // When price is below range, only token0 needed; above range, only token1
   const currentPrice = pool?.currentPrice ?? 0;

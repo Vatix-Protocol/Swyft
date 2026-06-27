@@ -9,67 +9,67 @@ import {
   getAmountsDelta,
   tickToSqrtPriceX96,
   sqrtPriceX96ToTick,
-} from "../position-math";
+} from '../position-math';
 
 // ── tickToSqrtPriceX96 / sqrtPriceX96ToTick ──────────────────────────────────
 
-describe("tickToSqrtPriceX96", () => {
-  it("tick 0 returns Q96", () => {
+describe('tickToSqrtPriceX96', () => {
+  it('tick 0 returns Q96', () => {
     expect(tickToSqrtPriceX96(0)).toBe(Q96);
   });
 
-  it("positive tick returns value > Q96", () => {
+  it('positive tick returns value > Q96', () => {
     expect(tickToSqrtPriceX96(100)).toBeGreaterThan(Q96);
   });
 
-  it("negative tick returns value < Q96", () => {
+  it('negative tick returns value < Q96', () => {
     expect(tickToSqrtPriceX96(-100)).toBeLessThan(Q96);
   });
 
-  it("throws on tick below MIN_TICK", () => {
+  it('throws on tick below MIN_TICK', () => {
     expect(() => tickToSqrtPriceX96(MIN_TICK - 1)).toThrow(RangeError);
   });
 
-  it("throws on tick above MAX_TICK", () => {
+  it('throws on tick above MAX_TICK', () => {
     expect(() => tickToSqrtPriceX96(MAX_TICK + 1)).toThrow(RangeError);
   });
 
-  it("MIN_TICK and MAX_TICK do not throw", () => {
+  it('MIN_TICK and MAX_TICK do not throw', () => {
     expect(() => tickToSqrtPriceX96(MIN_TICK)).not.toThrow();
     expect(() => tickToSqrtPriceX96(MAX_TICK)).not.toThrow();
   });
 });
 
-describe("sqrtPriceX96ToTick", () => {
-  it("Q96 returns tick 0", () => {
+describe('sqrtPriceX96ToTick', () => {
+  it('Q96 returns tick 0', () => {
     expect(sqrtPriceX96ToTick(Q96)).toBe(0);
   });
 
-  it("price above Q96 returns positive tick", () => {
+  it('price above Q96 returns positive tick', () => {
     expect(sqrtPriceX96ToTick(Q96 + Q96 / 100n)).toBeGreaterThan(0);
   });
 
-  it("price below Q96 returns negative tick", () => {
+  it('price below Q96 returns negative tick', () => {
     expect(sqrtPriceX96ToTick(Q96 - Q96 / 100n)).toBeLessThan(0);
   });
 
-  it("throws on zero", () => {
+  it('throws on zero', () => {
     expect(() => sqrtPriceX96ToTick(0n)).toThrow(RangeError);
   });
 
-  it("round-trips with tickToSqrtPriceX96 for tick 0", () => {
+  it('round-trips with tickToSqrtPriceX96 for tick 0', () => {
     const sqrt = tickToSqrtPriceX96(0);
     expect(sqrtPriceX96ToTick(sqrt)).toBe(0);
   });
 
-  it("round-trips with tickToSqrtPriceX96 for positive tick", () => {
+  it('round-trips with tickToSqrtPriceX96 for positive tick', () => {
     const tick = 600;
     const sqrt = tickToSqrtPriceX96(tick);
     const recovered = sqrtPriceX96ToTick(sqrt);
     expect(Math.abs(recovered - tick)).toBeLessThanOrEqual(1);
   });
 
-  it("round-trips with tickToSqrtPriceX96 for negative tick", () => {
+  it('round-trips with tickToSqrtPriceX96 for negative tick', () => {
     const tick = -600;
     const sqrt = tickToSqrtPriceX96(tick);
     const recovered = sqrtPriceX96ToTick(sqrt);
@@ -79,33 +79,33 @@ describe("sqrtPriceX96ToTick", () => {
 
 // ── priceToTick ───────────────────────────────────────────────────────────────
 
-describe("priceToTick", () => {
-  it("price 1 returns tick 0 (snapped to spacing)", () => {
+describe('priceToTick', () => {
+  it('price 1 returns tick 0 (snapped to spacing)', () => {
     expect(priceToTick(1, 1)).toBe(0);
   });
 
-  it("price > 1 returns positive tick", () => {
+  it('price > 1 returns positive tick', () => {
     expect(priceToTick(2, 1)).toBeGreaterThan(0);
   });
 
-  it("price < 1 returns negative tick", () => {
+  it('price < 1 returns negative tick', () => {
     expect(priceToTick(0.5, 1)).toBeLessThan(0);
   });
 
-  it("snaps to tickSpacing", () => {
+  it('snaps to tickSpacing', () => {
     const tick = priceToTick(1.5, 60);
     expect(tick % 60).toBe(0);
   });
 
-  it("clamps to MIN_TICK", () => {
+  it('clamps to MIN_TICK', () => {
     expect(priceToTick(1e-40, 1)).toBe(MIN_TICK);
   });
 
-  it("clamps to MAX_TICK", () => {
+  it('clamps to MAX_TICK', () => {
     expect(priceToTick(1e40, 1)).toBe(MAX_TICK);
   });
 
-  it("throws on non-positive price", () => {
+  it('throws on non-positive price', () => {
     expect(() => priceToTick(0, 1)).toThrow(RangeError);
     expect(() => priceToTick(-1, 1)).toThrow(RangeError);
   });
@@ -113,20 +113,20 @@ describe("priceToTick", () => {
 
 // ── tickToPrice ───────────────────────────────────────────────────────────────
 
-describe("tickToPrice", () => {
-  it("tick 0, equal decimals returns 1", () => {
+describe('tickToPrice', () => {
+  it('tick 0, equal decimals returns 1', () => {
     expect(tickToPrice(0, 6, 6)).toBeCloseTo(1, 10);
   });
 
-  it("positive tick returns price > 1 (equal decimals)", () => {
+  it('positive tick returns price > 1 (equal decimals)', () => {
     expect(tickToPrice(1000, 6, 6)).toBeGreaterThan(1);
   });
 
-  it("negative tick returns price < 1 (equal decimals)", () => {
+  it('negative tick returns price < 1 (equal decimals)', () => {
     expect(tickToPrice(-1000, 6, 6)).toBeLessThan(1);
   });
 
-  it("adjusts for decimal difference", () => {
+  it('adjusts for decimal difference', () => {
     // token0=6 decimals, token1=18 decimals → scale by 10^(6-18)
     const price = tickToPrice(0, 6, 18);
     expect(price).toBeCloseTo(1e-12, 5);
@@ -135,13 +135,13 @@ describe("tickToPrice", () => {
 
 // ── getAmountsForLiquidity ────────────────────────────────────────────────────
 
-describe("getAmountsForLiquidity", () => {
+describe('getAmountsForLiquidity', () => {
   const sqrtLower = tickToSqrtPriceX96(-1000);
   const sqrtUpper = tickToSqrtPriceX96(1000);
   const sqrtMid = tickToSqrtPriceX96(0); // Q96
   const liquidity = 1_000_000n;
 
-  it("zero liquidity returns zeros", () => {
+  it('zero liquidity returns zeros', () => {
     const r = getAmountsForLiquidity({
       sqrtPriceX96: sqrtMid,
       sqrtPriceLowerX96: sqrtLower,
@@ -152,7 +152,7 @@ describe("getAmountsForLiquidity", () => {
     expect(r.amount1).toBe(0n);
   });
 
-  it("price in range: both amounts > 0", () => {
+  it('price in range: both amounts > 0', () => {
     const r = getAmountsForLiquidity({
       sqrtPriceX96: sqrtMid,
       sqrtPriceLowerX96: sqrtLower,
@@ -163,7 +163,7 @@ describe("getAmountsForLiquidity", () => {
     expect(r.amount1).toBeGreaterThan(0n);
   });
 
-  it("price below range: only token0 (amount1 = 0)", () => {
+  it('price below range: only token0 (amount1 = 0)', () => {
     const r = getAmountsForLiquidity({
       sqrtPriceX96: sqrtLower - 1n,
       sqrtPriceLowerX96: sqrtLower,
@@ -174,7 +174,7 @@ describe("getAmountsForLiquidity", () => {
     expect(r.amount1).toBe(0n);
   });
 
-  it("price above range: only token1 (amount0 = 0)", () => {
+  it('price above range: only token1 (amount0 = 0)', () => {
     const r = getAmountsForLiquidity({
       sqrtPriceX96: sqrtUpper + 1n,
       sqrtPriceLowerX96: sqrtLower,
@@ -185,7 +185,7 @@ describe("getAmountsForLiquidity", () => {
     expect(r.amount1).toBeGreaterThan(0n);
   });
 
-  it("price exactly at lower bound: amount1 = 0", () => {
+  it('price exactly at lower bound: amount1 = 0', () => {
     const r = getAmountsForLiquidity({
       sqrtPriceX96: sqrtLower,
       sqrtPriceLowerX96: sqrtLower,
@@ -196,7 +196,7 @@ describe("getAmountsForLiquidity", () => {
     expect(r.amount0).toBeGreaterThan(0n);
   });
 
-  it("price exactly at upper bound: amount0 = 0", () => {
+  it('price exactly at upper bound: amount0 = 0', () => {
     const r = getAmountsForLiquidity({
       sqrtPriceX96: sqrtUpper,
       sqrtPriceLowerX96: sqrtLower,
@@ -210,12 +210,12 @@ describe("getAmountsForLiquidity", () => {
 
 // ── getLiquidityForAmounts ────────────────────────────────────────────────────
 
-describe("getLiquidityForAmounts", () => {
+describe('getLiquidityForAmounts', () => {
   const sqrtLower = tickToSqrtPriceX96(-1000);
   const sqrtUpper = tickToSqrtPriceX96(1000);
   const sqrtMid = Q96;
 
-  it("price in range returns positive liquidity", () => {
+  it('price in range returns positive liquidity', () => {
     const liq = getLiquidityForAmounts({
       sqrtPriceX96: sqrtMid,
       sqrtPriceLowerX96: sqrtLower,
@@ -226,7 +226,7 @@ describe("getLiquidityForAmounts", () => {
     expect(liq).toBeGreaterThan(0n);
   });
 
-  it("price below range uses only amount0", () => {
+  it('price below range uses only amount0', () => {
     const liq = getLiquidityForAmounts({
       sqrtPriceX96: sqrtLower - 1n,
       sqrtPriceLowerX96: sqrtLower,
@@ -237,7 +237,7 @@ describe("getLiquidityForAmounts", () => {
     expect(liq).toBeGreaterThan(0n);
   });
 
-  it("price above range uses only amount1", () => {
+  it('price above range uses only amount1', () => {
     const liq = getLiquidityForAmounts({
       sqrtPriceX96: sqrtUpper + 1n,
       sqrtPriceLowerX96: sqrtLower,
@@ -248,7 +248,7 @@ describe("getLiquidityForAmounts", () => {
     expect(liq).toBeGreaterThan(0n);
   });
 
-  it("round-trips with getAmountsForLiquidity (in-range)", () => {
+  it('round-trips with getAmountsForLiquidity (in-range)', () => {
     const liquidity = 500_000n;
     const amounts = getAmountsForLiquidity({
       sqrtPriceX96: sqrtMid,
@@ -271,13 +271,13 @@ describe("getLiquidityForAmounts", () => {
 
 // ── getAmountsDelta ───────────────────────────────────────────────────────────
 
-describe("getAmountsDelta", () => {
+describe('getAmountsDelta', () => {
   const sqrtLower = tickToSqrtPriceX96(-500);
   const sqrtUpper = tickToSqrtPriceX96(500);
   const sqrtMid = Q96;
   const liquidity = 2_000_000n;
 
-  it("in-range burn returns both tokens", () => {
+  it('in-range burn returns both tokens', () => {
     const r = getAmountsDelta({
       sqrtPriceX96: sqrtMid,
       sqrtPriceLowerX96: sqrtLower,
@@ -288,7 +288,7 @@ describe("getAmountsDelta", () => {
     expect(r.amount1).toBeGreaterThan(0n);
   });
 
-  it("below-range burn returns only token0", () => {
+  it('below-range burn returns only token0', () => {
     const r = getAmountsDelta({
       sqrtPriceX96: sqrtLower - 1n,
       sqrtPriceLowerX96: sqrtLower,
@@ -299,7 +299,7 @@ describe("getAmountsDelta", () => {
     expect(r.amount1).toBe(0n);
   });
 
-  it("above-range burn returns only token1", () => {
+  it('above-range burn returns only token1', () => {
     const r = getAmountsDelta({
       sqrtPriceX96: sqrtUpper + 1n,
       sqrtPriceLowerX96: sqrtLower,
@@ -310,7 +310,7 @@ describe("getAmountsDelta", () => {
     expect(r.amount1).toBeGreaterThan(0n);
   });
 
-  it("zero liquidityDelta returns zeros", () => {
+  it('zero liquidityDelta returns zeros', () => {
     const r = getAmountsDelta({
       sqrtPriceX96: sqrtMid,
       sqrtPriceLowerX96: sqrtLower,
@@ -321,7 +321,7 @@ describe("getAmountsDelta", () => {
     expect(r.amount1).toBe(0n);
   });
 
-  it("partial burn is proportional to full burn", () => {
+  it('partial burn is proportional to full burn', () => {
     const full = getAmountsDelta({
       sqrtPriceX96: sqrtMid,
       sqrtPriceLowerX96: sqrtLower,

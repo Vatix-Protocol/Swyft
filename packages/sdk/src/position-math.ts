@@ -18,7 +18,7 @@ export const MAX_TICK = 887272;
  * @returns The nearest tick index snapped to `tickSpacing` and clamped to valid bounds
  */
 export function priceToTick(price: number, tickSpacing: number): number {
-  if (price <= 0) throw new RangeError("price must be positive");
+  if (price <= 0) throw new RangeError('price must be positive');
   // tick = log(price) / log(1.0001)
   const tick = Math.log(price) / Math.log(1.0001);
   const snapped = Math.round(tick / tickSpacing) * tickSpacing;
@@ -34,11 +34,7 @@ export function priceToTick(price: number, tickSpacing: number): number {
  * @param token1Decimals - Decimals for token1
  * @returns The price as a floating-point number (token1/token0)
  */
-export function tickToPrice(
-  tick: number,
-  token0Decimals: number,
-  token1Decimals: number
-): number {
+export function tickToPrice(tick: number, token0Decimals: number, token1Decimals: number): number {
   // price = 1.0001^tick * 10^(token0Decimals - token1Decimals)
   return Math.pow(1.0001, tick) * Math.pow(10, token0Decimals - token1Decimals);
 }
@@ -75,9 +71,7 @@ export function getAmountsForLiquidity({
 
   if (sqrtPriceX96 <= sqrtPriceLowerX96) {
     // Price is below range: only amount0
-    const amount0 =
-      (liquidity * Q96) / sqrtPriceLowerX96 -
-      (liquidity * Q96) / sqrtPriceUpperX96;
+    const amount0 = (liquidity * Q96) / sqrtPriceLowerX96 - (liquidity * Q96) / sqrtPriceUpperX96;
     return { amount0, amount1: 0n };
   } else if (sqrtPriceX96 >= sqrtPriceUpperX96) {
     // Price is above range: only amount1
@@ -85,8 +79,7 @@ export function getAmountsForLiquidity({
     return { amount0: 0n, amount1 };
   } else {
     // Price is in range: both amounts
-    const amount0 = (liquidity * Q96) / sqrtPriceLowerX96 -
-      (liquidity * Q96) / sqrtPriceX96;
+    const amount0 = (liquidity * Q96) / sqrtPriceLowerX96 - (liquidity * Q96) / sqrtPriceX96;
     const amount1 = (liquidity * (sqrtPriceX96 - sqrtPriceLowerX96)) / Q96;
     return { amount0, amount1 };
   }
@@ -132,8 +125,7 @@ export function getLiquidityForAmounts({
   } else {
     // Price is in range — take the minimum of both constraints
     const liq0 =
-      (amount0 * sqrtPriceX96 * sqrtPriceUpperX96) /
-      (Q96 * (sqrtPriceUpperX96 - sqrtPriceX96));
+      (amount0 * sqrtPriceX96 * sqrtPriceUpperX96) / (Q96 * (sqrtPriceUpperX96 - sqrtPriceX96));
     const liq1 = (amount1 * Q96) / (sqrtPriceX96 - sqrtPriceLowerX96);
     return liq0 < liq1 ? liq0 : liq1;
   }
@@ -188,8 +180,7 @@ export function getAmountsDelta({
  * @returns Sqrt price in Q64.96 as bigint
  */
 export function tickToSqrtPriceX96(tick: number): bigint {
-  if (tick < MIN_TICK || tick > MAX_TICK)
-    throw new RangeError(`tick ${tick} out of bounds`);
+  if (tick < MIN_TICK || tick > MAX_TICK) throw new RangeError(`tick ${tick} out of bounds`);
   if (tick >= 0) {
     return Q96 + (BigInt(tick) * Q96) / 20000n;
   } else {
@@ -207,7 +198,7 @@ export function tickToSqrtPriceX96(tick: number): bigint {
  * @returns Tick index (number)
  */
 export function sqrtPriceX96ToTick(sqrtPriceX96: bigint): number {
-  if (sqrtPriceX96 <= 0n) throw new RangeError("sqrtPriceX96 must be positive");
+  if (sqrtPriceX96 <= 0n) throw new RangeError('sqrtPriceX96 must be positive');
   if (sqrtPriceX96 >= Q96) {
     const ratio = sqrtPriceX96 - Q96;
     return Number((ratio * 20000n) / Q96);

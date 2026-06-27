@@ -15,13 +15,13 @@ export interface CollectTxParams {
 }
 
 function isValidStellarAddress(address: string): boolean {
-  return typeof address === "string" && address.length === 56 && address.startsWith("G");
+  return typeof address === 'string' && address.length === 56 && address.startsWith('G');
 }
 
 export class ValidationError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "ValidationError";
+    this.name = 'ValidationError';
   }
 }
 
@@ -68,7 +68,7 @@ export function buildBurnTx(params: BurnTxParams): BurnUnsignedTx {
     !params.ownerAddress
   ) {
     throw new Error(
-      'Invalid burn parameters: all fields are required, liquidityBps must be 0-10000',
+      'Invalid burn parameters: all fields are required, liquidityBps must be 0-10000'
     );
   }
 
@@ -94,7 +94,7 @@ export function buildBurnTx(params: BurnTxParams): BurnUnsignedTx {
  */
 export function buildCollectTx(params: CollectTxParams): CollectUnsignedTx {
   if (!params.ownerWallet) {
-    throw new ValidationError("ownerWallet is required");
+    throw new ValidationError('ownerWallet is required');
   }
   if (!isValidStellarAddress(params.ownerWallet)) {
     throw new ValidationError(
@@ -189,7 +189,7 @@ export function estimateRemoveAmounts({
  * @param params - The removal parameters (same as {@link estimateRemoveAmounts}).
  */
 export async function estimateRemoveAmountsAsync(
-  params: RemoveAmountsParams,
+  params: RemoveAmountsParams
 ): Promise<RemoveAmountsResult> {
   return new Promise((resolve) => {
     // Defer to next tick so callers can render loading UI

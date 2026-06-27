@@ -1,12 +1,12 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { useState } from "react";
-import { useSwaps, SwapSnapshot } from "@/hooks/useSwaps";
-import { useLpActivity, LpActivity, LpActivityType } from "@/hooks/useLpActivity";
-import { SWYFT_NETWORK } from "@/lib/constants";
+import Link from 'next/link';
+import { useState } from 'react';
+import { useSwaps, SwapSnapshot } from '@/hooks/useSwaps';
+import { useLpActivity, LpActivity, LpActivityType } from '@/hooks/useLpActivity';
+import { SWYFT_NETWORK } from '@/lib/constants';
 
-type Tab = "swaps" | "lp";
+type Tab = 'swaps' | 'lp';
 
 /**
  * Props accepted by the transaction history table.
@@ -24,27 +24,39 @@ interface TransactionHistoryProps {
  * @returns A history panel with tabs, date filters, and paginated transaction tables.
  */
 export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("swaps");
+  const [activeTab, setActiveTab] = useState<Tab>('swaps');
   const [page, setPage] = useState(1);
-  const [startDate, setStartDate] = useState<string>("");
-  const [endDate, setEndDate] = useState<string>("");
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
-  const { data: swapsData, isLoading: swapsLoading, error: swapsError } = useSwaps(walletAddress, page);
-  const { data: lpData, isLoading: lpLoading, error: lpError } = useLpActivity(walletAddress, null, page);
+  const {
+    data: swapsData,
+    isLoading: swapsLoading,
+    error: swapsError,
+  } = useSwaps(walletAddress, page);
+  const {
+    data: lpData,
+    isLoading: lpLoading,
+    error: lpError,
+  } = useLpActivity(walletAddress, null, page);
 
   const filteredSwaps = filterByDate(swapsData?.items || [], startDate, endDate);
   const filteredLpActivity = filterByDate(lpData?.items || [], startDate, endDate);
 
   const totalPages = Math.ceil(
-    (activeTab === "swaps" ? (swapsData?.total ?? 0) : (lpData?.total ?? 0)) / 20
+    (activeTab === 'swaps' ? (swapsData?.total ?? 0) : (lpData?.total ?? 0)) / 20
   );
 
-  function filterByDate<T extends { timestamp: number }>(items: T[], start: string, end: string): T[] {
+  function filterByDate<T extends { timestamp: number }>(
+    items: T[],
+    start: string,
+    end: string
+  ): T[] {
     if (!start && !end) return items;
-    
+
     const startTime = start ? new Date(start).getTime() / 1000 : 0;
     const endTime = end ? new Date(end).getTime() / 1000 : Infinity;
-    
+
     return items.filter((item) => item.timestamp >= startTime && item.timestamp <= endTime);
   }
 
@@ -66,21 +78,27 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
       {/* Tabs */}
       <div className="flex border-b border-zinc-200 dark:border-zinc-700">
         <button
-          onClick={() => { setActiveTab("swaps"); setPage(1); }}
+          onClick={() => {
+            setActiveTab('swaps');
+            setPage(1);
+          }}
           className={`px-6 py-3 text-sm font-medium transition-colors ${
-            activeTab === "swaps"
-              ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
-              : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+            activeTab === 'swaps'
+              ? 'border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
+              : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'
           }`}
         >
           Swaps
         </button>
         <button
-          onClick={() => { setActiveTab("lp"); setPage(1); }}
+          onClick={() => {
+            setActiveTab('lp');
+            setPage(1);
+          }}
           className={`px-6 py-3 text-sm font-medium transition-colors ${
-            activeTab === "lp"
-              ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
-              : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+            activeTab === 'lp'
+              ? 'border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
+              : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'
           }`}
         >
           LP Activity
@@ -109,7 +127,10 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
         </div>
         {(startDate || endDate) && (
           <button
-            onClick={() => { setStartDate(""); setEndDate(""); }}
+            onClick={() => {
+              setStartDate('');
+              setEndDate('');
+            }}
             className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
           >
             Clear
@@ -119,7 +140,7 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
 
       {/* Content */}
       <div className="p-6">
-        {activeTab === "swaps" ? (
+        {activeTab === 'swaps' ? (
           <SwapTable
             swaps={filteredSwaps}
             loading={swapsLoading}
@@ -191,7 +212,14 @@ function SkeletonRows({ cols }: { cols: number }) {
   );
 }
 
-function SwapTable({ swaps, loading, error, getExplorerUrl, formatDate, truncateHash }: SwapTableProps) {
+function SwapTable({
+  swaps,
+  loading,
+  error,
+  getExplorerUrl,
+  formatDate,
+  truncateHash,
+}: SwapTableProps) {
   if (error) {
     return <div className="text-center py-8 text-red-500">Failed to load swaps</div>;
   }
@@ -201,12 +229,12 @@ function SwapTable({ swaps, loading, error, getExplorerUrl, formatDate, truncate
       <div className="text-center py-12">
         <p className="text-zinc-500 dark:text-zinc-400 mb-2">No swap history yet</p>
         <p className="text-sm text-zinc-400 dark:text-zinc-500">
-          Your swaps will appear here once they are indexed.{" "}
+          Your swaps will appear here once they are indexed.{' '}
           <span className="text-zinc-500 dark:text-zinc-400">
-            Head to the{" "}
+            Head to the{' '}
             <Link href="/" className="underline hover:text-indigo-500 transition-colors">
               Swap page
-            </Link>{" "}
+            </Link>{' '}
             to make your first trade.
           </span>
         </p>
@@ -219,44 +247,63 @@ function SwapTable({ swaps, loading, error, getExplorerUrl, formatDate, truncate
       <table className="w-full">
         <thead>
           <tr className="border-b border-zinc-200 dark:border-zinc-700">
-            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">Pair</th>
-            <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">Input</th>
-            <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">Output</th>
-            <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">Price</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">Transaction</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">Time</th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Pair
+            </th>
+            <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Input
+            </th>
+            <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Output
+            </th>
+            <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Price
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Transaction
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Time
+            </th>
           </tr>
         </thead>
         <tbody>
-          {loading ? <SkeletonRows cols={6} /> : swaps.map((swap) => (
-            <tr key={swap.id} className="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-              <td className="py-3 px-4 text-sm text-zinc-900 dark:text-zinc-100">
-                {swap.token0Symbol}/{swap.token1Symbol}
-              </td>
-              <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
-                {swap.amount0}
-              </td>
-              <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
-                {swap.amount1}
-              </td>
-              <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
-                {swap.priceAtSwap}
-              </td>
-              <td className="py-3 px-4 text-sm">
-                <a
-                  href={getExplorerUrl(swap.txHash)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 font-mono"
-                >
-                  {truncateHash(swap.txHash)}
-                </a>
-              </td>
-              <td className="py-3 px-4 text-sm text-zinc-600 dark:text-zinc-400">
-                {formatDate(swap.timestamp)}
-              </td>
-            </tr>
-          ))}
+          {loading ? (
+            <SkeletonRows cols={6} />
+          ) : (
+            swaps.map((swap) => (
+              <tr
+                key={swap.id}
+                className="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+              >
+                <td className="py-3 px-4 text-sm text-zinc-900 dark:text-zinc-100">
+                  {swap.token0Symbol}/{swap.token1Symbol}
+                </td>
+                <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
+                  {swap.amount0}
+                </td>
+                <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
+                  {swap.amount1}
+                </td>
+                <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
+                  {swap.priceAtSwap}
+                </td>
+                <td className="py-3 px-4 text-sm">
+                  <a
+                    href={getExplorerUrl(swap.txHash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 font-mono"
+                  >
+                    {truncateHash(swap.txHash)}
+                  </a>
+                </td>
+                <td className="py-3 px-4 text-sm text-zinc-600 dark:text-zinc-400">
+                  {formatDate(swap.timestamp)}
+                </td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>
@@ -272,12 +319,21 @@ interface LpTableProps {
   truncateHash: (hash: string) => string;
 }
 
-function LpTable({ activities, loading, error, getExplorerUrl, formatDate, truncateHash }: LpTableProps) {
+function LpTable({
+  activities,
+  loading,
+  error,
+  getExplorerUrl,
+  formatDate,
+  truncateHash,
+}: LpTableProps) {
   if (error) {
     return (
       <div className="text-center py-8">
         <p className="text-red-500 mb-2">Authentication required</p>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Connect your wallet to view LP activity</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          Connect your wallet to view LP activity
+        </p>
       </div>
     );
   }
@@ -287,12 +343,12 @@ function LpTable({ activities, loading, error, getExplorerUrl, formatDate, trunc
       <div className="text-center py-12">
         <p className="text-zinc-500 dark:text-zinc-400 mb-2">No LP activity yet</p>
         <p className="text-sm text-zinc-400 dark:text-zinc-500">
-          Your liquidity events will appear here once they are indexed.{" "}
+          Your liquidity events will appear here once they are indexed.{' '}
           <span className="text-zinc-500 dark:text-zinc-400">
-            Visit the{" "}
+            Visit the{' '}
             <Link href="/pools" className="underline hover:text-indigo-500 transition-colors">
               Pools page
-            </Link>{" "}
+            </Link>{' '}
             to add liquidity and start earning fees.
           </span>
         </p>
@@ -302,23 +358,23 @@ function LpTable({ activities, loading, error, getExplorerUrl, formatDate, trunc
 
   const getTypeColor = (type: LpActivityType): string => {
     switch (type) {
-      case "mint":
-        return "text-emerald-600 dark:text-emerald-400";
-      case "burn":
-        return "text-red-600 dark:text-red-400";
-      case "fee_collection":
-        return "text-amber-600 dark:text-amber-400";
+      case 'mint':
+        return 'text-emerald-600 dark:text-emerald-400';
+      case 'burn':
+        return 'text-red-600 dark:text-red-400';
+      case 'fee_collection':
+        return 'text-amber-600 dark:text-amber-400';
     }
   };
 
   const getTypeLabel = (type: LpActivityType): string => {
     switch (type) {
-      case "mint":
-        return "Add";
-      case "burn":
-        return "Remove";
-      case "fee_collection":
-        return "Fees";
+      case 'mint':
+        return 'Add';
+      case 'burn':
+        return 'Remove';
+      case 'fee_collection':
+        return 'Fees';
     }
   };
 
@@ -327,46 +383,63 @@ function LpTable({ activities, loading, error, getExplorerUrl, formatDate, trunc
       <table className="w-full">
         <thead>
           <tr className="border-b border-zinc-200 dark:border-zinc-700">
-            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">Type</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">Pair</th>
-            <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">Amount 0</th>
-            <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">Amount 1</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">Transaction</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">Time</th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Type
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Pair
+            </th>
+            <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Amount 0
+            </th>
+            <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Amount 1
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Transaction
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Time
+            </th>
           </tr>
         </thead>
         <tbody>
-          {loading ? <SkeletonRows cols={6} /> : activities.map((activity) => (
-            <tr key={activity.id} className="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-              <td className="py-3 px-4 text-sm font-medium capitalize">
-                <span className={getTypeColor(activity.type)}>
-                  {getTypeLabel(activity.type)}
-                </span>
-              </td>
-              <td className="py-3 px-4 text-sm text-zinc-900 dark:text-zinc-100">
-                {activity.token0Symbol}/{activity.token1Symbol}
-              </td>
-              <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
-                {activity.amount0}
-              </td>
-              <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
-                {activity.amount1}
-              </td>
-              <td className="py-3 px-4 text-sm">
-                <a
-                  href={getExplorerUrl(activity.txHash)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 font-mono"
-                >
-                  {truncateHash(activity.txHash)}
-                </a>
-              </td>
-              <td className="py-3 px-4 text-sm text-zinc-600 dark:text-zinc-400">
-                {formatDate(activity.timestamp)}
-              </td>
-            </tr>
-          ))}
+          {loading ? (
+            <SkeletonRows cols={6} />
+          ) : (
+            activities.map((activity) => (
+              <tr
+                key={activity.id}
+                className="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+              >
+                <td className="py-3 px-4 text-sm font-medium capitalize">
+                  <span className={getTypeColor(activity.type)}>{getTypeLabel(activity.type)}</span>
+                </td>
+                <td className="py-3 px-4 text-sm text-zinc-900 dark:text-zinc-100">
+                  {activity.token0Symbol}/{activity.token1Symbol}
+                </td>
+                <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
+                  {activity.amount0}
+                </td>
+                <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
+                  {activity.amount1}
+                </td>
+                <td className="py-3 px-4 text-sm">
+                  <a
+                    href={getExplorerUrl(activity.txHash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 font-mono"
+                  >
+                    {truncateHash(activity.txHash)}
+                  </a>
+                </td>
+                <td className="py-3 px-4 text-sm text-zinc-600 dark:text-zinc-400">
+                  {formatDate(activity.timestamp)}
+                </td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>

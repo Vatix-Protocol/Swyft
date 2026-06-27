@@ -69,8 +69,26 @@ describe('PoolsService', () => {
     const poolId = 'cltest123456789012345678';
 
     beforeEach(() => {
-      // findPoolById uses isValidPoolId — cuid pattern passes
       cache.get.mockResolvedValue(null);
+      repo.getPoolDetailById.mockResolvedValue({
+        pool: {
+          id: poolId,
+          token0Address: '0xToken0',
+          token1Address: '0xToken1',
+          feeTier: 3000,
+          currentSqrtPrice: '79228162514264337593543950336',
+          currentTick: 0,
+          liquidity: '1000000000000000000',
+          tvl: '5000000',
+          volume24h: '1200000',
+          feeApr: '0.15',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          swaps: [],
+        },
+        token0: null,
+        token1: null,
+      });
     });
 
     it('returns ticks from repository on cache miss', async () => {
@@ -119,6 +137,7 @@ describe('PoolsService', () => {
 
     it('throws NotFoundException for unknown pool id', async () => {
       repo.poolExists.mockResolvedValue(false);
+      repo.getPoolDetailById.mockResolvedValueOnce(null);
       await expect(service.getPoolTicks('unknown_id')).rejects.toThrow(
         NotFoundException,
       );
@@ -127,6 +146,7 @@ describe('PoolsService', () => {
 
     it('does not cache on 404', async () => {
       repo.poolExists.mockResolvedValue(false);
+      repo.getPoolDetailById.mockResolvedValueOnce(null);
       await expect(service.getPoolTicks('bad_id')).rejects.toThrow(
         NotFoundException,
       );

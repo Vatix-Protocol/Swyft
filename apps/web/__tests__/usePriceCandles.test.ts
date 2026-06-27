@@ -57,9 +57,7 @@ describe('usePriceCandles — WebSocket protocol', () => {
     // Give it a moment for the WebSocket to be created
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(global.WebSocket).toHaveBeenCalledWith(
-      expect.stringContaining('wss://')
-    );
+    expect(global.WebSocket).toHaveBeenCalledWith(expect.stringContaining('wss://'));
   });
 
   it('uses ws:// protocol when page is http', async () => {
@@ -70,9 +68,7 @@ describe('usePriceCandles — WebSocket protocol', () => {
     // Give it a moment for the WebSocket to be created
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(global.WebSocket).toHaveBeenCalledWith(
-      expect.stringContaining('ws://')
-    );
+    expect(global.WebSocket).toHaveBeenCalledWith(expect.stringContaining('ws://'));
   });
 
   it('uses NEXT_PUBLIC_WS_URL when environment variable is set', async () => {

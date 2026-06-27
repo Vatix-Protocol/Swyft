@@ -7,6 +7,7 @@ This implementation provides the `GET /pools/:id/ticks` endpoint that returns ac
 ## Endpoint Details
 
 ### URL
+
 ```
 GET /pools/:id/ticks
 ```
@@ -24,7 +25,7 @@ GET /pools/:id/ticks
   {
     "tickIndex": -276324,
     "liquidityNet": "1000000000000000000",
-    "liquidityGross": "1000000000000000000", 
+    "liquidityGross": "1000000000000000000",
     "feeGrowthOutside0X128": "0",
     "feeGrowthOutside1X128": "0"
   }
@@ -96,7 +97,7 @@ model Tick {
 
 ### Performance Optimizations
 
-1. **Database Indexing**: 
+1. **Database Indexing**:
    - Primary index on `[poolId, tickIndex]`
    - Secondary index on `poolId` for efficient filtering
 
@@ -113,15 +114,18 @@ model Tick {
 ## Testing
 
 ### Unit Tests
+
 - `src/pools/pools.ticks.test.ts`: Controller unit tests
 - Tests all acceptance criteria including error cases
 
-### Integration Tests  
+### Integration Tests
+
 - `src/pools/pools.ticks.integration.test.ts`: End-to-end tests
 - Tests with real database and cache
 - Performance validation (< 100ms requirement)
 
 ### Manual Testing
+
 - `test-ticks-endpoint.js`: Manual testing script
 - Tests various scenarios and performance
 - Usage: `node test-ticks-endpoint.js [base_url] [pool_id]`
@@ -129,7 +133,7 @@ model Tick {
 ## Acceptance Criteria ✅
 
 - ✅ Returns all initialized ticks for the pool
-- ✅ Each tick includes: tick index, liquidity net, liquidity gross, fee growth outside token0, fee growth outside token1  
+- ✅ Each tick includes: tick index, liquidity net, liquidity gross, fee growth outside token0, fee growth outside token1
 - ✅ Supports optional lowerTick and upperTick query parameters for range filtering
 - ✅ Ticks returned in ascending tick index order
 - ✅ Returns 404 for unknown pool ID
@@ -139,16 +143,19 @@ model Tick {
 ## Usage Examples
 
 ### Get all ticks for a pool
+
 ```bash
 curl "http://localhost:3000/pools/clx1234567890123456789012/ticks"
 ```
 
 ### Get ticks in a specific range
+
 ```bash
 curl "http://localhost:3000/pools/clx1234567890123456789012/ticks?lowerTick=-276330&upperTick=-276320"
 ```
 
 ### Get ticks above a certain tick
+
 ```bash
 curl "http://localhost:3000/pools/clx1234567890123456789012/ticks?lowerTick=-276325"
 ```
