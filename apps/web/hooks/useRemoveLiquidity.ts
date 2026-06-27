@@ -74,6 +74,7 @@ export function useRemoveLiquidity(position: PositionSnapshot | null, authToken:
       const { xdr } = buildBurnTx({
         positionId: position.id,
         poolId: position.poolId,
+        liquidity: position.liquidity,
         liquidityBps: Math.round(pct * 100),
         ownerAddress: position.ownerWallet,
       });

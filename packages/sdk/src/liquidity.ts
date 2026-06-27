@@ -1,6 +1,10 @@
+import { Contract, Keypair, TransactionBuilder, nativeToScVal } from "@stellar/stellar-sdk";
+import { config } from "./config";
+
 export interface BurnTxParams {
   readonly positionId: string;
   readonly poolId: string;
+  readonly liquidity: string;
   /** Basis points of total liquidity to remove (0–10000). */
   readonly liquidityBps: number;
   readonly ownerAddress: string;
@@ -27,14 +31,14 @@ export class ValidationError extends Error {
 
 /** Unsigned burn (remove-liquidity) transaction envelope. */
 export interface BurnUnsignedTx {
-  /** Base-64 encoded XDR envelope — stub value until Soroban sim is wired. */
+  /** Base-64 encoded XDR envelope. */
   readonly xdr: string;
   readonly type: 'burn';
 }
 
 /** Unsigned collect-fees transaction envelope. */
 export interface CollectUnsignedTx {
-  /** Base-64 encoded XDR envelope — stub value until Soroban sim is wired. */
+  /** Base-64 encoded XDR envelope. */
   readonly xdr: string;
   readonly type: 'collect';
 }
@@ -51,7 +55,7 @@ export interface RemoveAmountsResult {
 /**
  * Builds an unsigned burn (remove liquidity) transaction XDR.
  *
- * Constructs a Soroban contract invocation that calls the burn function to
+ * Constructs a Soroban contract invocation that calls the remove_liquidity function to
  * remove liquidity from a position.
  *
  * @param params - Burn parameters including position ID, pool ID, liquidity amount, and owner.
@@ -63,6 +67,7 @@ export function buildBurnTx(params: BurnTxParams): BurnUnsignedTx {
   if (
     !params.positionId ||
     !params.poolId ||
+    !params.liquidity ||
     params.liquidityBps < 0 ||
     params.liquidityBps > 10000 ||
     !params.ownerAddress
@@ -72,23 +77,38 @@ export function buildBurnTx(params: BurnTxParams): BurnUnsignedTx {
     );
   }
 
-  const txPayload = {
-    op: 'burn',
-    positionId: params.positionId,
-    poolId: params.poolId,
-    liquidityBps: params.liquidityBps,
-    ownerAddress: params.ownerAddress,
-    timestamp: new Date().toISOString(),
+  const contract = new Contract(params.poolId);
+  
+  const totalLiquidity = BigInt(params.liquidity.split('.')[0]); // handle potential decimals just in case
+  const liquidityToRemove = (totalLiquidity * BigInt(params.liquidityBps)) / 10000n;
+
+  const ownerScVal = nativeToScVal(params.ownerAddress, { type: "address" });
+  const positionIdScVal = nativeToScVal(params.positionId, { type: "u64" });
+  const liquidityToRemoveScVal = nativeToScVal(liquidityToRemove.toString(), { type: "u128" });
+
+  const burnOp = contract.call("remove_liquidity", ownerScVal, positionIdScVal, liquidityToRemoveScVal);
+
+  const sourceKeypair = Keypair.random();
+  const sourceAccount = {
+    accountId: sourceKeypair.publicKey(),
+    sequence: "0",
   };
 
-  const jsonString = JSON.stringify(txPayload);
-  const xdr = Buffer.from(jsonString).toString('base64');
+  const txBuilder = new TransactionBuilder(sourceAccount, {
+    fee: "100000",
+    networkPassphrase: config.networkPassphrase,
+  });
+
+  txBuilder.addOperation(burnOp);
+  const tx = txBuilder.setTimeout(30).build();
+  const xdr = tx.toEnvelope().toXDR("base64");
+
   return { xdr, type: 'burn' };
 }
 
 /**
  * Builds an unsigned collect-fees transaction XDR.
- * Stub — replace with real Soroban contract invocation via stellar-sdk.
+ * Constructs a real Soroban contract invocation.
  *
  * @throws {ValidationError} If ownerWallet is not a valid Stellar address
  */
@@ -101,8 +121,28 @@ export function buildCollectTx(params: CollectTxParams): CollectUnsignedTx {
       `ownerWallet must be a valid Stellar address (starts with G, 56 chars). Got: ${params.ownerWallet}`
     );
   }
-  const payload = JSON.stringify({ op: 'collect', ...params });
-  const xdr = Buffer.from(payload).toString('base64');
+
+  const contract = new Contract(params.poolId);
+  const ownerScVal = nativeToScVal(params.ownerAddress || params.ownerWallet, { type: "address" });
+  const positionIdScVal = nativeToScVal(params.positionId, { type: "u64" });
+
+  const collectOp = contract.call("collect", ownerScVal, positionIdScVal);
+
+  const sourceKeypair = Keypair.random();
+  const sourceAccount = {
+    accountId: sourceKeypair.publicKey(),
+    sequence: "0",
+  };
+
+  const txBuilder = new TransactionBuilder(sourceAccount, {
+    fee: "100000",
+    networkPassphrase: config.networkPassphrase,
+  });
+
+  txBuilder.addOperation(collectOp);
+  const tx = txBuilder.setTimeout(30).build();
+  const xdr = tx.toEnvelope().toXDR("base64");
+
   return { xdr, type: 'collect' };
 }
 

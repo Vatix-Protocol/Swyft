@@ -49,24 +49,19 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
 
     for (const pool of pools) {
       try {
-        const [swaps24h, swaps7d, positions] = await Promise.all([
+        const [swaps24h, swaps7d] = await Promise.all([
           this.prisma.swap.findMany({
             where: { poolId: pool.id, timestamp: { gte: ago24h } },
           }),
           this.prisma.swap.findMany({
             where: { poolId: pool.id, timestamp: { gte: ago7d } },
           }),
-          this.prisma.position.findMany({
-            where: { poolId: pool.id, closedAt: null },
-          }),
         ]);
 
         const priceA = await this.getUsdPrice(pool.token0Address);
         const priceB = await this.getUsdPrice(pool.token1Address);
 
-        const tvl = positions.reduce((sum: number, p: Position) => {
-          return sum + Number(p.liquidity) * ((priceA + priceB) / 2);
-        }, 0);
+        const tvl = Number(pool.liquidity) * ((priceA + priceB) / 2);
 
         const volume24h = swaps24h.reduce(
           (sum: number, s: Swap) =>

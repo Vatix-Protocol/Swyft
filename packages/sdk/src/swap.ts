@@ -7,6 +7,8 @@ import {
   nativeToScVal,
 } from "@stellar/stellar-sdk";
 
+import { config } from "./config";
+
 // ── Branded primitives ────────────────────────────────────────────────────────
 
 /**
@@ -176,7 +178,7 @@ export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
 
     const txBuilder = new TransactionBuilder(sourceAccount, {
       fee: "100000",
-      networkPassphrase: Networks.TESTNET_NETWORK_PASSPHRASE,
+      networkPassphrase: config.networkPassphrase,
     });
 
     txBuilder.addOperation(swapOp);

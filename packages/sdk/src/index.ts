@@ -11,3 +11,5 @@ export { SwyftRpcError } from './types';
 
 export { buildSwapTx, toStellarAddress, toRawAmount, toXdrBase64, SwapValidationError } from './swap';
 export type { PoolId, SwapTxParams, SwapUnsignedTx, StellarAddress, RawAmount, XdrBase64 } from './swap';
+
+export { config } from './config';
