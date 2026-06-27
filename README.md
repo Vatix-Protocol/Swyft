@@ -42,7 +42,7 @@ swyft/
 │   ├── web/              # Next.js dApp
 │   └── api/              # NestJS backend
 ├── packages/
-│   ├── contracts/        # Soroban Rust contracts
+│   ├── contract/         # Soroban Rust contracts
 │   ├── sdk/              # @swyft/sdk (TypeScript)
 │   ├── ui/               # @swyft/ui shared components
 │   └── config/           # Shared ESLint, TS, Tailwind configs
@@ -65,7 +65,7 @@ swyft/
 
 ```bash
 # Clone the repo
-git clone https://github.com/Vatix-Protocol/Swyft.git
+git clone https://github.com/Valreb001/Swyft.git
 cd swyft
 
 # Install all dependencies
@@ -84,8 +84,8 @@ This starts the Next.js dApp, NestJS API, and watches contract changes simultane
 ### Run contract tests
 
 ```bash
-cd packages/contracts
-stellar-cli contract test
+cd packages/contract
+cargo test --workspace
 ```
 
 ### Run API tests
@@ -93,6 +93,30 @@ stellar-cli contract test
 ```bash
 pnpm --filter api test
 ```
+
+---
+
+## Environment Variables
+
+Copy `apps/api/.env.example` to `apps/api/.env` and fill in the values below.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `DATABASE_URL` | ✅ | `postgresql://postgres:postgres@localhost:5432/swyft` | PostgreSQL connection string (Prisma) |
+| `REDIS_URL` | ✅ | `redis://localhost:6379` | Redis connection string (BullMQ + cache) |
+| `STELLAR_NETWORK` | ✅ | `testnet` | `testnet` or `mainnet` |
+| `STELLAR_RPC_URL` | ✅ | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint |
+| `HORIZON_URL` | ✅ | `https://horizon-testnet.stellar.org` | Stellar Horizon endpoint |
+| `POOL_CONTRACT_ID` | ✅ | *(empty)* | Deployed pool contract address — see `packages/contract/deployments/testnet.json` |
+| `JWT_SECRET` | ✅ | `change-me-in-production` | Secret used to sign JWT tokens — **must be changed in production** |
+| `JWT_EXPIRES_IN` | ✅ | `7d` | JWT token lifetime |
+| `PORT` | ✅ | `3001` | HTTP port the API listens on |
+| `INTERNAL_API_KEY` | ✅ | `change-me-in-production` | Protects `/admin/*` and `/metrics/db` routes — **must be changed in production** |
+| `DB_SLOW_QUERY_THRESHOLD_MS` | ❌ | `100` | Queries slower than this (ms) are logged as warnings |
+| `SENTRY_DSN` | ❌ | *(empty)* | Sentry DSN for error tracking — leave blank to disable |
+| `SENTRY_TRACES_SAMPLE_RATE` | ❌ | `0.1` | Sentry trace sampling rate (0–1) |
+| `COMPRESSION_LEVEL` | ❌ | `6` | zlib compression level for HTTP responses (1–9) |
+| `WEBHOOK_LARGE_SWAP_USD` | ❌ | `10000` | USD threshold above which a swap triggers a webhook notification |
 
 ---
 
@@ -139,7 +163,7 @@ Swyft is built almost entirely by external contributors. The maintainer handles 
 
 ### Good first issues
 
-Look for issues labelled [`good first issue`](https://github.com/your-org/swyft/issues?q=label%3A%22good+first+issue%22). These are small, well-scoped tasks that don't require deep protocol knowledge.
+Look for issues labelled [`good first issue`](https://github.com/Valreb001/Swyft/issues?q=label%3A%22good+first+issue%22). These are small, well-scoped tasks that don't require deep protocol knowledge.
 
 ### Issue labels
 
