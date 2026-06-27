@@ -4,17 +4,17 @@ All 9 Swyft smart contracts compile and build successfully.
 
 ## Contracts
 
-| Contract | Purpose | Status |
-|----------|---------|--------|
-| `hello-world` | Example contract | ✅ |
-| `math-lib` | Fixed-point math (Q64.96) | ✅ |
-| `pool` | Concentrated liquidity pool | ✅ |
-| `pool-factory` | Pool deployment & registry | ✅ |
-| `router` | Single-hop swap routing | ✅ |
-| `position-nft` | Liquidity position NFTs | ✅ |
-| `fee-collector` | Fee accumulation | ✅ |
-| `oracle-adapter` | TWAP oracle | ✅ |
-| `cl-pool` | Additional pool logic | ✅ |
+| Contract         | Purpose                     | Status |
+| ---------------- | --------------------------- | ------ |
+| `hello-world`    | Example contract            | ✅     |
+| `math-lib`       | Fixed-point math (Q64.96)   | ✅     |
+| `pool`           | Concentrated liquidity pool | ✅     |
+| `pool-factory`   | Pool deployment & registry  | ✅     |
+| `router`         | Single-hop swap routing     | ✅     |
+| `position-nft`   | Liquidity position NFTs     | ✅     |
+| `fee-collector`  | Fee accumulation            | ✅     |
+| `oracle-adapter` | TWAP oracle                 | ✅     |
+| `cl-pool`        | Additional pool logic       | ✅     |
 
 ## Validation
 
@@ -25,6 +25,7 @@ pnpm validate:contracts
 ```
 
 Output:
+
 ```
 Building hello-world... ✓
 Building math-lib... ✓

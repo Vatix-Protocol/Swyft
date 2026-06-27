@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { usePools, type PoolDetail } from "@/hooks/usePoolTicks";
+import { usePools, type PoolDetail } from '@/hooks/usePoolTicks';
 
 export interface PoolSelectorProps {
   /** The currently selected pool, or null if none is selected */
@@ -18,7 +18,10 @@ export function PoolSelector({ selected, onSelect }: PoolSelectorProps) {
       {loading ? (
         <div className="flex gap-2">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-14 flex-1 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
+            <div
+              key={i}
+              className="h-14 flex-1 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800"
+            />
           ))}
         </div>
       ) : (
@@ -32,8 +35,8 @@ export function PoolSelector({ selected, onSelect }: PoolSelectorProps) {
                 onClick={() => onSelect(pool)}
                 className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                   isSelected
-                    ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 dark:border-indigo-400"
-                    : "border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
+                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 dark:border-indigo-400'
+                    : 'border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700'
                 }`}
               >
                 <div className="flex items-center gap-3">
@@ -53,7 +56,9 @@ export function PoolSelector({ selected, onSelect }: PoolSelectorProps) {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">{pool.feeApr.toFixed(1)}% APR</p>
+                  <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                    {pool.feeApr.toFixed(1)}% APR
+                  </p>
                   <p className="text-xs text-zinc-400">${(pool.tvl / 1_000_000).toFixed(1)}M TVL</p>
                 </div>
               </button>

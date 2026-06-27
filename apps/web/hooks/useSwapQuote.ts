@@ -1,15 +1,16 @@
-"use client";
+'use client';
 
-import { useEffect, useRef, useState } from "react";
-import { calculateSwapQuote, type SwapQuote } from "@swyft/sdk";
-import { API_BASE } from "@/lib/constants";
+import { useEffect, useRef, useState } from 'react';
+import { calculateSwapQuote, type SwapQuote } from '@swyft/sdk';
+import { API_BASE } from '@/lib/constants';
 
 function getWsBase(): string {
   if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_WS_URL) {
     return process.env.NEXT_PUBLIC_WS_URL;
   }
 
-  const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const protocol =
+    typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
   const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
   return `${protocol}://${host}`;
 }
@@ -65,7 +66,7 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
     let reconnectTimer: NodeJS.Timeout | null = null;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ event: "subscribe", poolId }));
+      ws.send(JSON.stringify({ event: 'subscribe', poolId }));
     };
 
     ws.onmessage = (e) => {

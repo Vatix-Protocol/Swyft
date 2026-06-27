@@ -1,9 +1,9 @@
-"use client";
+'use client';
 
-import { useRef, useEffect, useState, useCallback } from "react";
-import { usePriceCandles, type Interval, type Candle } from "@/hooks/usePriceCandles";
+import { useRef, useEffect, useState, useCallback } from 'react';
+import { usePriceCandles, type Interval, type Candle } from '@/hooks/usePriceCandles';
 
-const INTERVALS: Interval[] = ["1m", "5m", "1h", "1d"];
+const INTERVALS: Interval[] = ['1m', '5m', '1h', '1d'];
 const PADDING = { top: 16, right: 64, bottom: 28, left: 8 };
 const CANDLE_GAP = 1;
 
@@ -15,8 +15,8 @@ interface Tooltip {
 
 function formatTime(ts: number, interval: Interval) {
   const d = new Date(ts * 1000);
-  if (interval === "1d") return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (interval === '1d') return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
 function drawChart(
@@ -30,17 +30,17 @@ function drawChart(
   const H = canvas.clientHeight;
   canvas.width = W * dpr;
   canvas.height = H * dpr;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext('2d')!;
   ctx.scale(dpr, dpr);
 
   const colors = {
-    bg: isDark ? "#18181b" : "#ffffff",
-    grid: isDark ? "#27272a" : "#f4f4f5",
-    text: isDark ? "#71717a" : "#a1a1aa",
-    up: "#22c55e",
-    down: "#ef4444",
-    priceLine: "#6366f1",
-    priceLabel: isDark ? "#e0e7ff" : "#4338ca",
+    bg: isDark ? '#18181b' : '#ffffff',
+    grid: isDark ? '#27272a' : '#f4f4f5',
+    text: isDark ? '#71717a' : '#a1a1aa',
+    up: '#22c55e',
+    down: '#ef4444',
+    priceLine: '#6366f1',
+    priceLabel: isDark ? '#e0e7ff' : '#4338ca',
   };
 
   ctx.fillStyle = colors.bg;
@@ -81,8 +81,8 @@ function drawChart(
 
     const price = maxP - (totalRange / 4) * i;
     ctx.fillStyle = colors.text;
-    ctx.font = "10px sans-serif";
-    ctx.textAlign = "left";
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'left';
     ctx.fillText(price.toFixed(price < 1 ? 6 : 2), W - PADDING.right + 4, y + 3);
   }
 
@@ -127,9 +127,9 @@ function drawChart(
     const labelW = label.length * 6.5 + 8;
     ctx.fillStyle = colors.priceLine;
     ctx.fillRect(W - PADDING.right + 2, py - 8, labelW, 16);
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 10px sans-serif";
-    ctx.textAlign = "left";
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'left';
     ctx.fillText(label, W - PADDING.right + 6, py + 3.5);
   }
 }
@@ -142,14 +142,14 @@ interface Props {
 }
 
 export function PriceChart({ tokenA, tokenB, tokenASymbol, tokenBSymbol }: Props) {
-  const [interval, setInterval] = useState<Interval>("1h");
+  const [interval, setInterval] = useState<Interval>('1h');
   const { candles, loading, currentPrice } = usePriceCandles(tokenA, tokenB, interval);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
-    setIsDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
+    setIsDark(window.matchMedia('(prefers-color-scheme: dark)').matches);
   }, []);
 
   const redraw = useCallback(() => {
@@ -174,7 +174,10 @@ export function PriceChart({ tokenA, tokenB, tokenASymbol, tokenBSymbol }: Props
     const chartW = rect.width - PADDING.left - PADDING.right;
     const candleW = chartW / candles.length;
     const idx = Math.floor((mx - PADDING.left) / candleW);
-    if (idx < 0 || idx >= candles.length) { setTooltip(null); return; }
+    if (idx < 0 || idx >= candles.length) {
+      setTooltip(null);
+      return;
+    }
     setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top, candle: candles[idx] });
   }
 
@@ -185,22 +188,26 @@ export function PriceChart({ tokenA, tokenB, tokenASymbol, tokenBSymbol }: Props
     const chartW = rect.width - PADDING.left - PADDING.right;
     const candleW = chartW / candles.length;
     const idx = Math.floor((mx - PADDING.left) / candleW);
-    if (idx < 0 || idx >= candles.length) { setTooltip(null); return; }
+    if (idx < 0 || idx >= candles.length) {
+      setTooltip(null);
+      return;
+    }
     setTooltip({ x: mx, y: e.touches[0].clientY - rect.top, candle: candles[idx] });
   }
 
-  const pairLabel = tokenASymbol && tokenBSymbol
-    ? `${tokenASymbol} / ${tokenBSymbol}`
-    : tokenA && tokenB
-    ? `${tokenA.slice(0, 4)} / ${tokenB.slice(0, 4)}`
-    : null;
+  const pairLabel =
+    tokenASymbol && tokenBSymbol
+      ? `${tokenASymbol} / ${tokenBSymbol}`
+      : tokenA && tokenB
+        ? `${tokenA.slice(0, 4)} / ${tokenB.slice(0, 4)}`
+        : null;
 
   return (
     <div className="w-full rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
         <p className="text-sm font-semibold text-zinc-900 dark:text-white">
-          {pairLabel ?? "Price chart"}
+          {pairLabel ?? 'Price chart'}
           {currentPrice !== null && (
             <span className="ml-2 text-indigo-600 dark:text-indigo-400 font-mono text-xs">
               {currentPrice.toFixed(currentPrice < 1 ? 6 : 4)}
@@ -215,8 +222,8 @@ export function PriceChart({ tokenA, tokenB, tokenASymbol, tokenBSymbol }: Props
               onClick={() => setInterval(iv)}
               className={`min-h-[44px] min-w-[44px] rounded-lg px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                 interval === iv
-                  ? "bg-indigo-600 text-white"
-                  : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 dark:text-zinc-400"
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 dark:text-zinc-400'
               }`}
             >
               {iv}
@@ -284,13 +291,17 @@ export function PriceChart({ tokenA, tokenB, tokenASymbol, tokenBSymbol }: Props
             </p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 tabular-nums">
               <span className="text-zinc-400">O</span>
-              <span className="text-zinc-800 dark:text-zinc-200">{tooltip.candle.open.toFixed(6)}</span>
+              <span className="text-zinc-800 dark:text-zinc-200">
+                {tooltip.candle.open.toFixed(6)}
+              </span>
               <span className="text-zinc-400">H</span>
               <span className="text-green-600">{tooltip.candle.high.toFixed(6)}</span>
               <span className="text-zinc-400">L</span>
               <span className="text-red-500">{tooltip.candle.low.toFixed(6)}</span>
               <span className="text-zinc-400">C</span>
-              <span className="text-zinc-800 dark:text-zinc-200">{tooltip.candle.close.toFixed(6)}</span>
+              <span className="text-zinc-800 dark:text-zinc-200">
+                {tooltip.candle.close.toFixed(6)}
+              </span>
               <span className="text-zinc-400">Vol</span>
               <span className="text-zinc-800 dark:text-zinc-200">
                 {tooltip.candle.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}

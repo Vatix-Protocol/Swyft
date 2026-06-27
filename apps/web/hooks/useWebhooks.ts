@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { useEffect, useState, useCallback } from "react";
-import { API_BASE } from "@/lib/constants";
+import { useEffect, useState, useCallback } from 'react';
+import { API_BASE } from '@/lib/constants';
 
 export interface WebhookItem {
   id: string;
@@ -17,7 +17,10 @@ export function useWebhooks(authToken: string | null) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchWebhooks = useCallback(() => {
-    if (!authToken) { setItems([]); return; }
+    if (!authToken) {
+      setItems([]);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -26,14 +29,22 @@ export function useWebhooks(authToken: string | null) {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then((r) => {
-        if (!r.ok) throw new Error("Failed to load webhooks");
+        if (!r.ok) throw new Error('Failed to load webhooks');
         return r.json() as Promise<{ loading: boolean; items: WebhookItem[] }>;
       })
-      .then((data) => { if (!cancelled) setItems(data.items); })
-      .catch((e: Error) => { if (!cancelled) setError(e.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .then((data) => {
+        if (!cancelled) setItems(data.items);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [authToken]);
 
   useEffect(() => {
@@ -47,17 +58,17 @@ export function useWebhooks(authToken: string | null) {
       setLoading(true);
       try {
         const r = await fetch(`${API_BASE}/webhooks`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${authToken}`, "Content-Type": "application/json" },
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!r.ok) throw new Error("Failed to create webhook");
+        if (!r.ok) throw new Error('Failed to create webhook');
         fetchWebhooks();
       } finally {
         setLoading(false);
       }
     },
-    [authToken, fetchWebhooks],
+    [authToken, fetchWebhooks]
   );
 
   const removeWebhook = useCallback(
@@ -66,7 +77,7 @@ export function useWebhooks(authToken: string | null) {
       setLoading(true);
       try {
         await fetch(`${API_BASE}/webhooks/${id}`, {
-          method: "DELETE",
+          method: 'DELETE',
           headers: { Authorization: `Bearer ${authToken}` },
         });
         fetchWebhooks();
@@ -74,7 +85,7 @@ export function useWebhooks(authToken: string | null) {
         setLoading(false);
       }
     },
-    [authToken, fetchWebhooks],
+    [authToken, fetchWebhooks]
   );
 
   return { items, loading, error, createWebhook, removeWebhook };

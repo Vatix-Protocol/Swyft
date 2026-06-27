@@ -226,10 +226,11 @@ describe('PriceService', () => {
   });
 
   describe('getCandles', () => {
-    it('returns empty array when no pool is found', async () => {
+    it('throws NotFoundException when no pool is found', async () => {
       mockPrisma.pool.findFirst.mockResolvedValueOnce(null);
-      const result = await service.getCandles('USDC', 'XLM', '1h', 100, 200, 10);
-      expect(result).toEqual([]);
+      await expect(
+        service.getCandles('USDC', 'XLM', '1h', 100, 200, 10),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('queries price_candle table for found pool', async () => {
@@ -249,16 +250,25 @@ describe('PriceService', () => {
         },
       ];
       mockPrisma.pool.findFirst.mockResolvedValueOnce(mockPool as never);
-      mockPrisma.priceCandle.findMany.mockResolvedValueOnce(mockCandles as never);
+      mockPrisma.priceCandle.findMany.mockResolvedValueOnce(
+        mockCandles as never,
+      );
 
-      const result = await service.getCandles('USDC', 'XLM', '1h', 100, 200, 10);
+      const result = await service.getCandles(
+        'USDC',
+        'XLM',
+        '1h',
+        100,
+        200,
+        10,
+      );
 
-      expect(result).toHaveLength(1);
-      expect(result[0].open).toBe('100');
-      expect(result[0].high).toBe('105');
-      expect(result[0].low).toBe('95');
-      expect(result[0].close).toBe('102');
-      expect(result[0].volume).toBe('10000');
+      expect(result.candles).toHaveLength(1);
+      expect(result.candles[0].open).toBe(100);
+      expect(result.candles[0].high).toBe(105);
+      expect(result.candles[0].low).toBe(95);
+      expect(result.candles[0].close).toBe(102);
+      expect(result.candles[0].volume).toBe(10000);
       expect(mockPrisma.priceCandle.findMany).toHaveBeenCalledWith({
         where: {
           poolId: 'pool-1',

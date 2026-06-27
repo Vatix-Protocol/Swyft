@@ -60,13 +60,17 @@ describe('useMathLib — loading state', () => {
     it('isLoading becomes true while the request is in flight', async () => {
       let resolveFetch!: (v: Response) => void;
       mockFetch.mockReturnValueOnce(
-        new Promise<Response>((resolve) => { resolveFetch = resolve; }),
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
       );
 
       const { result } = renderHook(() => useMathLib());
 
       // Start the call but do not await it yet
-      act(() => { void result.current.sqrtPriceToTick('79228162514264337593543950336'); });
+      act(() => {
+        void result.current.sqrtPriceToTick('79228162514264337593543950336');
+      });
 
       expect(result.current.isLoading).toBe(true);
 
@@ -131,12 +135,16 @@ describe('useMathLib — loading state', () => {
     it('isLoading becomes true while the request is in flight', async () => {
       let resolveFetch!: (v: Response) => void;
       mockFetch.mockReturnValueOnce(
-        new Promise<Response>((resolve) => { resolveFetch = resolve; }),
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
       );
 
       const { result } = renderHook(() => useMathLib());
 
-      act(() => { void result.current.tickToSqrtPrice(0); });
+      act(() => {
+        void result.current.tickToSqrtPrice(0);
+      });
 
       expect(result.current.isLoading).toBe(true);
 

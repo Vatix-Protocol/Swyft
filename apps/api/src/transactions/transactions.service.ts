@@ -55,6 +55,10 @@ export class TransactionsService {
       ledger: number;
       successful: boolean;
     };
-    return { hash: data.hash, ledger: data.ledger, successful: data.successful };
+    return {
+      hash: data.hash,
+      ledger: data.ledger,
+      successful: data.successful,
+    };
   }
 }

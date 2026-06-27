@@ -5,6 +5,7 @@ This document provides step-by-step instructions for integrating the Position NF
 ## Overview
 
 The Position NFT contract is a separate contract that the Pool contract calls to mint and burn position NFTs. This separation allows for:
+
 - Clean separation of concerns
 - Independent upgrades of NFT and pool logic
 - Potential for multiple pools to share the same NFT contract
@@ -77,7 +78,7 @@ pub fn mint(
     if amount == 0 {
         panic_with_pool_error(&env, PoolError::ZeroLiquidity);
     }
-    
+
     let mut state = load_state(&env);
     validate_tick(&env, tick_lower, state.tick_spacing);
     validate_tick(&env, tick_upper, state.tick_spacing);
@@ -103,8 +104,8 @@ pub fn mint(
         (recipient, tick_lower, tick_upper, amount, amount_0, amount_1, token_id),
     );
 
-    Ok(MintResult { 
-        amount_0, 
+    Ok(MintResult {
+        amount_0,
         amount_1,
         token_id,  // Return the position NFT ID
     })
@@ -137,10 +138,10 @@ pub fn burn(
     // Load and validate position from NFT contract
     let state = load_state(&env);
     let position_nft_client = PositionNftClient::new(&env, &state.position_nft);
-    
+
     let position = position_nft_client.get_position(&token_id)
         .map_err(|_| PoolError::PositionNotFound)?;
-    
+
     // Verify the position matches the provided tick range
     if position.tick_lower != tick_lower || position.tick_upper != tick_upper {
         panic_with_pool_error(&env, PoolError::InvalidTickRange);
@@ -195,14 +196,14 @@ pub fn collect_fees(
     token_id: u64,
 ) -> CollectResult {
     owner.require_auth();
-    
+
     let state = load_state(&env);
     let position_nft_client = PositionNftClient::new(&env, &state.position_nft);
-    
+
     // Verify ownership
     let position = position_nft_client.get_position(&token_id)
         .ok_or(PoolError::PositionNotFound)?;
-    
+
     if position.owner != owner {
         panic_with_pool_error(&env, PoolError::NotAuthorized);
     }
@@ -220,36 +221,36 @@ Update pool tests to include position NFT minting/burning:
 fn test_mint_and_burn_with_nft() {
     let env = Env::default();
     env.mock_all_auths();
-    
+
     let pool_id = env.register(Pool, ());
     let nft_id = env.register(PositionNft, ());
-    
+
     let pool_client = PoolClient::new(&env, &pool_id);
     let nft_client = PositionNftClient::new(&env, &nft_id);
-    
+
     let token_0 = Address::generate(&env);
     let token_1 = Address::generate(&env);
     let lp = Address::generate(&env);
-    
+
     // Initialize NFT first
     nft_client.initialize(&pool_id);
-    
+
     // Initialize pool with NFT address
     pool_client.initialize(&token_0, &token_1, &nft_id, &Q96, &3000u32);
-    
+
     // Mint position
     let result = pool_client.mint(&lp, &-100i32, &100i32, &1000u128);
     let token_id = result.token_id;
-    
+
     // Verify NFT was created
     let position = nft_client.get_position(&token_id).unwrap();
     assert_eq!(position.owner, lp);
     assert_eq!(position.tick_lower, -100i32);
     assert_eq!(position.tick_upper, 100i32);
-    
+
     // Burn position
     pool_client.burn(&lp, &token_id, &-100i32, &100i32);
-    
+
     // Verify NFT was destroyed
     assert!(nft_client.get_position(&token_id).is_err());
 }
@@ -269,7 +270,7 @@ pub fn create_pool(
 ) -> Address {
     let pool_id = env.register_contract(None, Pool);
     let pool_client = PoolClient::new(&env, &pool_id);
-    
+
     pool_client.initialize(
         &token_0,
         &token_1,
@@ -277,7 +278,7 @@ pub fn create_pool(
         &default_price(),
         &fee_tier,
     );
-    
+
     // Track the pool...
     pool_id
 }
@@ -285,17 +286,17 @@ pub fn create_pool(
 
 ## Summary of Changes
 
-| File | Changes |
-|------|---------|
-| `Pool Cargo.toml` | Add position-nft dependency |
-| `Pool PoolState` | Add `position_nft: Address` field |
-| `Pool initialize()` | Add `position_nft` parameter |
-| `Pool mint()` | Call NFT mint, return token_id |
-| `Pool burn()` | Accept token_id, call NFT burn |
-| `Pool MintResult` | Add `token_id` field |
-| `Pool BurnResult` | Keep as-is or add token_id |
-| `Pool PoolError` | Add NftMintFailed, NftBurnFailed, PositionNotFound |
-| Pool tests | Add integration tests with NFT |
+| File                | Changes                                            |
+| ------------------- | -------------------------------------------------- |
+| `Pool Cargo.toml`   | Add position-nft dependency                        |
+| `Pool PoolState`    | Add `position_nft: Address` field                  |
+| `Pool initialize()` | Add `position_nft` parameter                       |
+| `Pool mint()`       | Call NFT mint, return token_id                     |
+| `Pool burn()`       | Accept token_id, call NFT burn                     |
+| `Pool MintResult`   | Add `token_id` field                               |
+| `Pool BurnResult`   | Keep as-is or add token_id                         |
+| `Pool PoolError`    | Add NftMintFailed, NftBurnFailed, PositionNotFound |
+| Pool tests          | Add integration tests with NFT                     |
 
 ## Deployment
 

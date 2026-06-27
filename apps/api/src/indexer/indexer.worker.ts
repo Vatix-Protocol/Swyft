@@ -196,6 +196,8 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       },
     });
 
+    await this.projectPoolCreated(d);
+
     this.webhooks
       .dispatch('pool.created', {
         poolId: d.poolId,
@@ -233,6 +235,8 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         tick: d.tick,
       },
     });
+
+    await this.projectSwapProcessed(d);
 
     this.webhooks
       .dispatch('swap.large', {
@@ -374,6 +378,29 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
   private async projectPoolCreated(d: PoolCreatedJobData) {
     try {
+      await Promise.all([
+        this.prisma.token.upsert({
+          where: { address: d.tokenA },
+          update: {},
+          create: {
+            address: d.tokenA,
+            symbol: d.tokenA.slice(0, 4),
+            name: d.tokenA,
+            decimals: 7,
+          },
+        }),
+        this.prisma.token.upsert({
+          where: { address: d.tokenB },
+          update: {},
+          create: {
+            address: d.tokenB,
+            symbol: d.tokenB.slice(0, 4),
+            name: d.tokenB,
+            decimals: 7,
+          },
+        }),
+      ]);
+
       await this.prisma.pool.upsert({
         where: { id: d.poolId },
         update: { currentSqrtPrice: d.sqrtPriceX96, updatedAt: new Date() },
@@ -399,9 +426,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
   private async projectSwapProcessed(d: SwapProcessedJobData) {
     try {
-      const timestamp = d.timestamp
-        ? new Date(d.timestamp)
-        : new Date();
+      const timestamp = d.timestamp ? new Date(d.timestamp) : new Date();
       await this.prisma.swap.upsert({
         where: { eventId: d.eventId },
         update: {},
@@ -416,6 +441,16 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
           tickAfter: d.tick,
           transactionHash: d.transactionHash ?? d.eventId,
           timestamp,
+        },
+      });
+
+      await this.prisma.pool.update({
+        where: { id: d.poolId },
+        data: {
+          currentSqrtPrice: d.sqrtPriceX96,
+          currentTick: d.tick,
+          liquidity: d.liquidity,
+          updatedAt: new Date(),
         },
       });
     } catch (err) {

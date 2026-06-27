@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { useQuery } from "@tanstack/react-query";
-import { API_BASE } from "@/lib/constants";
+import { useQuery } from '@tanstack/react-query';
+import { API_BASE } from '@/lib/constants';
 
 export interface SwapSnapshot {
   id: string;
@@ -23,10 +23,10 @@ export interface SwapsListResponse {
 
 export function useSwaps(walletAddress: string | null, page: number = 1, limit: number = 20) {
   return useQuery({
-    queryKey: ["swaps", walletAddress, page, limit],
+    queryKey: ['swaps', walletAddress, page, limit],
     queryFn: async (): Promise<SwapsListResponse> => {
       if (!walletAddress) return { items: [], total: 0 };
-      
+
       const params = new URLSearchParams({
         wallet: walletAddress,
         page: page.toString(),
@@ -35,7 +35,7 @@ export function useSwaps(walletAddress: string | null, page: number = 1, limit: 
 
       const response = await fetch(`${API_BASE}/swaps?${params}`);
       if (!response.ok) {
-        throw new Error("Failed to fetch swaps");
+        throw new Error('Failed to fetch swaps');
       }
       return response.json();
     },

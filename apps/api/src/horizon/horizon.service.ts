@@ -111,7 +111,9 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async enqueueIndexerEvents(record: IndexerEffectRecord): Promise<void> {
+  private async enqueueIndexerEvents(
+    record: IndexerEffectRecord,
+  ): Promise<void> {
     const eventType = record.eventType?.toLowerCase() ?? '';
 
     try {

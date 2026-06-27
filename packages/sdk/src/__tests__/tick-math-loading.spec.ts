@@ -8,12 +8,7 @@
  *   3. The flag resets to `false` once the result is available.
  */
 
-import {
-  priceToTick,
-  tickToPrice,
-  tickToSqrtPriceX96,
-  sqrtPriceX96ToTick,
-} from "../position-math";
+import { priceToTick, tickToPrice, tickToSqrtPriceX96, sqrtPriceX96ToTick } from '../position-math';
 
 // ---------------------------------------------------------------------------
 // Minimal async wrapper — mirrors what a real hook would do
@@ -27,7 +22,7 @@ interface TickMathState<T> {
 
 async function runWithLoading<T>(
   fn: () => T,
-  onStateChange: (s: TickMathState<T>) => void,
+  onStateChange: (s: TickMathState<T>) => void
 ): Promise<void> {
   onStateChange({ loading: true, result: null, error: null });
   await Promise.resolve(); // yield to allow "loading" state to be observed
@@ -43,25 +38,31 @@ async function runWithLoading<T>(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("tick math loading state", () => {
-  it("shows loading=true before priceToTick resolves", async () => {
+describe('tick math loading state', () => {
+  it('shows loading=true before priceToTick resolves', async () => {
     const states: TickMathState<number>[] = [];
-    await runWithLoading(() => priceToTick(1.5, 60), (s) => states.push(s));
+    await runWithLoading(
+      () => priceToTick(1.5, 60),
+      (s) => states.push(s)
+    );
 
     expect(states[0].loading).toBe(true);
     expect(states[0].result).toBeNull();
   });
 
-  it("shows loading=false after priceToTick resolves", async () => {
+  it('shows loading=false after priceToTick resolves', async () => {
     const states: TickMathState<number>[] = [];
-    await runWithLoading(() => priceToTick(1.5, 60), (s) => states.push(s));
+    await runWithLoading(
+      () => priceToTick(1.5, 60),
+      (s) => states.push(s)
+    );
 
     const final = states[states.length - 1];
     expect(final.loading).toBe(false);
     expect(final.result).not.toBeNull();
   });
 
-  it("disables actions while loading (rejects calls when loading=true)", async () => {
+  it('disables actions while loading (rejects calls when loading=true)', async () => {
     let capturedLoading = false;
     const states: TickMathState<number>[] = [];
 
@@ -70,7 +71,7 @@ describe("tick math loading state", () => {
       (s) => {
         states.push(s);
         if (s.loading) capturedLoading = true;
-      },
+      }
     );
 
     // Simulate an action attempted synchronously after the first state change
@@ -82,59 +83,80 @@ describe("tick math loading state", () => {
     expect(actionRejected).toBe(true);
   });
 
-  it("shows loading=true before tickToPrice resolves", async () => {
+  it('shows loading=true before tickToPrice resolves', async () => {
     const states: TickMathState<number>[] = [];
-    await runWithLoading(() => tickToPrice(1000, 6, 6), (s) => states.push(s));
+    await runWithLoading(
+      () => tickToPrice(1000, 6, 6),
+      (s) => states.push(s)
+    );
 
     expect(states[0].loading).toBe(true);
   });
 
-  it("shows loading=false after tickToPrice resolves with correct result", async () => {
+  it('shows loading=false after tickToPrice resolves with correct result', async () => {
     const states: TickMathState<number>[] = [];
-    await runWithLoading(() => tickToPrice(0, 6, 6), (s) => states.push(s));
+    await runWithLoading(
+      () => tickToPrice(0, 6, 6),
+      (s) => states.push(s)
+    );
 
     const final = states[states.length - 1];
     expect(final.loading).toBe(false);
     expect(final.result).toBeCloseTo(1, 10);
   });
 
-  it("shows loading=true before tickToSqrtPriceX96 resolves", async () => {
+  it('shows loading=true before tickToSqrtPriceX96 resolves', async () => {
     const states: TickMathState<bigint>[] = [];
-    await runWithLoading(() => tickToSqrtPriceX96(0), (s) => states.push(s));
+    await runWithLoading(
+      () => tickToSqrtPriceX96(0),
+      (s) => states.push(s)
+    );
 
     expect(states[0].loading).toBe(true);
   });
 
-  it("shows loading=false after tickToSqrtPriceX96 resolves", async () => {
+  it('shows loading=false after tickToSqrtPriceX96 resolves', async () => {
     const states: TickMathState<bigint>[] = [];
-    await runWithLoading(() => tickToSqrtPriceX96(0), (s) => states.push(s));
+    await runWithLoading(
+      () => tickToSqrtPriceX96(0),
+      (s) => states.push(s)
+    );
 
     const final = states[states.length - 1];
     expect(final.loading).toBe(false);
     expect(final.result).not.toBeNull();
   });
 
-  it("shows loading=true before sqrtPriceX96ToTick resolves", async () => {
+  it('shows loading=true before sqrtPriceX96ToTick resolves', async () => {
     const Q96 = 1n << 96n;
     const states: TickMathState<number>[] = [];
-    await runWithLoading(() => sqrtPriceX96ToTick(Q96), (s) => states.push(s));
+    await runWithLoading(
+      () => sqrtPriceX96ToTick(Q96),
+      (s) => states.push(s)
+    );
 
     expect(states[0].loading).toBe(true);
   });
 
-  it("shows loading=false after sqrtPriceX96ToTick resolves", async () => {
+  it('shows loading=false after sqrtPriceX96ToTick resolves', async () => {
     const Q96 = 1n << 96n;
     const states: TickMathState<number>[] = [];
-    await runWithLoading(() => sqrtPriceX96ToTick(Q96), (s) => states.push(s));
+    await runWithLoading(
+      () => sqrtPriceX96ToTick(Q96),
+      (s) => states.push(s)
+    );
 
     const final = states[states.length - 1];
     expect(final.loading).toBe(false);
     expect(final.result).toBe(0);
   });
 
-  it("sets error and loading=false when tick math throws", async () => {
+  it('sets error and loading=false when tick math throws', async () => {
     const states: TickMathState<number>[] = [];
-    await runWithLoading(() => priceToTick(-1, 1), (s) => states.push(s));
+    await runWithLoading(
+      () => priceToTick(-1, 1),
+      (s) => states.push(s)
+    );
 
     const final = states[states.length - 1];
     expect(final.loading).toBe(false);
@@ -142,10 +164,13 @@ describe("tick math loading state", () => {
     expect(final.result).toBeNull();
   });
 
-  it("disables actions while loading for sqrtPriceX96ToTick", async () => {
+  it('disables actions while loading for sqrtPriceX96ToTick', async () => {
     const Q96 = 1n << 96n;
     const states: TickMathState<number>[] = [];
-    await runWithLoading(() => sqrtPriceX96ToTick(Q96), (s) => states.push(s));
+    await runWithLoading(
+      () => sqrtPriceX96ToTick(Q96),
+      (s) => states.push(s)
+    );
 
     // First state must have loading=true (action should be disabled)
     expect(states[0].loading).toBe(true);

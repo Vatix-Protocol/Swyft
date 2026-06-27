@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { Token } from "./types";
-import { TokenLogo } from "./TokenLogo";
+import { Token } from './types';
+import { TokenLogo } from './TokenLogo';
 
 interface Props {
   label: string;
@@ -28,16 +28,12 @@ export function SwapInput({
   }
 
   const insufficient =
-    !readOnly &&
-    balance !== undefined &&
-    parseFloat(amount || "0") > parseFloat(balance || "0");
+    !readOnly && balance !== undefined && parseFloat(amount || '0') > parseFloat(balance || '0');
 
   return (
     <div
       className={`rounded-xl border bg-zinc-50 px-4 py-3 dark:bg-zinc-800 transition-colors ${
-        insufficient
-          ? "border-red-400 dark:border-red-500"
-          : "border-zinc-200 dark:border-zinc-700"
+        insufficient ? 'border-red-400 dark:border-red-500' : 'border-zinc-200 dark:border-zinc-700'
       }`}
     >
       <div className="flex items-center justify-between gap-3">
@@ -78,14 +74,14 @@ export function SwapInput({
 
       {balance !== undefined && (
         <div className="mt-1.5 flex items-center justify-between">
-          <span className={`text-xs ${insufficient ? "text-red-500" : "text-zinc-400"}`}>
-            {insufficient ? "Insufficient balance" : ""}
+          <span className={`text-xs ${insufficient ? 'text-red-500' : 'text-zinc-400'}`}>
+            {insufficient ? 'Insufficient balance' : ''}
           </span>
           <button
             type="button"
             onClick={() => onAmountChange?.(balance)}
             className="text-xs text-zinc-400 hover:text-indigo-500 transition-colors"
-            aria-label={`Use max balance: ${balance} ${token?.symbol ?? ""}`}
+            aria-label={`Use max balance: ${balance} ${token?.symbol ?? ''}`}
           >
             Balance: {parseFloat(balance).toFixed(4)} {token?.symbol}
           </button>

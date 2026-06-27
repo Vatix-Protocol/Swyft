@@ -4,14 +4,14 @@ Soroban smart contracts for the Swyft concentrated-liquidity DEX on Stellar.
 
 ## Contract overview
 
-| Contract | Crate | Purpose |
-|---|---|---|
-| `math-lib` | `math_lib` | Fixed-point math utilities (sqrt, liquidity delta) |
-| `pool-factory` | `pool_factory` | Deploys and tracks CL pool instances |
-| `router` | `router` | Routes swaps across pools |
-| `position-nft` | `position_nft` | Mints/tracks LP position NFTs |
-| `fee-collector` | `fee_collector` | Aggregates and distributes protocol fees |
-| `oracle-adapter` | `oracle_adapter` | Wraps an upstream price oracle |
+| Contract         | Crate            | Purpose                                            |
+| ---------------- | ---------------- | -------------------------------------------------- |
+| `math-lib`       | `math_lib`       | Fixed-point math utilities (sqrt, liquidity delta) |
+| `pool-factory`   | `pool_factory`   | Deploys and tracks CL pool instances               |
+| `router`         | `router`         | Routes swaps across pools                          |
+| `position-nft`   | `position_nft`   | Mints/tracks LP position NFTs                      |
+| `fee-collector`  | `fee_collector`  | Aggregates and distributes protocol fees           |
+| `oracle-adapter` | `oracle_adapter` | Wraps an upstream price oracle                     |
 
 ## Prerequisites
 
@@ -43,6 +43,7 @@ pnpm --filter contracts test
 ## Testnet deployment
 
 The deployment script:
+
 1. Generates (or reuses) a `swyft-deployer` stellar-cli identity
 2. Funds the deployer via Friendbot if balance < 10 XLM
 3. Builds all contracts
@@ -66,11 +67,11 @@ pnpm --filter contracts deploy:testnet:force
   "network": "testnet",
   "deployer": "G...",
   "contracts": {
-    "mathLib":       "C...",
-    "poolFactory":   "C...",
-    "router":        "C...",
-    "positionNft":   "C...",
-    "feeCollector":  "C...",
+    "mathLib": "C...",
+    "poolFactory": "C...",
+    "router": "C...",
+    "positionNft": "C...",
+    "feeCollector": "C...",
     "oracleAdapter": "C..."
   },
   "deployedAt": {

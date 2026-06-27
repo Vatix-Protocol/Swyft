@@ -164,8 +164,7 @@ export class PoolsService {
       recentSwaps: pool.swaps.map((swap) => {
         const a0 = Number.parseFloat(swap.amount0 ?? '0');
         const a1 = Number.parseFloat(swap.amount1 ?? '0');
-        const price =
-          a1 !== 0 ? (a0 / a1).toString() : a0.toString();
+        const price = a1 !== 0 ? (a0 / a1).toString() : a0.toString();
 
         return {
           id: swap.id,

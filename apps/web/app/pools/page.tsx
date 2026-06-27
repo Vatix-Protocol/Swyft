@@ -1,14 +1,14 @@
-"use client";
+'use client';
 
-import { useState, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { TokenLogo } from "@swyft/ui";
-import { usePools, PoolOrderBy, PoolListItem } from "@/hooks/usePools";
-import type { Token } from "@swyft/ui";
+import { useState, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { TokenLogo } from '@swyft/ui';
+import { usePools, PoolOrderBy, PoolListItem } from '@/hooks/usePools';
+import type { Token } from '@swyft/ui';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
-function fmt(n: number, prefix = "$") {
+function fmt(n: number, prefix = '$') {
   if (n >= 1_000_000) return `${prefix}${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `${prefix}${(n / 1_000).toFixed(2)}K`;
   return `${prefix}${n.toFixed(2)}`;
@@ -30,12 +30,12 @@ function tokenFromAddress(address: string): Token {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type SortKey = "tvl" | "volume" | "apr";
+type SortKey = 'tvl' | 'volume' | 'apr';
 
 const SORT_MAP: Record<SortKey, PoolOrderBy> = {
-  tvl: "tvl",
-  volume: "volume",
-  apr: "apr",
+  tvl: 'tvl',
+  volume: 'volume',
+  apr: 'apr',
 };
 
 // ─── Skeleton row ─────────────────────────────────────────────────────────────
@@ -46,10 +46,7 @@ const SORT_MAP: Record<SortKey, PoolOrderBy> = {
  */
 function SkeletonRow() {
   return (
-    <tr
-      aria-hidden="true"
-      className="border-b border-zinc-100 dark:border-zinc-800"
-    >
+    <tr aria-hidden="true" className="border-b border-zinc-100 dark:border-zinc-800">
       {/* Pool name + logos */}
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
@@ -105,28 +102,20 @@ function SortHeader({
     <button
       onClick={() => onSort(col)}
       disabled={isLoading}
-      aria-sort={active ? "descending" : "none"}
+      aria-sort={active ? 'descending' : 'none'}
       className={`flex items-center gap-1 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-        active
-          ? "text-indigo-500"
-          : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+        active ? 'text-indigo-500' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
       }`}
     >
       {label}
       <span className="text-xs" aria-hidden="true">
-        {active ? "↓" : "↕"}
+        {active ? '↓' : '↕'}
       </span>
     </button>
   );
 }
 
-function PoolRow({
-  pool,
-  onNavigate,
-}: {
-  pool: PoolListItem;
-  onNavigate: (path: string) => void;
-}) {
+function PoolRow({ pool, onNavigate }: { pool: PoolListItem; onNavigate: (path: string) => void }) {
   const t0 = tokenFromAddress(pool.token0);
   const t1 = tokenFromAddress(pool.token1);
   return (
@@ -148,9 +137,7 @@ function PoolRow({
           </span>
         </div>
       </td>
-      <td className="px-4 py-3 text-right text-zinc-700 dark:text-zinc-300">
-        {fmt(pool.tvl)}
-      </td>
+      <td className="px-4 py-3 text-right text-zinc-700 dark:text-zinc-300">{fmt(pool.tvl)}</td>
       <td className="px-4 py-3 text-right text-zinc-700 dark:text-zinc-300">
         {fmt(pool.volume24h)}
       </td>
@@ -179,9 +166,9 @@ function PoolRow({
 
 export default function PoolsPage() {
   const router = useRouter();
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("tvl");
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('tvl');
   const [page, setPage] = useState(1);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -244,14 +231,32 @@ export default function PoolsPage() {
             <tr className="border-b border-zinc-100 dark:border-zinc-800">
               <th className="px-4 py-3 text-left text-zinc-500 font-medium">Pool</th>
               <th className="px-4 py-3 text-right">
-                <SortHeader label="TVL" col="tvl" sortKey={sortKey} isLoading={isLoading} onSort={handleSort} />
+                <SortHeader
+                  label="TVL"
+                  col="tvl"
+                  sortKey={sortKey}
+                  isLoading={isLoading}
+                  onSort={handleSort}
+                />
               </th>
               <th className="px-4 py-3 text-right">
-                <SortHeader label="24h Volume" col="volume" sortKey={sortKey} isLoading={isLoading} onSort={handleSort} />
+                <SortHeader
+                  label="24h Volume"
+                  col="volume"
+                  sortKey={sortKey}
+                  isLoading={isLoading}
+                  onSort={handleSort}
+                />
               </th>
               <th className="px-4 py-3 text-right text-zinc-500 font-medium">7d Volume</th>
               <th className="px-4 py-3 text-right">
-                <SortHeader label="Fee APR" col="apr" sortKey={sortKey} isLoading={isLoading} onSort={handleSort} />
+                <SortHeader
+                  label="Fee APR"
+                  col="apr"
+                  sortKey={sortKey}
+                  isLoading={isLoading}
+                  onSort={handleSort}
+                />
               </th>
               <th className="px-4 py-3" />
             </tr>
@@ -304,15 +309,13 @@ export default function PoolsPage() {
                   ) : (
                     <div className="flex flex-col items-center gap-3">
                       <span className="text-3xl">🏊</span>
-                      <p className="font-semibold text-zinc-700 dark:text-zinc-300">
-                        No pools yet
-                      </p>
+                      <p className="font-semibold text-zinc-700 dark:text-zinc-300">No pools yet</p>
                       <p className="max-w-xs text-sm text-zinc-400">
                         Liquidity pools will appear here once they are created. Be the first to
                         create a pool and start earning fees.
                       </p>
                       <button
-                        onClick={() => router.push("/pools/create")}
+                        onClick={() => router.push('/pools/create')}
                         className="mt-1 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors"
                       >
                         Create a pool

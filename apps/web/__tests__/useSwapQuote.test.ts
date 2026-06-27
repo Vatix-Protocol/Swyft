@@ -54,9 +54,7 @@ describe('useSwapQuote — WebSocket protocol', () => {
       })
     );
 
-    expect(global.WebSocket).toHaveBeenCalledWith(
-      expect.stringContaining('wss://')
-    );
+    expect(global.WebSocket).toHaveBeenCalledWith(expect.stringContaining('wss://'));
   });
 
   it('uses ws:// protocol when page is http', () => {
@@ -72,9 +70,7 @@ describe('useSwapQuote — WebSocket protocol', () => {
       })
     );
 
-    expect(global.WebSocket).toHaveBeenCalledWith(
-      expect.stringContaining('ws://')
-    );
+    expect(global.WebSocket).toHaveBeenCalledWith(expect.stringContaining('ws://'));
   });
 
   it('uses NEXT_PUBLIC_WS_URL when environment variable is set', () => {
@@ -90,9 +86,7 @@ describe('useSwapQuote — WebSocket protocol', () => {
       })
     );
 
-    expect(global.WebSocket).toHaveBeenCalledWith(
-      expect.stringContaining('custom-ws.example.com')
-    );
+    expect(global.WebSocket).toHaveBeenCalledWith(expect.stringContaining('custom-ws.example.com'));
 
     delete process.env.NEXT_PUBLIC_WS_URL;
   });

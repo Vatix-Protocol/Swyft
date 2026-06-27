@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { useQuery } from "@tanstack/react-query";
-import { API_BASE } from "@/lib/constants";
+import { useQuery } from '@tanstack/react-query';
+import { API_BASE } from '@/lib/constants';
 
 export interface TokenInfo {
   address: string;
@@ -16,7 +16,7 @@ export interface SwapInfo {
   token0Amount: string;
   token1Amount: string;
   price: string;
-  type: "buy" | "sell";
+  type: 'buy' | 'sell';
   txHash: string;
 }
 
@@ -38,9 +38,9 @@ export interface PoolDetail {
 
 export function usePoolDetail(poolId: string | null) {
   return useQuery<PoolDetail>({
-    queryKey: ["poolDetail", poolId],
+    queryKey: ['poolDetail', poolId],
     queryFn: async () => {
-      if (!poolId) throw new Error("Pool ID required");
+      if (!poolId) throw new Error('Pool ID required');
       const res = await fetch(`${API_BASE}/pools/${poolId}`);
       if (!res.ok) throw new Error(`Failed to fetch pool: ${res.status}`);
       return res.json();

@@ -197,7 +197,7 @@ function direction(pool: PoolState, tokenIn: string): boolean {
 function sortedTicks(
   ticks: readonly TickState[],
   zeroForOne: boolean,
-  currentTick: number,
+  currentTick: number
 ): TickState[] {
   return ticks
     .filter((tick) => (zeroForOne ? tick.tick < currentTick : tick.tick > currentTick))
@@ -208,7 +208,7 @@ function swapToken0ForToken1Step(
   amountRemaining: bigint,
   liquidity: bigint,
   sqrtPrice: bigint,
-  targetSqrtPrice: bigint,
+  targetSqrtPrice: bigint
 ): SwapStepResult {
   const amountToTarget = getAmount0Delta(targetSqrtPrice, sqrtPrice, liquidity, true);
 
@@ -234,7 +234,7 @@ function swapToken1ForToken0Step(
   amountRemaining: bigint,
   liquidity: bigint,
   sqrtPrice: bigint,
-  targetSqrtPrice: bigint,
+  targetSqrtPrice: bigint
 ): SwapStepResult {
   const amountToTarget = getAmount1Delta(sqrtPrice, targetSqrtPrice, liquidity, true);
 
