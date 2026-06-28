@@ -249,3 +249,19 @@ model IndexerCursor {
 
   @@map("indexer_cursor")
 }
+
+// #405 — Webhook CRUD audit log
+/// Immutable record of every create / update / delete operation on a Webhook.
+model WebhookAuditLog {
+  id          String   @id @default(cuid())
+  webhookId   String
+  action      String   // 'created' | 'updated' | 'deleted'
+  ownerWallet String
+  /// JSON snapshot of the changed fields (url, eventTypes, etc.)
+  meta        String   @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@index([webhookId])
+  @@index([ownerWallet])
+  @@map("webhook_audit_log")
+}
