@@ -8,10 +8,15 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WebhooksService } from './webhooks.service';
-import { WebhookEventType } from './webhook.types';
+import { WebhookEventType, WEBHOOK_PAYLOAD_EXAMPLES } from './webhook.types';
 import { SWAGGER_TAGS } from '../swagger.constants';
 
 interface AuthRequest {
@@ -32,6 +37,32 @@ export class WebhooksController {
 
   @Post()
   @ApiOperation({ summary: 'Register a webhook' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['url', 'eventTypes'],
+      properties: {
+        url: { type: 'string', example: 'https://example.com/webhook' },
+        eventTypes: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: [
+              'pool.created',
+              'swap',
+              'swap.large',
+              'pool.tvl.milestone',
+              'position.minted',
+              'position.burned',
+            ],
+          },
+          example: ['swap', 'swap.large'],
+        },
+        secret: { type: 'string', example: 'my-hmac-secret' },
+        largeSwapUsd: { type: 'number', example: 10000 },
+      },
+    },
+  })
   create(
     @Request() req: AuthRequest,
     @Body()
@@ -62,8 +93,25 @@ export class WebhooksController {
   }
 
   /**
-   * Audit log for all webhook CRUD operations performed by the authenticated wallet.
-   * Returns entries in reverse-chronological order (most recent first).
+   * Return example payloads for all webhook event types.
+   * Useful for documentation and client integration.
+   *
+   * @returns Map of event type → example payload.
+   */
+  @Get('event-examples')
+  @ApiOperation({
+    summary: 'Return example payloads for all webhook event types',
+  })
+  eventExamples() {
+    return WEBHOOK_PAYLOAD_EXAMPLES;
+  }
+
+  /**
+   * Delete a webhook owned by the authenticated wallet.
+   *
+   * @param id - UUID of the webhook to delete.
+   * @param req - Authenticated request containing the wallet address.
+   * @returns Resolves when the record has been removed (no-op if not found or not owned).
    */
   @Get('audit')
   @ApiOperation({ summary: 'Webhook CRUD audit log for the authenticated wallet' })
