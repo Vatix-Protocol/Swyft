@@ -65,7 +65,7 @@ swyft/
 
 ```bash
 # Clone the repo
-git clone https://github.com/Valreb001/Swyft.git
+git clone https://github.com/vatix-protocol/Swyft.git
 cd swyft
 
 # Install all dependencies
@@ -163,7 +163,7 @@ Swyft is built almost entirely by external contributors. The maintainer handles 
 
 ### Good first issues
 
-Look for issues labelled [`good first issue`](https://github.com/Valreb001/Swyft/issues?q=label%3A%22good+first+issue%22). These are small, well-scoped tasks that don't require deep protocol knowledge.
+Look for issues labelled [`good first issue`](https://github.com/vatix-protocol/Swyft/issues?q=label%3A%22good+first+issue%22). These are small, well-scoped tasks that don't require deep protocol knowledge.
 
 ### Issue labels
 
