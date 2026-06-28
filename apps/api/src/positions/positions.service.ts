@@ -10,6 +10,7 @@ import { PositionsRepository } from './positions.repository';
 
 interface PositionResponse {
   id: string;
+  ownerWallet: string;
   poolId: string;
   tokenPair: {
     token0: string;
@@ -91,6 +92,7 @@ export class PositionsService {
 
     return {
       id: position.id,
+      ownerWallet: position.ownerWallet,
       poolId: position.poolId,
       tokenPair: {
         token0: position.token0,

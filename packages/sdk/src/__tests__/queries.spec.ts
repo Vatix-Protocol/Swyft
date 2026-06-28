@@ -37,6 +37,17 @@ beforeEach(() => {
 });
 
 describe('getPool', () => {
+  it('calls the get_state contract method', async () => {
+    mockSimulate.mockResolvedValue({ result: { retval: {} }, error: undefined });
+    (scValToNative as unknown as jest.Mock).mockReturnValue({
+      sqrt_price: '0', current_tick: 0, liquidity: '0', fee_tier: 0, token0: '', token1: '',
+    });
+
+    await getPool({ rpcUrl: 'https://rpc.example.com', poolAddress: 'CPOOL' });
+
+    expect(mockCall).toHaveBeenCalledWith('get_state');
+  });
+
   it('returns typed PoolState on success', async () => {
     mockSimulate.mockResolvedValue({ result: { retval: {} }, error: undefined });
     (scValToNative as unknown as jest.Mock).mockReturnValue({

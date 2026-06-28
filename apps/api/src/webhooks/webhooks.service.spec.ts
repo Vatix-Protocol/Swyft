@@ -17,6 +17,10 @@ function buildMockPrisma() {
       findMany: jest.fn(),
       deleteMany: jest.fn(),
     },
+    webhookAuditLog: {
+      create: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   };
 }
 
@@ -152,6 +156,20 @@ describe('WebhooksService', () => {
 
       expect(result).toEqual(mockWebhookRecord);
     });
+
+    it('writes a created audit log entry after persisting the webhook', async () => {
+      prisma.webhook.create.mockResolvedValue(mockWebhookRecord);
+
+      await service.create(OWNER, URL, EVENT_TYPES);
+
+      expect(prisma.webhookAuditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          webhookId: mockWebhookRecord.id,
+          action: 'created',
+          ownerWallet: OWNER,
+        }),
+      });
+    });
   });
 
   // ── list ──────────────────────────────────────────────────────────────────
@@ -220,6 +238,76 @@ describe('WebhooksService', () => {
       expect(prisma.webhook.deleteMany).toHaveBeenCalledWith({
         where: { id: 'wh-uuid-1', ownerWallet: 'GDIFFERENT_WALLET' },
       });
+    });
+
+    it('writes a deleted audit log entry when the webhook was found and removed', async () => {
+      prisma.webhook.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.remove('wh-uuid-1', OWNER);
+
+      expect(prisma.webhookAuditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          webhookId: 'wh-uuid-1',
+          action: 'deleted',
+          ownerWallet: OWNER,
+        }),
+      });
+    });
+
+    it('does not write an audit log entry when the webhook was not found', async () => {
+      prisma.webhook.deleteMany.mockResolvedValue({ count: 0 });
+
+      await service.remove('nonexistent-id', OWNER);
+
+      expect(prisma.webhookAuditLog.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── auditLog ──────────────────────────────────────────────────────────────
+
+  describe('auditLog', () => {
+    const mockAuditEntries = [
+      {
+        id: 'log-1',
+        webhookId: 'wh-uuid-1',
+        action: 'created',
+        meta: '{"url":"https://example.com"}',
+        createdAt: new Date(),
+      },
+    ];
+
+    it('queries audit log entries for the given wallet in descending order', async () => {
+      prisma.webhookAuditLog.findMany.mockResolvedValue(mockAuditEntries);
+
+      await service.auditLog(OWNER);
+
+      expect(prisma.webhookAuditLog.findMany).toHaveBeenCalledWith({
+        where: { ownerWallet: OWNER },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          webhookId: true,
+          action: true,
+          meta: true,
+          createdAt: true,
+        },
+      });
+    });
+
+    it('returns the entries from prisma', async () => {
+      prisma.webhookAuditLog.findMany.mockResolvedValue(mockAuditEntries);
+
+      const result = await service.auditLog(OWNER);
+
+      expect(result).toEqual(mockAuditEntries);
+    });
+
+    it('returns an empty array when no audit entries exist', async () => {
+      prisma.webhookAuditLog.findMany.mockResolvedValue([]);
+
+      const result = await service.auditLog(OWNER);
+
+      expect(result).toEqual([]);
     });
   });
 

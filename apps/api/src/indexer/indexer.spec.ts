@@ -69,6 +69,10 @@ const mockWebhooksService = {
   dispatch: jest.fn().mockResolvedValue(undefined),
 };
 
+const mockTokenEnrichmentService = {
+  enrichToken: jest.fn().mockResolvedValue(undefined),
+};
+
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn().mockImplementation(() => mockPrismaClient),
 }));
@@ -79,6 +83,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { IndexerWorker } from './indexer.worker';
 import { CacheService } from '../cache/cache.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
+import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
 import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
 import {
   IndexerModule,
@@ -271,6 +276,7 @@ describe('IndexerWorker', () => {
         IndexerWorker,
         { provide: CacheService, useValue: mockCacheService },
         { provide: WebhooksService, useValue: mockWebhooksService },
+        { provide: TokenEnrichmentService, useValue: mockTokenEnrichmentService },
       ],
     }).compile();
 
@@ -477,6 +483,14 @@ describe('IndexerWorker', () => {
       await expect(handler(makeJob(data))).resolves.not.toThrow();
 
       expect(mockPrismaClient.poolCreated.upsert).toHaveBeenCalled();
+    });
+
+    it('calls enrichToken for both pool tokens after pool is persisted', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      await handler(makeJob(data));
+
+      expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(data.tokenA);
+      expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(data.tokenB);
     });
   });
 
