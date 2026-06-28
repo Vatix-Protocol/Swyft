@@ -427,6 +427,24 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
   private async projectSwapProcessed(d: SwapProcessedJobData) {
     try {
       const timestamp = d.timestamp ? new Date(d.timestamp) : new Date();
+
+      // Look up the pool's feeTier to compute the fee amount for this swap.
+      // feeTier is stored in parts-per-million (e.g. 3000 = 0.3%).
+      let feeAmount = '0';
+      try {
+        const pool = await this.prisma.pool.findUnique({
+          where: { id: d.poolId },
+          select: { feeTier: true },
+        });
+        if (pool) {
+          const absAmount0 = Math.abs(Number(d.amount0));
+          const fee = absAmount0 * (pool.feeTier / 1_000_000);
+          feeAmount = Number.isFinite(fee) ? String(fee) : '0';
+        }
+      } catch {
+        // Non-fatal: fee computation failure must not block swap persistence.
+      }
+
       await this.prisma.swap.upsert({
         where: { eventId: d.eventId },
         update: {},
@@ -440,6 +458,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
           sqrtPriceAfter: d.sqrtPriceX96,
           tickAfter: d.tick,
           transactionHash: d.transactionHash ?? d.eventId,
+          feeAmount,
           timestamp,
         },
       });

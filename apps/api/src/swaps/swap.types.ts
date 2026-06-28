@@ -10,6 +10,8 @@ export interface SwapSnapshot {
   amount0: string;
   amount1: string;
   priceAtSwap: string;
+  /** Fee charged for this swap (expressed in token0 units). */
+  feeAmount: string;
   txHash: string;
   walletAddress: string;
   timestamp: number;
