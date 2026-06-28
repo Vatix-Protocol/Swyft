@@ -21,6 +21,13 @@ import {
 
 @Injectable()
 export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
+  /**
+   * Placeholder token address used when a pool is created from a state
+   * update (e.g. a swap) that arrives before the pool.created event. The
+   * real token addresses are backfilled by projectPoolCreated once that
+   * authoritative event is processed.
+   */
+  private static readonly UNKNOWN_TOKEN_ADDRESS = 'unknown';
   private readonly logger = new Logger(IndexerWorker.name);
   private readonly prisma = new PrismaClient();
   private readonly workers: Worker[] = [];
@@ -403,7 +410,17 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
       await this.prisma.pool.upsert({
         where: { id: d.poolId },
-        update: { currentSqrtPrice: d.sqrtPriceX96, updatedAt: new Date() },
+        // A swap/position event may have created a placeholder pool (see
+        // projectSwapProcessed below) before this authoritative pool.created
+        // event arrived. Overwrite the placeholder token/fee fields with the
+        // real values in that case.
+        update: {
+          token0Address: d.tokenA,
+          token1Address: d.tokenB,
+          feeTier: parseInt(d.fee, 10),
+          currentSqrtPrice: d.sqrtPriceX96,
+          updatedAt: new Date(),
+        },
         create: {
           id: d.poolId,
           token0Address: d.tokenA,
@@ -444,13 +461,31 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      await this.prisma.pool.update({
+      // A swap can arrive before (or without) its pool's pool.created event,
+      // e.g. when events are processed out of order or the creation event was
+      // missed. Upsert instead of update so the pool is created on its first
+      // state update rather than silently dropping the swap. The token/fee
+      // fields are unknown at this point; projectPoolCreated backfills them
+      // with the authoritative values if/when that event arrives.
+      await this.prisma.pool.upsert({
         where: { id: d.poolId },
-        data: {
+        update: {
           currentSqrtPrice: d.sqrtPriceX96,
           currentTick: d.tick,
           liquidity: d.liquidity,
           updatedAt: new Date(),
+        },
+        create: {
+          id: d.poolId,
+          token0Address: IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
+          token1Address: IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
+          feeTier: 0,
+          currentSqrtPrice: d.sqrtPriceX96,
+          currentTick: d.tick,
+          liquidity: d.liquidity,
+          tvl: '0',
+          volume24h: '0',
+          feeApr: '0',
         },
       });
     } catch (err) {
