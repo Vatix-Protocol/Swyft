@@ -6,7 +6,7 @@ export const SWYFT_NETWORK_PASSPHRASE =
     ? 'Public Global Stellar Network ; September 2015'
     : 'Test SDF Network ; September 2015';
 export const WALLET_STORAGE_KEY = 'swyft_wallet_address';
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+export const API_BASE = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/v1`;
 
 export function explorerTxUrl(hash: string): string {
   return SWYFT_NETWORK === 'PUBLIC'
