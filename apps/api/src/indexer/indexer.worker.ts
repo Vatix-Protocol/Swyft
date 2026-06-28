@@ -19,6 +19,7 @@ import {
   PositionBurnedJobData,
   FeesCollectedJobData,
 } from './queues';
+import { PoolsRepository } from '../pools/pools.repository';
 
 @Injectable()
 export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
@@ -450,6 +451,31 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
   private async projectSwapProcessed(d: SwapProcessedJobData) {
     try {
+      if (!PoolsRepository.isValidSqrtPrice(d.sqrtPriceX96)) {
+        this.logger.warn(
+          `Skipping pool state update for swap ${d.eventId} — invalid sqrtPriceX96: "${d.sqrtPriceX96}"`,
+        );
+        // Still persist the swap row; only skip the pool sqrt-price update.
+        const timestamp = d.timestamp ? new Date(d.timestamp) : new Date();
+        await this.prisma.swap.upsert({
+          where: { eventId: d.eventId },
+          update: {},
+          create: {
+            eventId: d.eventId,
+            poolId: d.poolId,
+            senderAddress: d.sender,
+            recipientAddress: d.recipient,
+            amount0: d.amount0,
+            amount1: d.amount1,
+            sqrtPriceAfter: d.sqrtPriceX96,
+            tickAfter: d.tick,
+            transactionHash: d.transactionHash ?? d.eventId,
+            timestamp,
+          },
+        });
+        return;
+      }
+
       const timestamp = d.timestamp ? new Date(d.timestamp) : new Date();
       await this.prisma.swap.upsert({
         where: { eventId: d.eventId },
