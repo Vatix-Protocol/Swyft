@@ -1,5 +1,4 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { WebhookWorker, WebhookJob, WEBHOOK_QUEUE } from './webhook.processor';
+import { WebhookWorker, WebhookJob } from './webhook.processor';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebhookPayload } from './webhook.types';
 import { Job } from 'bullmq';
@@ -45,29 +44,18 @@ function makeJob(data: WebhookJob): Job<WebhookJob> {
   return { data } as Job<WebhookJob>;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-let fetchSpy: jest.SpyInstance;
-
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('WebhookWorker (dispatch integration)', () => {
   let worker: WebhookWorker;
   let prisma: ReturnType<typeof buildMockPrisma>;
+  let fetchSpy: jest.SpyInstance;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     prisma = buildMockPrisma();
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        WebhookWorker,
-        { provide: PrismaService, useValue: prisma },
-      ],
-    }).compile();
-
-    worker = module.get<WebhookWorker>(WebhookWorker);
-
-    // Stub the BullMQ queue so no real Redis connection is opened
+    // Instantiate directly to skip onModuleInit (avoids real Redis/BullMQ Worker)
+    worker = new WebhookWorker(prisma as unknown as PrismaService);
     (worker as any).queue = buildMockQueue();
 
     fetchSpy = jest
@@ -75,7 +63,7 @@ describe('WebhookWorker (dispatch integration)', () => {
       .mockResolvedValue({ status: 200 } as Response);
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     jest.restoreAllMocks();
   });
 
@@ -100,7 +88,9 @@ describe('WebhookWorker (dispatch integration)', () => {
     });
 
     it('resolves without throwing on successful enqueue', async () => {
-      await expect(worker.dispatch('wh-1', basePayload)).resolves.toBeUndefined();
+      await expect(
+        worker.dispatch('wh-1', basePayload),
+      ).resolves.toBeUndefined();
     });
 
     it('propagates errors when the queue rejects', async () => {
@@ -156,8 +146,10 @@ describe('WebhookWorker (dispatch integration)', () => {
 
       await deliver({ webhookId: 'wh-1', payload: basePayload });
 
-      const [, init] = fetchSpy.mock.calls[0];
-      expect(init.headers['Content-Type']).toBe('application/json');
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect((init.headers as Record<string, string>)['Content-Type']).toBe(
+        'application/json',
+      );
     });
 
     it('attaches X-Swyft-Signature when webhook has a secret', async () => {
@@ -168,8 +160,10 @@ describe('WebhookWorker (dispatch integration)', () => {
 
       await deliver({ webhookId: 'wh-1', payload: basePayload });
 
-      const [, init] = fetchSpy.mock.calls[0];
-      expect(init.headers['X-Swyft-Signature']).toMatch(/^[0-9a-f]{64}$/);
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(
+        (init.headers as Record<string, string>)['X-Swyft-Signature'],
+      ).toMatch(/^[0-9a-f]{64}$/);
     });
 
     it('omits X-Swyft-Signature when webhook has no secret', async () => {
@@ -177,8 +171,10 @@ describe('WebhookWorker (dispatch integration)', () => {
 
       await deliver({ webhookId: 'wh-1', payload: basePayload });
 
-      const [, init] = fetchSpy.mock.calls[0];
-      expect(init.headers['X-Swyft-Signature']).toBeUndefined();
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(
+        (init.headers as Record<string, string>)['X-Swyft-Signature'],
+      ).toBeUndefined();
     });
 
     it('records a delivery log entry after each attempt', async () => {
@@ -209,7 +205,7 @@ describe('WebhookWorker (dispatch integration)', () => {
       });
     });
 
-    it('increments consecutiveFails on HTTP 4xx response', async () => {
+    it('increments consecutiveFails on HTTP 5xx response', async () => {
       fetchSpy.mockResolvedValue({ status: 500 } as Response);
       prisma.webhook.findUnique.mockResolvedValue({
         ...baseWebhook,
