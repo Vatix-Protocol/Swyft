@@ -70,6 +70,46 @@ export class PositionsRepository {
       tokens.map((t) => [t.address.toLowerCase(), t.symbol]),
     );
 
+    // Pre-fetch swaps and fees-collected for every distinct pool referenced
+    // by this page of positions so we can compute unclaimed fees per position
+    // without N+1 queries.
+    const poolIds = [...new Set(positions.map((p) => p.poolId))];
+
+    const [swapsByPool, feesCollectedByPool] = await Promise.all([
+      this.prisma.swap.findMany({
+        where: { poolId: { in: poolIds } },
+        select: { poolId: true, amount0: true },
+      }),
+      this.prisma.feesCollected.findMany({
+        where: { poolId: { in: poolIds } },
+        select: { poolId: true, amount0: true, amount1: true },
+      }),
+    ]);
+
+    // Aggregate total |amount0| swapped per pool (proxy for fee base).
+    const poolSwapVolume = new Map<string, number>();
+    for (const s of swapsByPool) {
+      poolSwapVolume.set(
+        s.poolId,
+        (poolSwapVolume.get(s.poolId) ?? 0) + Math.abs(Number(s.amount0)),
+      );
+    }
+
+    // Aggregate total fees collected per pool (already-claimed portion).
+    const poolFeesCollected = new Map<
+      string,
+      { amount0: number; amount1: number }
+    >();
+    for (const f of feesCollectedByPool) {
+      const cur = poolFeesCollected.get(f.poolId) ?? {
+        amount0: 0,
+        amount1: 0,
+      };
+      cur.amount0 += Math.abs(Number(f.amount0));
+      cur.amount1 += Math.abs(Number(f.amount1));
+      poolFeesCollected.set(f.poolId, cur);
+    }
+
     const items: PositionSnapshot[] = positions.map((position) => {
       const token0Symbol =
         tokenSymbolMap.get(position.pool.token0Address.toLowerCase()) ??
@@ -87,6 +127,27 @@ export class PositionsRepository {
       const currentValueUsd =
         poolLiquidity > 0 ? (posLiquidity / poolLiquidity) * poolTvl : 0;
 
+      // Compute unclaimed fees for this position.
+      // The position's liquidity share determines its proportion of total pool
+      // fees. We estimate total pool fees from swap volume × feeTier (ppm) and
+      // subtract already-collected amounts.
+      const liquidityShare =
+        poolLiquidity > 0 ? posLiquidity / poolLiquidity : 0;
+      const feeTierPpm = position.pool.feeTier / 1_000_000;
+      const poolVolume = poolSwapVolume.get(position.poolId) ?? 0;
+      const totalPoolFees0 = poolVolume * feeTierPpm;
+
+      const collected = poolFeesCollected.get(position.poolId) ?? {
+        amount0: 0,
+        amount1: 0,
+      };
+
+      const rawUnclaimed0 = totalPoolFees0 * liquidityShare - collected.amount0 * liquidityShare;
+      const rawUnclaimed1 = collected.amount1 * liquidityShare;
+
+      const uncollectedFeesToken0 = String(Math.max(0, rawUnclaimed0));
+      const uncollectedFeesToken1 = String(Math.max(0, rawUnclaimed1));
+
       return {
         id: position.id,
         ownerWallet: position.ownerAddress,
@@ -97,8 +158,8 @@ export class PositionsRepository {
         upperTick: position.upperTick,
         liquidity: position.liquidity,
         currentValueUsd,
-        uncollectedFeesToken0: position.feesCollected0,
-        uncollectedFeesToken1: position.feesCollected1,
+        uncollectedFeesToken0,
+        uncollectedFeesToken1,
         createdAt: position.createdAt.getTime(),
         closedAt: position.closedAt ? position.closedAt.getTime() : null,
         status,
