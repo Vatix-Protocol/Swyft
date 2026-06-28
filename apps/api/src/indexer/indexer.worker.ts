@@ -32,6 +32,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly cache: CacheService,
     private readonly webhooks: WebhooksService,
+    private readonly tokenEnrichment: TokenEnrichmentService,
   ) {}
 
   get isLoading(): boolean {
@@ -73,7 +74,6 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       });
       this.queueEvents.push(qe);
     }
-
     this._isReady = true;
     this.logger.log('Indexer workers ready');
     void this.logQueueDepths();
