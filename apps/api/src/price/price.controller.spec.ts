@@ -79,7 +79,7 @@ describe('PriceController', () => {
         candles: [mockCandle],
       });
       const result = await controller.getCandles('USDC', 'XLM', '1h');
-      expect(result).toEqual({ candles: [mockCandle] });
+      expect(result).toEqual({ poolId: 'pool-1', candles: [mockCandle] });
     });
 
     it('serves from cache when a cached response exists', async () => {
@@ -133,7 +133,7 @@ describe('PriceController', () => {
       await controller.getCandles('USDC', 'XLM', '1h');
       expect(cacheService.set).toHaveBeenCalledWith(
         expect.any(String),
-        { candles: [mockCandle] },
+        { poolId: 'pool-1', candles: [mockCandle] },
         expect.any(Number),
       );
     });
