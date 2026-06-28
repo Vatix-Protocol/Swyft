@@ -140,15 +140,20 @@ export class AuthService {
     }
   }
 
-  /** Signs a JWT payload with the configured secret and expiry. */
+  /** Signs a JWT payload with the configured secret, expiry, issuer, and audience. */
   private issueJwt(walletAddress: string): string {
     const payload: JwtPayload = { sub: walletAddress, walletAddress };
 
     // expiresIn is read from JWT_EXPIRES_IN env; falls back to '15m' if unset.
     const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN') ?? '15m';
 
+    const issuer = this.configService.get<string>('JWT_ISSUER');
+    const audience = this.configService.get<string>('JWT_AUDIENCE');
+
     return this.jwtService.sign(payload, {
       expiresIn: expiresIn as `${number}m`,
+      ...(issuer ? { issuer } : {}),
+      ...(audience ? { audience } : {}),
     });
   }
 }

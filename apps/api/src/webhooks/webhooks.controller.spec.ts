@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WebhooksController } from './webhooks.controller';
 import { WebhooksService } from './webhooks.service';
-import { WebhookEventType } from './webhook.types';
+import {
+  WebhookEventType,
+  WEBHOOK_EVENTS,
+  WEBHOOK_PAYLOAD_EXAMPLES,
+} from './webhook.types';
 
 const mockService = {
   create: jest.fn().mockResolvedValue({
@@ -75,5 +79,30 @@ describe('WebhooksController', () => {
       'wh-1',
       'GTEST_WALLET_ADDRESS',
     );
+  });
+
+  // ── #409: payload examples ─────────────────────────────────────────────────
+
+  describe('eventExamples', () => {
+    it('returns examples for every webhook event type', () => {
+      const examples = controller.eventExamples();
+      for (const event of WEBHOOK_EVENTS) {
+        expect(examples).toHaveProperty(event);
+      }
+    });
+
+    it('returns the canonical WEBHOOK_PAYLOAD_EXAMPLES object', () => {
+      expect(controller.eventExamples()).toBe(WEBHOOK_PAYLOAD_EXAMPLES);
+    });
+
+    it('each example has event, timestamp, and data fields', () => {
+      const examples = controller.eventExamples();
+      for (const event of WEBHOOK_EVENTS) {
+        const ex = examples[event];
+        expect(ex.event).toBe(event);
+        expect(typeof ex.timestamp).toBe('string');
+        expect(ex.data).toBeDefined();
+      }
+    });
   });
 });

@@ -281,4 +281,80 @@ describe('AuthService', () => {
       jest.restoreAllMocks();
     });
   });
+
+  // ── #412: issuer and audience in issued JWTs ───────────────────────────────
+
+  describe('issueJwt — issuer and audience claims', () => {
+    async function signIn(
+      configOverrides: Record<string, string | undefined>,
+    ) {
+      mockConfigService.get.mockImplementation(
+        (key: string) => configOverrides[key],
+      );
+
+      const nonce = 'iss-aud-nonce';
+      const { walletAddress, signature } = makeSignedNonce(nonce);
+      mockRedis.get.mockResolvedValueOnce(nonce);
+      mockRedis.del.mockResolvedValueOnce(1);
+
+      await service.verifyWallet({ walletAddress, nonce, signature });
+    }
+
+    it('includes issuer in sign options when JWT_ISSUER is configured', async () => {
+      await signIn({
+        JWT_EXPIRES_IN: '15m',
+        JWT_ISSUER: 'swyft-api',
+        JWT_AUDIENCE: undefined,
+      });
+
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ issuer: 'swyft-api' }),
+      );
+    });
+
+    it('includes audience in sign options when JWT_AUDIENCE is configured', async () => {
+      await signIn({
+        JWT_EXPIRES_IN: '15m',
+        JWT_ISSUER: undefined,
+        JWT_AUDIENCE: 'swyft-client',
+      });
+
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ audience: 'swyft-client' }),
+      );
+    });
+
+    it('includes both issuer and audience when both are configured', async () => {
+      await signIn({
+        JWT_EXPIRES_IN: '15m',
+        JWT_ISSUER: 'swyft-api',
+        JWT_AUDIENCE: 'swyft-client',
+      });
+
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          issuer: 'swyft-api',
+          audience: 'swyft-client',
+        }),
+      );
+    });
+
+    it('omits issuer and audience from sign options when neither is configured', async () => {
+      await signIn({
+        JWT_EXPIRES_IN: '15m',
+        JWT_ISSUER: undefined,
+        JWT_AUDIENCE: undefined,
+      });
+
+      const signCallOptions = mockJwtService.sign.mock.calls[0][1] as Record<
+        string,
+        unknown
+      >;
+      expect(signCallOptions).not.toHaveProperty('issuer');
+      expect(signCallOptions).not.toHaveProperty('audience');
+    });
+  });
 });
