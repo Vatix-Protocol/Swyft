@@ -78,10 +78,11 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
           0,
         );
 
-        const feeApr =
-          tvl > 0
-            ? ((volume24h * (pool.feeTier / 1_000_000)) / tvl) * 365 * 100
-            : 0;
+        const fees24h = swaps24h.reduce(
+          (sum: number, s: Swap) => sum + Number(s.feeAmount) * priceA,
+          0,
+        );
+        const feeApr = tvl > 0 ? (fees24h / tvl) * 365 * 100 : 0;
 
         await this.prisma.pool.update({
           where: { id: pool.id },
