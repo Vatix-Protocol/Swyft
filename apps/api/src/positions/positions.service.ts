@@ -10,6 +10,7 @@ import { PositionsRepository } from './positions.repository';
 
 interface PositionResponse {
   id: string;
+  ownerWallet: string;
   poolId: string;
   tokenPair: {
     token0: string;
@@ -91,6 +92,7 @@ export class PositionsService {
 
     return {
       id: position.id,
+      ownerWallet: position.ownerWallet,
       poolId: position.poolId,
       tokenPair: {
         token0: position.token0,
@@ -114,7 +116,19 @@ export class PositionsService {
     lowerTick: number,
     upperTick: number,
   ): PositionRangeStatus {
-    if (currentPrice >= lowerTick && currentPrice <= upperTick) {
+    // `lowerTick`/`upperTick` are raw tick indices, while `currentPrice` is an
+    // actual price (token1 per token0). Comparing them directly is invalid —
+    // ticks must first be converted to price using price = 1.0001^tick, the
+    // same formula used elsewhere in this codebase
+    // (see packages/sdk/src/liquidity.ts and apps/api/src/pools/pools.service.ts).
+    //
+    // Boundary convention matches packages/sdk/src/position-math.ts:
+    // price <= lowerPrice => below range, price >= upperPrice => above range,
+    // so a position is only "in-range" on the open interval (lowerPrice, upperPrice).
+    const lowerPrice = Math.pow(1.0001, lowerTick);
+    const upperPrice = Math.pow(1.0001, upperTick);
+
+    if (currentPrice > lowerPrice && currentPrice < upperPrice) {
       return 'in-range';
     }
     return 'out-of-range';

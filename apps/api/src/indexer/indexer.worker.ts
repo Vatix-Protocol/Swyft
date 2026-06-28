@@ -8,6 +8,7 @@ import { Worker, Job, QueueEvents } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
 import { CacheService } from '../cache/cache.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
+import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
 import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
 import {
   QUEUE_NAMES,
@@ -18,9 +19,17 @@ import {
   PositionBurnedJobData,
   FeesCollectedJobData,
 } from './queues';
+import { PoolsRepository } from '../pools/pools.repository';
 
 @Injectable()
 export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
+  /**
+   * Placeholder token address used when a pool is created from a state
+   * update (e.g. a swap) that arrives before the pool.created event. The
+   * real token addresses are backfilled by projectPoolCreated once that
+   * authoritative event is processed.
+   */
+  private static readonly UNKNOWN_TOKEN_ADDRESS = 'unknown';
   private readonly logger = new Logger(IndexerWorker.name);
   private readonly prisma = new PrismaClient();
   private readonly workers: Worker[] = [];
@@ -32,6 +41,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly cache: CacheService,
     private readonly webhooks: WebhooksService,
+    private readonly tokenEnrichment: TokenEnrichmentService,
   ) {}
 
   get isLoading(): boolean {
@@ -73,7 +83,6 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       });
       this.queueEvents.push(qe);
     }
-
     this._isReady = true;
     this.logger.log('Indexer workers ready');
     void this.logQueueDepths();
@@ -403,7 +412,17 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
       await this.prisma.pool.upsert({
         where: { id: d.poolId },
-        update: { currentSqrtPrice: d.sqrtPriceX96, updatedAt: new Date() },
+        // A swap/position event may have created a placeholder pool (see
+        // projectSwapProcessed below) before this authoritative pool.created
+        // event arrived. Overwrite the placeholder token/fee fields with the
+        // real values in that case.
+        update: {
+          token0Address: d.tokenA,
+          token1Address: d.tokenB,
+          feeTier: parseInt(d.fee, 10),
+          currentSqrtPrice: d.sqrtPriceX96,
+          updatedAt: new Date(),
+        },
         create: {
           id: d.poolId,
           token0Address: d.tokenA,
@@ -417,6 +436,12 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
           feeApr: '0',
         },
       });
+
+      // Enrich both tokens with on-chain metadata after the pool is persisted.
+      await Promise.allSettled([
+        this.tokenEnrichment.enrichToken(d.tokenA),
+        this.tokenEnrichment.enrichToken(d.tokenB),
+      ]);
     } catch (err) {
       this.logger.error(
         `Failed to project pool ${d.poolId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -426,7 +451,50 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
   private async projectSwapProcessed(d: SwapProcessedJobData) {
     try {
+      if (!PoolsRepository.isValidSqrtPrice(d.sqrtPriceX96)) {
+        this.logger.warn(
+          `Skipping pool state update for swap ${d.eventId} — invalid sqrtPriceX96: "${d.sqrtPriceX96}"`,
+        );
+        // Still persist the swap row; only skip the pool sqrt-price update.
+        const timestamp = d.timestamp ? new Date(d.timestamp) : new Date();
+        await this.prisma.swap.upsert({
+          where: { eventId: d.eventId },
+          update: {},
+          create: {
+            eventId: d.eventId,
+            poolId: d.poolId,
+            senderAddress: d.sender,
+            recipientAddress: d.recipient,
+            amount0: d.amount0,
+            amount1: d.amount1,
+            sqrtPriceAfter: d.sqrtPriceX96,
+            tickAfter: d.tick,
+            transactionHash: d.transactionHash ?? d.eventId,
+            timestamp,
+          },
+        });
+        return;
+      }
+
       const timestamp = d.timestamp ? new Date(d.timestamp) : new Date();
+
+      // Look up the pool's feeTier to compute the fee amount for this swap.
+      // feeTier is stored in parts-per-million (e.g. 3000 = 0.3%).
+      let feeAmount = '0';
+      try {
+        const pool = await this.prisma.pool.findUnique({
+          where: { id: d.poolId },
+          select: { feeTier: true },
+        });
+        if (pool) {
+          const absAmount0 = Math.abs(Number(d.amount0));
+          const fee = absAmount0 * (pool.feeTier / 1_000_000);
+          feeAmount = Number.isFinite(fee) ? String(fee) : '0';
+        }
+      } catch {
+        // Non-fatal: fee computation failure must not block swap persistence.
+      }
+
       await this.prisma.swap.upsert({
         where: { eventId: d.eventId },
         update: {},
@@ -440,17 +508,36 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
           sqrtPriceAfter: d.sqrtPriceX96,
           tickAfter: d.tick,
           transactionHash: d.transactionHash ?? d.eventId,
+          feeAmount,
           timestamp,
         },
       });
 
-      await this.prisma.pool.update({
+      // A swap can arrive before (or without) its pool's pool.created event,
+      // e.g. when events are processed out of order or the creation event was
+      // missed. Upsert instead of update so the pool is created on its first
+      // state update rather than silently dropping the swap. The token/fee
+      // fields are unknown at this point; projectPoolCreated backfills them
+      // with the authoritative values if/when that event arrives.
+      await this.prisma.pool.upsert({
         where: { id: d.poolId },
-        data: {
+        update: {
           currentSqrtPrice: d.sqrtPriceX96,
           currentTick: d.tick,
           liquidity: d.liquidity,
           updatedAt: new Date(),
+        },
+        create: {
+          id: d.poolId,
+          token0Address: IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
+          token1Address: IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
+          feeTier: 0,
+          currentSqrtPrice: d.sqrtPriceX96,
+          currentTick: d.tick,
+          liquidity: d.liquidity,
+          tvl: '0',
+          volume24h: '0',
+          feeApr: '0',
         },
       });
     } catch (err) {

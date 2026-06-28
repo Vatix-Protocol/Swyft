@@ -35,18 +35,7 @@ export {
 export type { PoolState, PositionState, TickState } from './types';
 export { SwyftRpcError } from './types';
 
-export {
-  buildSwapTx,
-  toStellarAddress,
-  toRawAmount,
-  toXdrBase64,
-  SwapValidationError,
-} from './swap';
-export type {
-  PoolId,
-  SwapTxParams,
-  SwapUnsignedTx,
-  StellarAddress,
-  RawAmount,
-  XdrBase64,
-} from './swap';
+export { buildSwapTx, toStellarAddress, toRawAmount, toXdrBase64, SwapValidationError } from './swap';
+export type { PoolId, SwapTxParams, SwapUnsignedTx, StellarAddress, RawAmount, XdrBase64 } from './swap';
+
+export { config } from './config';

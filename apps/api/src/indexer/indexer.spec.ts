@@ -69,6 +69,10 @@ const mockWebhooksService = {
   dispatch: jest.fn().mockResolvedValue(undefined),
 };
 
+const mockTokenEnrichmentService = {
+  enrichToken: jest.fn().mockResolvedValue(undefined),
+};
+
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn().mockImplementation(() => mockPrismaClient),
 }));
@@ -79,6 +83,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { IndexerWorker } from './indexer.worker';
 import { CacheService } from '../cache/cache.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
+import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
 import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
 import {
   IndexerModule,
@@ -271,6 +276,7 @@ describe('IndexerWorker', () => {
         IndexerWorker,
         { provide: CacheService, useValue: mockCacheService },
         { provide: WebhooksService, useValue: mockWebhooksService },
+        { provide: TokenEnrichmentService, useValue: mockTokenEnrichmentService },
       ],
     }).compile();
 
@@ -432,6 +438,23 @@ describe('IndexerWorker', () => {
       );
     });
 
+    it('backfills token/fee fields on conflict, correcting a placeholder pool created by an earlier swap', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      await handler(makeJob(data));
+
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: data.poolId },
+          update: expect.objectContaining({
+            token0Address: data.tokenA,
+            token1Address: data.tokenB,
+            feeTier: parseInt(data.fee, 10),
+            currentSqrtPrice: data.sqrtPriceX96,
+          }),
+        }),
+      );
+    });
+
     it('is idempotent — calling twice does not throw', async () => {
       const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
       await handler(makeJob(data));
@@ -477,6 +500,14 @@ describe('IndexerWorker', () => {
       await expect(handler(makeJob(data))).resolves.not.toThrow();
 
       expect(mockPrismaClient.poolCreated.upsert).toHaveBeenCalled();
+    });
+
+    it('calls enrichToken for both pool tokens after pool is persisted', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      await handler(makeJob(data));
+
+      expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(data.tokenA);
+      expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(data.tokenB);
     });
   });
 
@@ -531,9 +562,42 @@ describe('IndexerWorker', () => {
           }),
         }),
       );
-      expect(mockPrismaClient.pool.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: data.poolId } }),
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: data.poolId },
+          update: expect.objectContaining({
+            currentSqrtPrice: data.sqrtPriceX96,
+            currentTick: data.tick,
+            liquidity: data.liquidity,
+          }),
+        }),
       );
+    });
+
+    it('creates the pool when a swap arrives before its pool.created event', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await handler(makeJob(data));
+
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: data.poolId },
+          create: expect.objectContaining({
+            id: data.poolId,
+            currentSqrtPrice: data.sqrtPriceX96,
+            currentTick: data.tick,
+            liquidity: data.liquidity,
+          }),
+        }),
+      );
+    });
+
+    it('does not throw when the pool does not exist yet (first state update)', async () => {
+      // Simulate Prisma's real behavior for `update` on a missing row, to
+      // document why `upsert` (not `update`) is required here.
+      mockPrismaClient.pool.upsert.mockResolvedValueOnce({});
+
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await expect(handler(makeJob(data))).resolves.not.toThrow();
     });
 
     it('dispatches a swap.large webhook after successful write', async () => {

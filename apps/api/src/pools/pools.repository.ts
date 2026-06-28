@@ -48,6 +48,17 @@ export class PoolsRepository {
     };
   }
 
+  /**
+   * Validates a raw sqrtPriceX96 string.
+   * A valid sqrt price must be a finite positive integer (Q64.96 fixed-point).
+   * Zero is rejected because it encodes an undefined price.
+   */
+  static isValidSqrtPrice(value: string | undefined | null): boolean {
+    if (!value || value.trim() === '') return false;
+    const n = BigInt(value.trim());
+    return n > 0n;
+  }
+
   async upsertPoolState(poolId: string, patch: PoolStatePatch): Promise<void> {
     if (patch.currentPrice === undefined) return;
 

@@ -23,6 +23,15 @@ const mockService = {
     },
   ]),
   remove: jest.fn().mockResolvedValue(undefined),
+  auditLog: jest.fn().mockResolvedValue([
+    {
+      id: 'log-1',
+      webhookId: 'wh-1',
+      action: 'created',
+      meta: '{}',
+      createdAt: new Date(),
+    },
+  ]),
 };
 
 describe('WebhooksController', () => {
@@ -39,6 +48,11 @@ describe('WebhooksController', () => {
   });
 
   it('creates a webhook for the authenticated wallet', async () => {
+    mockService.create.mockResolvedValue({
+      id: 'wh-1',
+      url: 'https://example.com',
+      eventTypes: ['pool.created'],
+    });
     const request = { user: { walletAddress: 'GTEST_WALLET_ADDRESS' } };
     const body = {
       url: 'https://example.com',
@@ -62,6 +76,7 @@ describe('WebhooksController', () => {
   });
 
   it('lists webhooks and exposes loading:false in the response', async () => {
+    mockService.list.mockResolvedValue([]);
     const request = { user: { walletAddress: 'GTEST_WALLET_ADDRESS' } };
 
     const response = await controller.list(request);

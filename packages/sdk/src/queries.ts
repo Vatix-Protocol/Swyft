@@ -127,7 +127,7 @@ export async function getPool({
   rpcUrl: string;
   poolAddress: string;
 }): Promise<PoolState> {
-  const retval = await callContract(rpcUrl, poolAddress, 'get_pool_state');
+  const retval = await callContract(rpcUrl, poolAddress, 'get_state');
   const raw = assertRawObject(scValToNative(retval), poolAddress);
 
   return {

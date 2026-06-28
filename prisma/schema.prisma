@@ -44,6 +44,8 @@ model Swap {
   sqrtPriceAfter    String
   tickAfter         Int
   transactionHash   String
+  /// Fee amount charged for this swap, derived from amount0 * (feeTier / 1_000_000).
+  feeAmount         String   @default("0")
   timestamp         DateTime @default(now())
 
   // Relations
@@ -248,4 +250,20 @@ model IndexerCursor {
   updatedAt DateTime @updatedAt
 
   @@map("indexer_cursor")
+}
+
+// #405 — Webhook CRUD audit log
+/// Immutable record of every create / update / delete operation on a Webhook.
+model WebhookAuditLog {
+  id          String   @id @default(cuid())
+  webhookId   String
+  action      String   // 'created' | 'updated' | 'deleted'
+  ownerWallet String
+  /// JSON snapshot of the changed fields (url, eventTypes, etc.)
+  meta        String   @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@index([webhookId])
+  @@index([ownerWallet])
+  @@map("webhook_audit_log")
 }

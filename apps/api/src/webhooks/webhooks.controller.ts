@@ -23,8 +23,6 @@ interface AuthRequest {
   user: { walletAddress: string };
 }
 
-/** Shape returned by GET /webhooks — includes a loading flag so clients can
- *  show a spinner and disable mutating actions while the list is being fetched. */
 interface WebhookListResponse {
   loading: boolean;
   items: Awaited<ReturnType<WebhooksService['list']>>;
@@ -37,13 +35,6 @@ interface WebhookListResponse {
 export class WebhooksController {
   constructor(private readonly service: WebhooksService) {}
 
-  /**
-   * Register a new webhook for the authenticated wallet.
-   *
-   * @param req - Authenticated request containing the wallet address.
-   * @param body - Webhook configuration: target URL, event types, optional signing secret, and large-swap USD threshold.
-   * @returns The created webhook record (id, url, eventTypes, createdAt).
-   */
   @Post()
   @ApiOperation({ summary: 'Register a webhook' })
   @ApiBody({
@@ -91,12 +82,6 @@ export class WebhooksController {
     );
   }
 
-  /**
-   * List all webhooks belonging to the authenticated wallet.
-   *
-   * @param req - Authenticated request containing the wallet address.
-   * @returns Array of webhook records (id, url, eventTypes, disabled, createdAt).
-   */
   @Get()
   @ApiOperation({
     summary:
@@ -128,6 +113,12 @@ export class WebhooksController {
    * @param req - Authenticated request containing the wallet address.
    * @returns Resolves when the record has been removed (no-op if not found or not owned).
    */
+  @Get('audit')
+  @ApiOperation({ summary: 'Webhook CRUD audit log for the authenticated wallet' })
+  auditLog(@Request() req: AuthRequest) {
+    return this.service.auditLog(req.user.walletAddress);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Remove a webhook — disabled while loading:true' })
   remove(@Param('id') id: string, @Request() req: AuthRequest) {
