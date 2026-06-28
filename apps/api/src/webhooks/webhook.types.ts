@@ -9,12 +9,13 @@ export function verifyWebhookSignature(
   signature: string,
   secret: string,
 ): boolean {
+  if (!signature || !secret) return false;
   try {
     const expected = createHmac('sha256', secret).update(body).digest('hex');
-    return timingSafeEqual(
-      Buffer.from(signature, 'hex'),
-      Buffer.from(expected, 'hex'),
-    );
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expBuf = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length) return false;
+    return timingSafeEqual(sigBuf, expBuf);
   } catch {
     return false;
   }

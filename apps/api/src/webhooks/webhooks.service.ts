@@ -36,7 +36,7 @@ export class WebhooksService {
         secret,
         largeSwapUsd:
           largeSwapUsd ??
-          Number(process.env.LARGE_SWAP_THRESHOLD_USD ?? '10000'),
+          parseFloat(process.env.LARGE_SWAP_THRESHOLD_USD ?? '10000'),
       },
       select: { id: true, url: true, eventTypes: true, createdAt: true },
     });
