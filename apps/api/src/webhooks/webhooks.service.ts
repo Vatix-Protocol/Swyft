@@ -16,15 +16,9 @@ export class WebhooksService {
 
   /**
    * Register a new webhook for the given wallet.
-   *
-   * @param ownerWallet - Stellar account address of the webhook owner.
-   * @param url - HTTPS endpoint that will receive POST deliveries.
-   * @param eventTypes - One or more event types to subscribe to.
-   * @param secret - Optional HMAC-SHA256 signing secret; when set, deliveries include an `X-Swyft-Signature` header.
-   * @param largeSwapUsd - USD threshold for `swap.large` events (default: 10 000).
-   * @returns The created webhook record (id, url, eventTypes, createdAt).
+   * Writes a 'created' audit log entry after the webhook is persisted.
    */
-  create(
+  async create(
     ownerWallet: string,
     url: string,
     eventTypes: WebhookEventType[],
@@ -34,7 +28,7 @@ export class WebhooksService {
     const validTypes = eventTypes.filter((e) =>
       (WEBHOOK_EVENTS as readonly string[]).includes(e),
     );
-    return this.prisma.webhook.create({
+    const webhook = await this.prisma.webhook.create({
       data: {
         ownerWallet,
         url,
@@ -44,13 +38,21 @@ export class WebhooksService {
       },
       select: { id: true, url: true, eventTypes: true, createdAt: true },
     });
+
+    await this.prisma.webhookAuditLog.create({
+      data: {
+        webhookId: webhook.id,
+        action: 'created',
+        ownerWallet,
+        meta: JSON.stringify({ url, eventTypes: validTypes }),
+      },
+    });
+
+    return webhook;
   }
 
   /**
    * List all webhooks belonging to the given wallet.
-   *
-   * @param ownerWallet - Stellar account address of the webhook owner.
-   * @returns Array of webhook records (id, url, eventTypes, disabled, createdAt).
    */
   list(ownerWallet: string) {
     return this.prisma.webhook.findMany({
@@ -67,21 +69,45 @@ export class WebhooksService {
 
   /**
    * Delete a webhook, scoped to the owning wallet.
-   *
-   * @param id - UUID of the webhook to delete.
-   * @param ownerWallet - Stellar account address; only the owner may delete.
-   * @returns Resolves when the record has been removed (no-op if not found).
+   * Writes a 'deleted' audit log entry when the webhook is found and removed.
    */
   async remove(id: string, ownerWallet: string) {
-    await this.prisma.webhook.deleteMany({ where: { id, ownerWallet } });
+    const deleted = await this.prisma.webhook.deleteMany({
+      where: { id, ownerWallet },
+    });
+
+    if (deleted.count > 0) {
+      await this.prisma.webhookAuditLog.create({
+        data: {
+          webhookId: id,
+          action: 'deleted',
+          ownerWallet,
+          meta: '{}',
+        },
+      });
+    }
+  }
+
+  /**
+   * Return the audit log for webhooks owned by the given wallet,
+   * most recent entries first.
+   */
+  auditLog(ownerWallet: string) {
+    return this.prisma.webhookAuditLog.findMany({
+      where: { ownerWallet },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        webhookId: true,
+        action: true,
+        meta: true,
+        createdAt: true,
+      },
+    });
   }
 
   /**
    * Fan-out an event to all enabled webhooks subscribed to it.
-   *
-   * @param event - The event type being emitted.
-   * @param data - Arbitrary event payload; must be JSON-serialisable.
-   * @returns Resolves once all delivery jobs have been enqueued.
    */
   async dispatch(event: WebhookEventType, data: Record<string, unknown>) {
     const webhooks = await this.prisma.webhook.findMany({
