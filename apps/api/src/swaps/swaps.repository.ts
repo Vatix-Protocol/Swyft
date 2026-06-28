@@ -80,6 +80,7 @@ export class SwapsRepository {
         amount0: swap.amount0,
         amount1: swap.amount1,
         priceAtSwap,
+        feeAmount: swap.feeAmount,
         txHash: swap.transactionHash,
         walletAddress: swap.senderAddress,
         timestamp: swap.timestamp.getTime(),

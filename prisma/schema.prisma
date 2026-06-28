@@ -44,6 +44,8 @@ model Swap {
   sqrtPriceAfter    String
   tickAfter         Int
   transactionHash   String
+  /// Fee amount charged for this swap, derived from amount0 * (feeTier / 1_000_000).
+  feeAmount         String   @default("0")
   timestamp         DateTime @default(now())
 
   // Relations

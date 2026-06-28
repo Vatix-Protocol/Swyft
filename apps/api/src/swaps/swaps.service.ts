@@ -12,6 +12,8 @@ interface SwapResponse {
   amount0: string;
   amount1: string;
   priceAtSwap: string;
+  /** Fee charged for this swap (expressed in token0 units). */
+  feeAmount: string;
   transactionHash: string;
   walletAddress: string;
   timestamp: number;
@@ -78,6 +80,7 @@ export class SwapsService {
       amount0: swap.amount0,
       amount1: swap.amount1,
       priceAtSwap: swap.priceAtSwap,
+      feeAmount: swap.feeAmount,
       transactionHash: swap.txHash,
       walletAddress: swap.walletAddress,
       timestamp: swap.timestamp,
