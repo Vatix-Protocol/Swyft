@@ -6,10 +6,9 @@
  */
 
 import { CacheService } from '../cache/cache.service';
-import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
+import { IndexerCursorService } from '../indexer/indexer-cursor.service';
 import { PoolsService } from '../pools/pools.service';
 import { PriceService } from '../price/price.service';
-import { PrismaService } from '../prisma/prisma.service';
 import { HorizonService } from './horizon.service';
 
 // ── Stub factories ────────────────────────────────────────────────────────────
@@ -32,14 +31,16 @@ function buildEffectsChain(records: object[]) {
 
 function buildService(horizonServer: object) {
   const priceService = { broadcastPrice: jest.fn() } as unknown as PriceService;
-  const poolsService = { handlePoolStateUpdate: jest.fn().mockResolvedValue(undefined) } as unknown as PoolsService;
+  const poolsService = {
+    handlePoolStateUpdate: jest.fn().mockResolvedValue(undefined),
+  } as unknown as PoolsService;
   const cache = {
     publish: jest.fn().mockResolvedValue(undefined),
-    setMaxNumber: jest.fn().mockResolvedValue(true),
   } as unknown as CacheService;
-  const prisma = {
-    indexerCursor: { findUnique: jest.fn().mockResolvedValue(null) },
-  } as unknown as PrismaService;
+  const cursorService = {
+    getLastLedger: jest.fn().mockResolvedValue(0),
+    advanceLedger: jest.fn().mockResolvedValue(true),
+  } as unknown as IndexerCursorService;
 
   const poolCreatedQueue = buildQueueMock();
   const swapProcessedQueue = buildQueueMock();
@@ -50,7 +51,7 @@ function buildService(horizonServer: object) {
     priceService,
     poolsService,
     cache,
-    prisma,
+    cursorService,
     poolCreatedQueue as any,
     swapProcessedQueue as any,
     positionMintedQueue as any,
@@ -62,7 +63,17 @@ function buildService(horizonServer: object) {
   // Set contractId so the poller is active
   (service as any).contractId = 'GPOOL_CONTRACT';
 
-  return { service, priceService, poolsService, cache, prisma, poolCreatedQueue, swapProcessedQueue, positionMintedQueue, positionBurnedQueue };
+  return {
+    service,
+    priceService,
+    poolsService,
+    cache,
+    cursorService,
+    poolCreatedQueue,
+    swapProcessedQueue,
+    positionMintedQueue,
+    positionBurnedQueue,
+  };
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -80,15 +91,12 @@ describe('HorizonService — poller (Horizon mocked)', () => {
           created_at: '2026-06-24T12:00:00.000Z',
         },
       ]);
-      const { service, poolsService, cache } = buildService(server);
+      const { service, poolsService, cursorService } = buildService(server);
 
       await (service as any).poll();
 
       expect(poolsService.handlePoolStateUpdate).toHaveBeenCalled();
-      expect(cache.setMaxNumber).toHaveBeenCalledWith(
-        LAST_INDEXED_LEDGER_KEY,
-        900,
-      );
+      expect(cursorService.advanceLedger).toHaveBeenCalledWith(900);
     });
 
     it('does not write a checkpoint when the ledger is invalid (negative)', async () => {
@@ -99,11 +107,11 @@ describe('HorizonService — poller (Horizon mocked)', () => {
           created_at: '2026-06-24T12:00:00.000Z',
         },
       ]);
-      const { service, cache } = buildService(server);
+      const { service, cursorService } = buildService(server);
 
       await (service as any).poll();
 
-      expect(cache.setMaxNumber).not.toHaveBeenCalled();
+      expect(cursorService.advanceLedger).not.toHaveBeenCalled();
     });
   });
 
@@ -129,7 +137,11 @@ describe('HorizonService — poller (Horizon mocked)', () => {
 
       expect(poolCreatedQueue.add).toHaveBeenCalledWith(
         'evt-pool-1',
-        expect.objectContaining({ poolId: 'pool-abc', tokenA: 'TOKENA', tokenB: 'TOKENB' }),
+        expect.objectContaining({
+          poolId: 'pool-abc',
+          tokenA: 'TOKENA',
+          tokenB: 'TOKENB',
+        }),
         expect.any(Object),
       );
     });

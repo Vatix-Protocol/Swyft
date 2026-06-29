@@ -79,6 +79,15 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async ping(): Promise<boolean> {
+    if (!this.available) return false;
+    try {
+      return (await this.client!.ping()) === 'PONG';
+    } catch {
+      return false;
+    }
+  }
+
   async set<T>(key: string, value: T, ttlSeconds?: number): Promise<void> {
     if (!this.available) return;
     try {
