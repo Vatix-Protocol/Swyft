@@ -48,8 +48,8 @@ export function SwapCard() {
   const hasError = status === 'error';
 
   return (
-    <div className="flex flex-col gap-3 w-full max-w-sm">
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 shadow-sm">
+    <div className="flex flex-col gap-3 w-full">
+      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 sm:p-5 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
             {status === 'success' ? 'Swap complete' : 'Swap'}
@@ -57,8 +57,9 @@ export function SwapCard() {
           <button
             onClick={() => setShowSettings((s) => !s)}
             aria-label="Swap settings"
+            aria-expanded={showSettings}
             disabled={isLoading}
-            className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors disabled:opacity-50"
+            className="h-9 w-9 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 dark:hover:text-zinc-200 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
             ⚙
           </button>
@@ -66,17 +67,17 @@ export function SwapCard() {
 
         {/* Token inputs — placeholder */}
         <div className="flex flex-col gap-2 mb-4">
-          <div className="rounded-lg bg-zinc-50 dark:bg-zinc-800 px-3 py-3 text-sm text-zinc-400">
+          <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800 px-3 py-4 text-sm text-zinc-400">
             From token…
           </div>
-          <div className="rounded-lg bg-zinc-50 dark:bg-zinc-800 px-3 py-3 text-sm text-zinc-400">
+          <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800 px-3 py-4 text-sm text-zinc-400">
             To token…
           </div>
         </div>
 
         {/* Loading state */}
         {isLoading && (
-          <div className="mb-3 flex items-center gap-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
+          <div className="mb-3 flex items-center gap-2 rounded-xl bg-blue-50 dark:bg-blue-900/30 px-3 py-2.5 text-xs text-blue-700 dark:text-blue-300">
             <span
               className="h-3 w-3 animate-spin rounded-full border-2 border-blue-400 border-t-transparent"
               aria-hidden="true"
@@ -87,11 +88,11 @@ export function SwapCard() {
 
         {/* Success state */}
         {status === 'success' && txHash && (
-          <div className="mb-3 rounded-lg border border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950 px-3 py-2">
+          <div className="mb-3 rounded-xl border border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950 px-3 py-2.5">
             <p className="text-xs font-medium text-green-700 dark:text-green-400">
               Transaction submitted successfully
             </p>
-            <p className="text-xs text-green-600 dark:text-green-400 font-mono mt-1">
+            <p className="text-xs text-green-600 dark:text-green-400 font-mono mt-1 break-all">
               {txHash.slice(0, 8)}…{txHash.slice(-8)}
             </p>
           </div>
@@ -99,16 +100,14 @@ export function SwapCard() {
 
         {/* Error state */}
         {hasError && (
-          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950 px-3 py-2">
+          <div className="mb-3 rounded-xl border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950 px-3 py-2.5">
             <p className="text-xs font-medium text-red-700 dark:text-red-400">
               {error === 'slippage'
                 ? 'Swap failed — price moved beyond your slippage tolerance.'
                 : 'Network error — the transaction could not be submitted.'}
             </p>
             <button
-              onClick={() => {
-                reset();
-              }}
+              onClick={() => { reset(); }}
               className="mt-2 text-xs font-semibold text-red-700 dark:text-red-400 hover:underline"
             >
               Retry
@@ -117,7 +116,7 @@ export function SwapCard() {
         )}
 
         {enabled && isLoading && (
-          <div className="mb-3 flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+          <div className="mb-3 flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2.5 text-xs text-emerald-700 dark:text-emerald-300">
             <span className="animate-pulse">●</span>
             MEV-protected endpoint active
           </div>
@@ -132,13 +131,18 @@ export function SwapCard() {
             }
           }}
           disabled={isLoading || (!formState.tokenIn && status !== 'success')}
-          className="w-full rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 py-3 text-sm font-semibold transition-opacity disabled:opacity-50"
+          className="w-full min-h-[52px] sm:min-h-[44px] rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 py-3 text-sm font-semibold transition-opacity disabled:opacity-50"
         >
           {status === 'success' ? 'Close' : isLoading ? 'Swapping…' : 'Swap'}
         </button>
       </div>
 
-      {showSettings && <SwapSettings />}
+      {/* Settings panel — full width below the card */}
+      {showSettings && (
+        <div className="w-full">
+          <SwapSettings />
+        </div>
+      )}
     </div>
   );
 }

@@ -33,7 +33,9 @@ function TokenPickerButton({
         type="button"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-zinc-900 shadow-sm ring-1 ring-zinc-200 hover:ring-indigo-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-700 dark:text-white dark:ring-zinc-600"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-zinc-900 shadow-sm ring-1 ring-zinc-200 hover:ring-indigo-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-700 dark:text-white dark:ring-zinc-600 min-h-[36px]"
       >
         {token ? token.symbol : <span className="text-indigo-600">Select</span>}
         <svg
@@ -49,30 +51,38 @@ function TokenPickerButton({
       </button>
 
       {open && (
-        <ul
-          role="listbox"
-          aria-label="Select token"
-          className="absolute right-0 top-full z-30 mt-1 max-h-48 w-40 overflow-y-auto rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-        >
-          {available.length === 0 ? (
-            <li className="px-3 py-2 text-xs text-zinc-400">No tokens available</li>
-          ) : (
-            available.map((t) => (
-              <li key={t.id} role="option" aria-selected={t.id === token?.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelect(t);
-                    setOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                >
-                  {t.symbol}
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
+        <>
+          {/* Backdrop — closes dropdown on outside tap (mobile-friendly) */}
+          <div
+            className="fixed inset-0 z-20"
+            aria-hidden="true"
+            onClick={() => setOpen(false)}
+          />
+          <ul
+            role="listbox"
+            aria-label="Select token"
+            className="absolute right-0 top-full z-30 mt-1 max-h-48 w-40 overflow-y-auto rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            {available.length === 0 ? (
+              <li className="px-3 py-2 text-xs text-zinc-400">No tokens available</li>
+            ) : (
+              available.map((t) => (
+                <li key={t.id} role="option" aria-selected={t.id === token?.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelect(t);
+                      setOpen(false);
+                    }}
+                    className="w-full min-h-[44px] px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    {t.symbol}
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </>
       )}
     </div>
   );
@@ -214,14 +224,14 @@ export function SwapWidget({
   if (tokensLoading) {
     return (
       <div
-        className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+        className="w-full md:w-[448px] rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
         aria-busy="true"
         aria-label="Loading swap widget"
       >
-        <div className="px-5 pt-5 pb-3">
+        <div className="px-4 sm:px-5 pt-4 sm:pt-5 pb-3">
           <div className="h-5 w-12 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
         </div>
-        <div className="px-4 pb-4 flex flex-col gap-2">
+        <div className="px-3 sm:px-4 pb-4 flex flex-col gap-2">
           <div className="h-16 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
           <div className="mx-auto h-11 w-11 animate-pulse rounded-full bg-zinc-100 dark:bg-zinc-800" />
           <div className="h-16 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
@@ -235,7 +245,7 @@ export function SwapWidget({
   if (tokensError) {
     return (
       <div
-        className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+        className="w-full md:w-[448px] rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
         role="alert"
       >
         <div className="flex flex-col items-center gap-3 px-5 py-10 text-center">
@@ -265,7 +275,7 @@ export function SwapWidget({
   // ── Empty state — no tokens returned by the API ───────────────────────────
   if (tokens.length === 0) {
     return (
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="w-full md:w-[448px] rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-col items-center gap-3 px-5 py-10 text-center">
           <svg
             className="h-8 w-8 text-zinc-300 dark:text-zinc-600"
@@ -292,14 +302,14 @@ export function SwapWidget({
   // ── Main widget ───────────────────────────────────────────────────────────
   return (
     <>
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="w-full md:w-[448px] rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-3">
+        <div className="flex items-center justify-between px-4 sm:px-5 pt-4 sm:pt-5 pb-3">
           <h2 className="text-base font-semibold text-zinc-900 dark:text-white">Swap</h2>
           <SlippagePanel slippageBps={slippageBps} onChange={setSlippageBps} />
         </div>
 
-        <div className="px-4 pb-4 flex flex-col gap-2">
+        <div className="px-3 sm:px-4 pb-4 flex flex-col gap-2">
           {/* Sell input */}
           <div className="relative">
             <SwapInput
@@ -375,34 +385,34 @@ export function SwapWidget({
 
           {/* Quote details */}
           {quote && pair.tokenIn && pair.tokenOut && (
-            <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400 flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <span>Rate</span>
-                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+            <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-3 sm:px-4 py-3 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400 flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="shrink-0">Rate</span>
+                <span className="font-medium text-zinc-700 dark:text-zinc-300 text-right truncate">
                   1 {pair.tokenIn.symbol} = {parseFloat(quote.executionPrice).toFixed(6)}{' '}
                   {pair.tokenOut.symbol}
                 </span>
               </div>
-              <div className="flex items-center justify-between">
-                <span>Price impact</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="shrink-0">Price impact</span>
                 <PriceImpactBadge impact={quote.priceImpact} />
               </div>
-              <div className="flex items-center justify-between">
-                <span>Min. received</span>
-                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+              <div className="flex items-center justify-between gap-2">
+                <span className="shrink-0">Min. received</span>
+                <span className="font-medium text-zinc-700 dark:text-zinc-300 text-right">
                   {parseFloat(quote.minimumReceived).toFixed(6)} {pair.tokenOut.symbol}
                 </span>
               </div>
-              <div className="flex items-center justify-between">
-                <span>LP fee</span>
-                <span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="shrink-0">LP fee</span>
+                <span className="text-right">
                   {parseFloat(quote.lpFee).toFixed(7)} {pair.tokenIn.symbol}
                 </span>
               </div>
               {parseFloat(quote.protocolFee) > 0 && (
-                <div className="flex items-center justify-between">
-                  <span>Protocol fee</span>
-                  <span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="shrink-0">Protocol fee</span>
+                  <span className="text-right">
                     {parseFloat(quote.protocolFee).toFixed(7)} {pair.tokenIn.symbol}
                   </span>
                 </div>
@@ -421,7 +431,7 @@ export function SwapWidget({
           {highImpact && (
             <div
               role="alert"
-              className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950"
+              className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 sm:px-4 py-3 dark:border-red-800 dark:bg-red-950"
             >
               <svg
                 className="mt-0.5 h-4 w-4 shrink-0 text-red-500"
@@ -450,7 +460,7 @@ export function SwapWidget({
             onClick={() => setShowModal(true)}
             disabled={swapDisabled}
             aria-disabled={swapDisabled}
-            className="mt-1 w-full min-h-[44px] rounded-xl bg-indigo-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
+            className="mt-1 w-full min-h-[52px] sm:min-h-[44px] rounded-xl bg-indigo-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {quoteLoading ? (
               <>
