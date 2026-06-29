@@ -17,7 +17,10 @@
     "web:dev": "pnpm --filter web dev",
     "web:build": "pnpm --filter web build",
     "web:test": "pnpm --filter web test",
-    "web:lint": "pnpm --filter web lint"
+    "web:lint": "pnpm --filter web lint",
+    "sdk:build": "pnpm --filter @swyft/sdk build",
+    "sdk:test": "pnpm --filter @swyft/sdk test",
+    "sdk:publish": "pnpm --filter @swyft/sdk publish"
   },
   "devDependencies": {
     "husky": "^9.0.0",
