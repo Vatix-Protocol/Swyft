@@ -1,4 +1,5 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -20,9 +21,18 @@ import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { StatsModule } from './stats/stats.module';
 import { TokensModule } from './tokens/tokens.module';
 import { SearchModule } from './search/search.module';
+import { stellarConfig } from './config/stellar.config';
 
 @Module({
   imports: [
+    // Global config — validates env vars at startup and exposes typed config
+    // namespaces throughout the application via ConfigService injection.
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [stellarConfig],
+      // Do not throw on extra keys; only the declared vars are validated.
+      ignoreEnvVars: false,
+    }),
     CacheModule,
     PrismaModule,
     MetricsModule,

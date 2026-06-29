@@ -1,21 +1,26 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   InvalidInputException,
   BusinessRuleViolationException,
 } from '../request-validation/http.exceptions';
 import { TransactionResult } from './transactions.types';
-
-const HORIZON_URL =
-  process.env.HORIZON_URL ?? 'https://horizon-testnet.stellar.org';
+import { STELLAR_CONFIG_KEY, StellarConfig } from '../config/stellar.config';
 
 @Injectable()
 export class TransactionsService {
+  private readonly horizonUrl: string;
+
+  constructor(private readonly config: ConfigService) {
+    const stellarCfg = this.config.get<StellarConfig>(STELLAR_CONFIG_KEY)!;
+    this.horizonUrl = stellarCfg.horizonUrl;
+  }
   async submit(xdr: string): Promise<TransactionResult> {
     const body = new URLSearchParams({ tx: xdr });
 
     let res: Response;
     try {
-      res = await fetch(`${HORIZON_URL}/transactions`, {
+      res = await fetch(`${this.horizonUrl}/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),

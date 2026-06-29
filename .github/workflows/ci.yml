@@ -94,6 +94,12 @@ jobs:
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: ci-test-secret
           NODE_ENV: test
+          # Stellar RPC — use public testnet endpoints in CI.
+          # For production test runs that require a private RPC, override via
+          # repository secrets: STELLAR_RPC_URL and HORIZON_URL.
+          STELLAR_RPC_URL: ${{ secrets.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org' }}
+          HORIZON_URL: ${{ secrets.HORIZON_URL || 'https://horizon-testnet.stellar.org' }}
+          STELLAR_NETWORK: testnet
 
   build:
     name: Build
@@ -129,3 +135,7 @@ jobs:
         run: pnpm build
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft
+          # Stellar RPC — required by the API build (stellarConfig validates at startup).
+          STELLAR_RPC_URL: ${{ secrets.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org' }}
+          HORIZON_URL: ${{ secrets.HORIZON_URL || 'https://horizon-testnet.stellar.org' }}
+          STELLAR_NETWORK: testnet
