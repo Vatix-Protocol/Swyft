@@ -134,4 +134,13 @@ describe('AppModule — public routes smoke test', () => {
 
   it('POST /auth/nonce returns 200 (no body)', () =>
     request(app.getHttpServer()).post('/auth/nonce').expect(200));
+
+  it('GET /docs-json returns the OpenAPI spec', async () => {
+    const res = await request(app.getHttpServer()).get('/docs-json').expect(200);
+    const doc = res.body as { tags?: { name: string }[]; paths?: Record<string, unknown> };
+    const tagNames = (doc.tags ?? []).map((t) => t.name);
+    expect(tagNames).toContain('admin');
+    const pathKeys = Object.keys(doc.paths ?? {});
+    expect(pathKeys.some((p) => p.startsWith('/admin/analytics'))).toBe(true);
+  });
 });
