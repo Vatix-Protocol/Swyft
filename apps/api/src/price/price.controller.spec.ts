@@ -16,12 +16,12 @@ const mockSpotResponse: SpotPriceResponse = {
 };
 
 const mockCandle: PriceCandle = {
-  timestamp: 1700000000,
-  open: '0.09',
-  high: '0.11',
-  low: '0.08',
-  close: '0.10',
-  volume: '50000',
+  time: 1700000000,
+  open: 0.09,
+  high: 0.11,
+  low: 0.08,
+  close: 0.1,
+  volume: 50000,
 };
 
 describe('PriceController', () => {
