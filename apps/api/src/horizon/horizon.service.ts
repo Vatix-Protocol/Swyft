@@ -10,8 +10,7 @@ import { Horizon } from '@stellar/stellar-sdk';
 import { PriceService, PriceEvent } from '../price/price.service';
 import { PoolsService } from '../pools/pools.service';
 import { CacheService } from '../cache/cache.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
+import { IndexerCursorService } from '../indexer/indexer-cursor.service';
 import {
   QUEUE_POOL_CREATED,
   QUEUE_SWAP_PROCESSED,
@@ -39,7 +38,7 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
     private readonly priceService: PriceService,
     private readonly poolsService: PoolsService,
     private readonly cache: CacheService,
-    private readonly prisma: PrismaService,
+    private readonly cursorService: IndexerCursorService,
     @Inject(QUEUE_POOL_CREATED)
     private readonly poolCreatedQueue: Queue<PoolCreatedJobData>,
     @Inject(QUEUE_SWAP_PROCESSED)
@@ -60,10 +59,8 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn('POOL_CONTRACT_ID not set — Horizon indexer disabled');
       return;
     }
-    const checkpoint = await this.prisma.indexerCursor.findUnique({
-      where: { id: this.cursorId() },
-    });
-    this.cursor = checkpoint?.cursor ?? 'now';
+    const ledger = await this.cursorService.getLastLedger();
+    this.cursor = ledger > 0 ? String(ledger) : 'now';
     void this.poll();
     this.timer = setInterval(() => void this.poll(), 5_000);
   }
@@ -248,7 +245,7 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
     if (!Number.isSafeInteger(ledger) || ledger === undefined || ledger < 0) {
       return;
     }
-    await this.cache.setMaxNumber(LAST_INDEXED_LEDGER_KEY, ledger);
+    await this.cursorService.advanceLedger(ledger);
   }
 }
 

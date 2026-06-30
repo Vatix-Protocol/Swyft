@@ -11,6 +11,9 @@ import { WebhookPayload } from './webhook.types';
 
 export const WEBHOOK_QUEUE = 'webhook-delivery';
 const MAX_CONSECUTIVE_FAILS = 10;
+const WEBHOOK_RETRY_ATTEMPTS = Number(
+  process.env.WEBHOOK_RETRY_ATTEMPTS ?? '3',
+);
 const REDIS_CONNECTION = {
   url: process.env.REDIS_URL ?? 'redis://localhost:6379',
 };
@@ -64,10 +67,23 @@ export class WebhookWorker implements OnModuleInit, OnModuleDestroy {
       'deliver',
       { webhookId, payload },
       {
-        attempts: 3,
+        attempts: WEBHOOK_RETRY_ATTEMPTS,
         backoff: { type: 'exponential', delay: 2000 },
       },
     );
+  }
+
+  /**
+   * Retry all BullMQ jobs in the 'failed' state for the given webhookId.
+   * Returns the count of jobs that were re-queued.
+   */
+  async retryFailedDeliveries(webhookId: string): Promise<number> {
+    const failedJobs = await this.queue.getJobs(['failed']);
+    const matching = failedJobs.filter(
+      (j) => j.data.webhookId === webhookId,
+    );
+    await Promise.all(matching.map((j) => j.retry()));
+    return matching.length;
   }
 
   private async deliver(job: Job<WebhookJob>): Promise<void> {

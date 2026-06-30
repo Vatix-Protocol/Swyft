@@ -34,7 +34,9 @@ export class WebhooksService {
         url,
         eventTypes: validTypes,
         secret,
-        largeSwapUsd: largeSwapUsd ?? 10000,
+        largeSwapUsd:
+          largeSwapUsd ??
+          parseFloat(process.env.LARGE_SWAP_THRESHOLD_USD ?? '10000'),
       },
       select: { id: true, url: true, eventTypes: true, createdAt: true },
     });
@@ -104,6 +106,22 @@ export class WebhooksService {
         createdAt: true,
       },
     });
+  }
+
+  /**
+   * Re-queue failed BullMQ delivery jobs for a webhook owned by the given wallet.
+   * Returns the number of jobs that were retried.
+   */
+  async retryDeliveries(
+    webhookId: string,
+    ownerWallet: string,
+  ): Promise<{ retried: number }> {
+    const webhook = await this.prisma.webhook.findFirst({
+      where: { id: webhookId, ownerWallet },
+    });
+    if (!webhook) return { retried: 0 };
+    const retried = await this.worker.retryFailedDeliveries(webhookId);
+    return { retried };
   }
 
   /**
