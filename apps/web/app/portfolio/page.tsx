@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { useWalletContext } from '@/context/WalletContext';
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { PositionCard } from '@/components/PositionCard';
+import { WalletButton } from '@/components/WalletButton';
 import { API_BASE, SWYFT_NETWORK_PASSPHRASE } from '@/lib/constants';
 import { signTransaction } from '@stellar/freighter-api';
 import { buildCollectTx } from '@swyft/sdk';
@@ -24,12 +25,6 @@ export default function PortfolioPage() {
   const [showClosed, setShowClosed] = useState(false);
   const [collectingId, setCollectingId] = useState<string | null>(null);
 
-  // Redirect if no wallet connected
-  useEffect(() => {
-    if (address === null && !loading) {
-      router.replace('/');
-    }
-  }, [address, loading, router]);
 
   const handleCollectFees = useCallback(
     async (positionId: string) => {
@@ -143,6 +138,11 @@ export default function PortfolioPage() {
       {/* Empty state */}
       {!loading && positions.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
+          {!address && (
+            <div className="mb-4">
+              <WalletButton />
+            </div>
+          )}
           {showClosed ? (
             <>
               <p className="text-sm text-zinc-500">You have no positions yet.</p>

@@ -49,10 +49,13 @@ export class IndexerMonitorService implements OnModuleInit, OnModuleDestroy {
     ]);
 
     const latestLedger = latestLedgerStr ?? 0;
+    const hasCheckpoint = lastIndexedStr !== null && lastIndexedStr !== undefined;
     const lastIndexedLedger = lastIndexedStr ?? 0;
-    const lagLedgers = Math.max(0, latestLedger - lastIndexedLedger);
+    const lagLedgers = hasCheckpoint
+      ? Math.max(0, latestLedger - lastIndexedLedger)
+      : 0;
     const lagSeconds = lagLedgers * LEDGER_CLOSE_SECONDS;
-    const status = this.computeStatus(lagLedgers);
+    const status = this.computeStatus(lagLedgers, hasCheckpoint);
 
     return { lastIndexedLedger, latestLedger, lagLedgers, lagSeconds, status };
   }
@@ -76,7 +79,8 @@ export class IndexerMonitorService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private computeStatus(lagLedgers: number): IndexerStatus {
+  private computeStatus(lagLedgers: number, hasCheckpoint: boolean): IndexerStatus {
+    if (!hasCheckpoint) return 'healthy';
     if (lagLedgers < 10) return 'healthy';
     if (lagLedgers <= 50) return 'degraded';
     return 'critical';

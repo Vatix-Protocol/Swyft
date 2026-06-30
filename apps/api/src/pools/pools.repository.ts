@@ -21,48 +21,18 @@ export class PoolsRepository {
 
   async listActivePools(query: PoolListQuery): Promise<PoolListResult> {
     const search = query.search?.trim().toLowerCase();
-    const token0 = query.token0?.trim();
-    const token1 = query.token1?.trim();
 
-    let where: Parameters<typeof this.prisma.pool.findMany>[0]['where'];
-
-    if (token0 && token1) {
-      where = {
-        OR: [
-          {
-            token0Address: { equals: token0, mode: 'insensitive' },
-            token1Address: { equals: token1, mode: 'insensitive' },
-          },
-          {
-            token0Address: { equals: token1, mode: 'insensitive' },
-            token1Address: { equals: token0, mode: 'insensitive' },
-          },
-        ],
-      };
-    } else if (token0) {
-      where = {
-        OR: [
-          { token0Address: { equals: token0, mode: 'insensitive' } },
-          { token1Address: { equals: token0, mode: 'insensitive' } },
-        ],
-      };
-    } else if (token1) {
-      where = {
-        OR: [
-          { token0Address: { equals: token1, mode: 'insensitive' } },
-          { token1Address: { equals: token1, mode: 'insensitive' } },
-        ],
-      };
-    } else if (search) {
-      where = {
-        OR: [
-          { token0Address: { contains: search, mode: 'insensitive' } },
-          { token1Address: { contains: search, mode: 'insensitive' } },
-        ],
-      };
-    }
-
-    const pools = await this.prisma.pool.findMany({ where });
+    const pools = await this.prisma.pool.findMany({
+      where: search
+        ? {
+            OR: [
+              { id: { contains: search, mode: 'insensitive' } },
+              { token0Address: { contains: search, mode: 'insensitive' } },
+              { token1Address: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : undefined,
+    });
     const snapshots = pools.map((pool) => this.toSnapshot(pool));
     const sorted = snapshots.sort((a, b) => {
       if (query.orderBy === 'volume') return b.volume24h - a.volume24h;

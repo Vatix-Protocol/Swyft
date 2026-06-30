@@ -83,6 +83,62 @@ describe('buildSwapTx', () => {
     expect(tx1.xdr).not.toBe(tx2.xdr);
   });
 
+  it('produces consistent XDR hash for identical parameters', () => {
+    const tx1 = buildSwapTx(validParams);
+    const tx2 = buildSwapTx(validParams);
+    const hash1 = Buffer.from(tx1.xdr, 'base64').toString('hex');
+    const hash2 = Buffer.from(tx2.xdr, 'base64').toString('hex');
+    expect(hash1).toBe(hash2);
+  });
+
+  it('produces different XDR hash for different poolId', () => {
+    const tx1 = buildSwapTx(validParams);
+    const tx2 = buildSwapTx({ ...validParams, poolId: toStellarAddress('CPOOL999999999999999999999999999999999999999999999999999') });
+    const hash1 = Buffer.from(tx1.xdr, 'base64').toString('hex');
+    const hash2 = Buffer.from(tx2.xdr, 'base64').toString('hex');
+    expect(hash1).not.toBe(hash2);
+  });
+
+  it('produces different XDR hash for different tokenInId', () => {
+    const tx1 = buildSwapTx(validParams);
+    const tx2 = buildSwapTx({ ...validParams, tokenInId: toStellarAddress('CTOKENIN999999999999999999999999999999999999999999999999') });
+    const hash1 = Buffer.from(tx1.xdr, 'base64').toString('hex');
+    const hash2 = Buffer.from(tx2.xdr, 'base64').toString('hex');
+    expect(hash1).not.toBe(hash2);
+  });
+
+  it('produces different XDR hash for different tokenOutId', () => {
+    const tx1 = buildSwapTx(validParams);
+    const tx2 = buildSwapTx({ ...validParams, tokenOutId: toStellarAddress('CTOKENOUT9999999999999999999999999999999999999999999999') });
+    const hash1 = Buffer.from(tx1.xdr, 'base64').toString('hex');
+    const hash2 = Buffer.from(tx2.xdr, 'base64').toString('hex');
+    expect(hash1).not.toBe(hash2);
+  });
+
+  it('produces different XDR hash for different minimumReceived', () => {
+    const tx1 = buildSwapTx(validParams);
+    const tx2 = buildSwapTx({ ...validParams, minimumReceived: toRawAmount('980000') });
+    const hash1 = Buffer.from(tx1.xdr, 'base64').toString('hex');
+    const hash2 = Buffer.from(tx2.xdr, 'base64').toString('hex');
+    expect(hash1).not.toBe(hash2);
+  });
+
+  it('produces different XDR hash for different ownerAddress', () => {
+    const tx1 = buildSwapTx(validParams);
+    const tx2 = buildSwapTx({ ...validParams, ownerAddress: toStellarAddress('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2') });
+    const hash1 = Buffer.from(tx1.xdr, 'base64').toString('hex');
+    const hash2 = Buffer.from(tx2.xdr, 'base64').toString('hex');
+    expect(hash1).not.toBe(hash2);
+  });
+
+  it('produces different XDR hash for different slippageBps', () => {
+    const tx1 = buildSwapTx({ ...validParams, slippageBps: 50 });
+    const tx2 = buildSwapTx({ ...validParams, slippageBps: 100 });
+    const hash1 = Buffer.from(tx1.xdr, 'base64').toString('hex');
+    const hash2 = Buffer.from(tx2.xdr, 'base64').toString('hex');
+    expect(hash1).not.toBe(hash2);
+  });
+
   it('throws when poolId is empty', () => {
     expect(() =>
       buildSwapTx({
@@ -120,6 +176,38 @@ describe('buildSwapTx', () => {
         ownerAddress: OWNER,
       })
     ).toThrow();
+  });
+
+  it('accepts valid slippageBps parameter', () => {
+    const tx = buildSwapTx({ ...validParams, slippageBps: 50 });
+    expect(tx.type).toBe('swap');
+  });
+
+  it('throws SwapValidationError for negative slippageBps', () => {
+    expect(() => buildSwapTx({ ...validParams, slippageBps: -10 })).toThrow(
+      SwapValidationError
+    );
+  });
+
+  it('throws SwapValidationError for slippageBps > 10000', () => {
+    expect(() => buildSwapTx({ ...validParams, slippageBps: 10001 })).toThrow(
+      SwapValidationError
+    );
+  });
+
+  it('accepts slippageBps of 0', () => {
+    const tx = buildSwapTx({ ...validParams, slippageBps: 0 });
+    expect(tx.type).toBe('swap');
+  });
+
+  it('accepts slippageBps of 10000 (100%)', () => {
+    const tx = buildSwapTx({ ...validParams, slippageBps: 10000 });
+    expect(tx.type).toBe('swap');
+  });
+
+  it('works without slippageBps parameter (defaults to undefined)', () => {
+    const tx = buildSwapTx(validParams);
+    expect(tx.type).toBe('swap');
   });
 });
 
