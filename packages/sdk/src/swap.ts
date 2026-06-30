@@ -1,4 +1,5 @@
 import {
+  Account,
   Contract,
   Keypair,
   TransactionBuilder,
@@ -180,10 +181,7 @@ export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
     const swapOp = contract.call('swap', tokenInScVal, tokenOutScVal, amountInScVal, minOutScVal);
 
     const sourceKeypair = Keypair.random();
-    const sourceAccount = {
-      accountId: sourceKeypair.publicKey(),
-      sequence: '0',
-    };
+    const sourceAccount = new Account(sourceKeypair.publicKey(), "0");
 
     const txBuilder = new TransactionBuilder(sourceAccount, {
       fee: "100000",
