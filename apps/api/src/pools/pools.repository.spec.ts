@@ -62,6 +62,21 @@ describe('PoolsRepository', () => {
     expect(prisma.pool.findMany).toHaveBeenCalledWith({ where: undefined });
   });
 
+  it('breaks ties on equal tvl deterministically by id', async () => {
+    prisma.pool.findMany.mockResolvedValue([
+      makePool({ id: 'pool-b', tvl: '100' }),
+      makePool({ id: 'pool-a', tvl: '100' }),
+    ]);
+
+    const result = await repository.listActivePools({
+      page: 1,
+      limit: 10,
+      orderBy: 'tvl',
+    });
+
+    expect(result.items.map((p) => p.id)).toEqual(['pool-a', 'pool-b']);
+  });
+
   it('uses a case-insensitive database search for token addresses', async () => {
     prisma.pool.findMany.mockResolvedValue([]);
 

@@ -1,12 +1,51 @@
 {
   "name": "@swyft/sdk",
   "version": "0.1.0",
-  "private": true,
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "description": "JavaScript/TypeScript SDK for interacting with the Swyft concentrated-liquidity DEX on Stellar Soroban",
+  "license": "MIT",
+  "keywords": [
+    "swyft",
+    "stellar",
+    "soroban",
+    "defi",
+    "amm",
+    "sdk",
+    "swap",
+    "liquidity"
+  ],
+  "homepage": "https://github.com/Vatix-Protocol/Swyft#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Vatix-Protocol/Swyft.git",
+    "directory": "packages/sdk"
+  },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
+    "build": "tsup",
+    "build:check": "tsc --noEmit",
+    "clean": "rimraf dist",
     "test": "jest",
-    "test:cov": "jest --coverage"
+    "test:cov": "jest --coverage",
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^13.1.0"
@@ -14,7 +53,9 @@
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "jest": "^30.0.0",
+    "rimraf": "^6.0.1",
     "ts-jest": "^29.2.5",
+    "tsup": "^8.4.0",
     "typescript": "^5"
   },
   "jest": {

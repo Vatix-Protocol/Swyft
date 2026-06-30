@@ -1,3 +1,26 @@
+import { createHmac, timingSafeEqual } from 'crypto';
+
+/**
+ * Verify that a received webhook payload matches the HMAC-SHA256 signature
+ * sent in the `X-Swyft-Signature` header. Returns false for any invalid input.
+ */
+export function verifyWebhookSignature(
+  body: string,
+  signature: string,
+  secret: string,
+): boolean {
+  if (!signature || !secret) return false;
+  try {
+    const expected = createHmac('sha256', secret).update(body).digest('hex');
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expBuf = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length) return false;
+    return timingSafeEqual(sigBuf, expBuf);
+  } catch {
+    return false;
+  }
+}
+
 export const WEBHOOK_EVENTS = [
   'pool.created',
   'swap',

@@ -63,6 +63,11 @@ export class CandlesWorker implements OnModuleInit, OnModuleDestroy {
       existing.map((j) => this.queue.removeRepeatableByKey(j.key)),
     );
 
+    // Backfill in schedule order so 1h candles have their 5m buckets ready.
+    for (const { interval } of SCHEDULES) {
+      await this.service.backfill(interval);
+    }
+
     for (const { interval, cron } of SCHEDULES) {
       await this.queue.add(
         interval,
