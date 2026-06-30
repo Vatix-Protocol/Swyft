@@ -10,11 +10,18 @@ export interface PoolSelectorProps {
 }
 
 export function PoolSelector({ selected, onSelect }: PoolSelectorProps) {
-  const { pools, loading } = usePools();
+  const { pools, loading, error, isStale } = usePools();
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Select pool</p>
+      <div className="flex items-center gap-2">
+        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Select pool</p>
+        {isStale && !loading && (
+          <span className="text-xs text-amber-600 dark:text-amber-400" title="Showing cached/mock data">
+            (cached)
+          </span>
+        )}
+      </div>
       {loading ? (
         <div className="flex gap-2">
           {[1, 2, 3].map((i) => (
@@ -24,6 +31,8 @@ export function PoolSelector({ selected, onSelect }: PoolSelectorProps) {
             />
           ))}
         </div>
+      ) : error ? (
+        <p className="text-sm text-red-500 dark:text-red-400">Failed to load pools. Showing cached data.</p>
       ) : (
         <div className="flex flex-col gap-2">
           {pools.map((pool) => {

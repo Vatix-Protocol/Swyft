@@ -1,4 +1,4 @@
-import { Contract, Keypair, TransactionBuilder, nativeToScVal } from "@stellar/stellar-sdk";
+import { Account, Contract, Keypair, TransactionBuilder, nativeToScVal } from "@stellar/stellar-sdk";
 import { config } from "./config";
 
 export interface BurnTxParams {
@@ -89,10 +89,7 @@ export function buildBurnTx(params: BurnTxParams): BurnUnsignedTx {
   const burnOp = contract.call("remove_liquidity", ownerScVal, positionIdScVal, liquidityToRemoveScVal);
 
   const sourceKeypair = Keypair.random();
-  const sourceAccount = {
-    accountId: sourceKeypair.publicKey(),
-    sequence: "0",
-  };
+  const sourceAccount = new Account(sourceKeypair.publicKey(), "0");
 
   const txBuilder = new TransactionBuilder(sourceAccount, {
     fee: "100000",
@@ -129,10 +126,7 @@ export function buildCollectTx(params: CollectTxParams): CollectUnsignedTx {
   const collectOp = contract.call("collect", ownerScVal, positionIdScVal);
 
   const sourceKeypair = Keypair.random();
-  const sourceAccount = {
-    accountId: sourceKeypair.publicKey(),
-    sequence: "0",
-  };
+  const sourceAccount = new Account(sourceKeypair.publicKey(), "0");
 
   const txBuilder = new TransactionBuilder(sourceAccount, {
     fee: "100000",

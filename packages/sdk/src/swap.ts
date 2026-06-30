@@ -1,4 +1,5 @@
 import {
+  Account,
   Contract,
   Keypair,
   TransactionBuilder,
@@ -68,6 +69,8 @@ export interface SwapTxParams {
   readonly minimumReceived: RawAmount;
   /** Stellar account address of the transaction submitter / recipient. */
   readonly ownerAddress: StellarAddress;
+  /** Slippage tolerance in basis points (e.g., 50 = 0.5%). Defaults to 50. */
+  readonly slippageBps?: number;
 }
 
 /**
@@ -150,6 +153,14 @@ export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
       `Invalid minimumReceived: must be a positive number. Got: ${params.minimumReceived}`
     );
   }
+  if (params.slippageBps !== undefined) {
+    const slippage = params.slippageBps;
+    if (typeof slippage !== 'number' || slippage < 0 || slippage > 10000) {
+      throw new SwapValidationError(
+        `Invalid slippageBps: must be between 0 and 10000. Got: ${slippage}`
+      );
+    }
+  }
 
   try {
     const contract = new Contract(params.poolId);
@@ -170,10 +181,7 @@ export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
     const swapOp = contract.call('swap', tokenInScVal, tokenOutScVal, amountInScVal, minOutScVal);
 
     const sourceKeypair = Keypair.random();
-    const sourceAccount = {
-      accountId: sourceKeypair.publicKey(),
-      sequence: '0',
-    };
+    const sourceAccount = new Account(sourceKeypair.publicKey(), "0");
 
     const txBuilder = new TransactionBuilder(sourceAccount, {
       fee: "100000",

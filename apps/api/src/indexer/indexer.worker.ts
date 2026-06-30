@@ -6,10 +6,10 @@ import {
 } from '@nestjs/common';
 import { Worker, Job, QueueEvents } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
-import { CacheService } from '../cache/cache.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
-import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
+import { IndexerCursorService } from './indexer-cursor.service';
+import { IndexerDeadLetterService } from './indexer-dead-letter.service';
 import {
   QUEUE_NAMES,
   makeQueueOptions,
@@ -39,9 +39,10 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
   private _isReady = false;
 
   constructor(
-    private readonly cache: CacheService,
     private readonly webhooks: WebhooksService,
     private readonly tokenEnrichment: TokenEnrichmentService,
+    private readonly cursorService: IndexerCursorService,
+    private readonly deadLetterService: IndexerDeadLetterService,
   ) {}
 
   get isLoading(): boolean {
@@ -133,9 +134,32 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
     });
     worker.on('failed', (job, err) => {
       const attempts = job?.attemptsMade ?? 0;
+      const defaultRetries = 3; // From defaultJobOptions
+      const isDeadLettered = attempts >= defaultRetries;
+
       this.logger.warn(
         `failed queue=${queueName} jobId=${job?.id} attempt=${attempts} err=${err.message}`,
       );
+
+      // Record to DLQ if max retries exceeded
+      if (isDeadLettered && job) {
+        const eventId =
+          (job.data as Record<string, unknown>)?.eventId || 'unknown';
+        this.deadLetterService
+          .recordDeadLetter({
+            jobId: job.id || 'unknown',
+            queueName,
+            eventId: String(eventId),
+            data: job.data as Record<string, unknown>,
+            error: err.message,
+            attemptsMade: attempts,
+          })
+          .catch((dlErr) => {
+            this.logger.error(
+              `Failed to record DLQ entry: ${(dlErr as Error).message}`,
+            );
+          });
+      }
     });
 
     return worker;
@@ -374,10 +398,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const advanced = await this.cache.setMaxNumber(
-      LAST_INDEXED_LEDGER_KEY,
-      ledger,
-    );
+    const advanced = await this.cursorService.advanceLedger(ledger);
     if (!advanced) {
       this.logger.debug(
         `Ledger checkpoint unchanged or unavailable for job ${jobId ?? 'unknown'} ledger=${ledger}`,
