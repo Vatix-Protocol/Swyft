@@ -45,6 +45,33 @@ describe('PoolsService', () => {
       expect(cache.set).toHaveBeenCalledTimes(1);
     });
 
+    it('passes token0 and token1 filter params to repository', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({
+        page: 1,
+        limit: 10,
+        token0: 'USDC-addr',
+        token1: 'XLM-addr',
+      });
+
+      expect(repo.listActivePools).toHaveBeenCalledWith(
+        expect.objectContaining({ token0: 'USDC-addr', token1: 'XLM-addr' }),
+      );
+    });
+
+    it('includes token0/token1 in cache key to isolate pair results', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({ page: 1, limit: 10, token0: 'USDC-addr' });
+
+      expect(cache.get).toHaveBeenCalledWith(
+        expect.stringContaining('token0=USDC-addr'),
+      );
+    });
+
     it('returns cached result and skips repository on cache hit', async () => {
       const cached = {
         items: [],

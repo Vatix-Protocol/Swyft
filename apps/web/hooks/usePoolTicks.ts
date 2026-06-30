@@ -67,19 +67,35 @@ export function usePoolTicks(poolId: string | null) {
 
 export function usePools() {
   const [pools, setPools] = useState<PoolDetail[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
-    fetch(`${API_BASE}/pools?limit=50&orderBy=tvl`)
-      .then((r) => r.json())
-      .then((data: { items?: PoolDetail[] }) => {
-        if (!cancelled) setPools(data.items ?? []);
+    fetch(`${API_BASE}/pools?limit=50&orderBy=tvl`, { cache: 'no-store' })
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to load pools: HTTP ${r.status}`);
+        return r.json();
       })
-      .catch(() => {
-        if (!cancelled) setPools(MOCK_POOLS);
+      .then((data: unknown) => {
+        if (!cancelled) {
+          if (!data || typeof data !== 'object') {
+            throw new Error('Invalid response format');
+          }
+          setPools(((data as { items?: PoolDetail[] }).items ?? []));
+          setLastUpdated(Date.now());
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          const error = err instanceof Error ? err : new Error('Failed to load pools');
+          setError(error);
+          setPools(MOCK_POOLS);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -90,7 +106,9 @@ export function usePools() {
     };
   }, []);
 
-  return { pools, loading };
+  const isStale = lastUpdated === null;
+
+  return { pools, loading, error, isStale };
 }
 
 function generateSyntheticTicks(): TickData[] {

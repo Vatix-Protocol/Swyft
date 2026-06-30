@@ -1,8 +1,11 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { AnalyticsService } from './analytics.service';
 import { InternalKeyGuard } from './internal-key.guard';
 import { TimeSeriesQueryDto } from './dto/analytics-query.dto';
+import { SWAGGER_TAGS } from '../swagger.constants';
 
+@ApiTags(SWAGGER_TAGS.ADMIN)
 @Controller('admin/analytics')
 @UseGuards(InternalKeyGuard)
 export class AnalyticsController {
