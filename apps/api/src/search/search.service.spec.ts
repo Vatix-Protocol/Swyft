@@ -59,6 +59,20 @@ describe('SearchService', () => {
     expect(tokenSql).toContain('WHEN "name" ILIKE $3 THEN 2');
   });
 
+  it('full-text searches the token symbol via to_tsvector/websearch_to_tsquery', async () => {
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const service = new SearchService(prisma as never);
+
+    await service.search('usdc');
+
+    const tokenSql = prisma.$queryRawUnsafe.mock.calls[0][0] as string;
+    const tokenArgs = prisma.$queryRawUnsafe.mock.calls[0].slice(1);
+    expect(tokenSql).toContain(
+      `to_tsvector('simple', "symbol") @@ websearch_to_tsquery('simple', $4)`,
+    );
+    expect(tokenArgs).toEqual(['usdc', 'usdc%', '%usdc%', 'usdc']);
+  });
+
   it('returns empty arrays when no matches are found', async () => {
     prisma.$queryRawUnsafe.mockResolvedValue([]);
     const service = new SearchService(prisma as never);

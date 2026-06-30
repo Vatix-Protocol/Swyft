@@ -35,9 +35,14 @@ export class PoolsRepository {
     });
     const snapshots = pools.map((pool) => this.toSnapshot(pool));
     const sorted = snapshots.sort((a, b) => {
-      if (query.orderBy === 'volume') return b.volume24h - a.volume24h;
-      if (query.orderBy === 'apr') return b.feeApr - a.feeApr;
-      return b.tvl - a.tvl;
+      const primary =
+        query.orderBy === 'volume'
+          ? b.volume24h - a.volume24h
+          : query.orderBy === 'apr'
+            ? b.feeApr - a.feeApr
+            : b.tvl - a.tvl;
+      // Tie-break deterministically so pagination is stable across requests.
+      return primary !== 0 ? primary : a.id.localeCompare(b.id);
     });
 
     const offset = (query.page - 1) * query.limit;
