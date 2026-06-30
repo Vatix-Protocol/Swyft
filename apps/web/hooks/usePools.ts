@@ -32,7 +32,7 @@ interface UsePoolsParams {
 }
 
 export function usePools({ page, orderBy, search }: UsePoolsParams) {
-  return useQuery<PoolsResponse>({
+  const query = useQuery<PoolsResponse>({
     queryKey: ['pools', page, orderBy, search],
     queryFn: async () => {
       const params = new URLSearchParams({
@@ -45,7 +45,11 @@ export function usePools({ page, orderBy, search }: UsePoolsParams) {
       if (!res.ok) throw new Error('Failed to fetch pools');
       return res.json();
     },
-    refetchInterval: 30_000,
     placeholderData: (prev) => prev,
+    refetchInterval: 30_000,
   });
+
+  const isStale = query.data === undefined && !query.isLoading;
+
+  return { ...query, isStale };
 }
