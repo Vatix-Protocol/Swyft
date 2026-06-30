@@ -104,6 +104,7 @@ describe('AppModule — public routes smoke test', () => {
 
     app = module.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
+    app.setGlobalPrefix('v1', { exclude: ['health', 'docs', 'docs-json', '/'] });
     await app.init();
   });
 
@@ -117,21 +118,21 @@ describe('AppModule — public routes smoke test', () => {
   it('GET /health returns 200', () =>
     request(app.getHttpServer()).get('/health').expect(200));
 
-  it('GET /pools returns 200', () =>
-    request(app.getHttpServer()).get('/pools').expect(200));
+  it('GET /v1/pools returns 200', () =>
+    request(app.getHttpServer()).get('/v1/pools').expect(200));
 
-  it('GET /swaps returns 200', () =>
-    request(app.getHttpServer()).get('/swaps').expect(200));
+  it('GET /v1/swaps returns 200', () =>
+    request(app.getHttpServer()).get('/v1/swaps').expect(200));
 
-  it('GET /tokens returns 200', () =>
-    request(app.getHttpServer()).get('/tokens').expect(200));
+  it('GET /v1/tokens returns 200', () =>
+    request(app.getHttpServer()).get('/v1/tokens').expect(200));
 
-  it('GET /search returns 200', () =>
-    request(app.getHttpServer()).get('/search').expect(200));
+  it('GET /v1/search returns 200', () =>
+    request(app.getHttpServer()).get('/v1/search').expect(200));
 
-  it('GET /indexer/status returns 200', () =>
-    request(app.getHttpServer()).get('/indexer/status').expect(200));
+  it('GET /v1/indexer/status returns 200', () =>
+    request(app.getHttpServer()).get('/v1/indexer/status').expect(200));
 
-  it('POST /auth/nonce returns 200 (no body)', () =>
-    request(app.getHttpServer()).post('/auth/nonce').expect(200));
+  it('POST /v1/auth/nonce returns 200 (no body)', () =>
+    request(app.getHttpServer()).post('/v1/auth/nonce').expect(200));
 });

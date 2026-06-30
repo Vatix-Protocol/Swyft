@@ -7,6 +7,11 @@ const INTERVAL_MS: Record<CandleInterval, number> = {
   '1m': 60_000,
   '5m': 300_000,
   '1h': 3_600_000,
+  /**
+   * 1-day candle: covers the UTC-midnight-to-midnight window of the previous
+   * calendar day. The BullMQ cron `0 0 * * *` fires at UTC midnight so the
+   * period calculation always resolves to yesterday's window.
+   */
   '1d': 86_400_000,
 };
 

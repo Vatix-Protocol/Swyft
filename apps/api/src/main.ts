@@ -28,6 +28,14 @@ async function bootstrap() {
   app.useWebSocketAdapter(new WsAdapter(app));
   app.enableShutdownHooks();
 
+  // Version all public REST routes under /v1 (e.g. GET /v1/pools).
+  // WebSocket, /health, and /docs remain at root — they are not affected
+  // because they are registered before the prefix takes effect or are
+  // excluded via NestJS route exclusion patterns.
+  app.setGlobalPrefix('v1', {
+    exclude: ['health', 'docs', 'docs-json', '/'],
+  });
+
   // Compression — applied globally, skips WebSocket and /health
   app.use(new CompressionMiddleware().use.bind(new CompressionMiddleware()));
 

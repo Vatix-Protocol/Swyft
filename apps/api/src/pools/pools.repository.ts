@@ -26,6 +26,7 @@ export class PoolsRepository {
       where: search
         ? {
             OR: [
+              { id: { contains: search, mode: 'insensitive' } },
               { token0Address: { contains: search, mode: 'insensitive' } },
               { token1Address: { contains: search, mode: 'insensitive' } },
             ],
