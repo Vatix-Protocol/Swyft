@@ -5,10 +5,13 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Worker, Job } from 'bullmq';
-import { Position, PrismaClient, Swap } from '@prisma/client';
-import { CacheService } from '../cache/cache.service';
+import { PrismaClient, Swap } from '@prisma/client';
+import { CacheService, TTL } from '../cache/cache.service';
 import { makeQueueOptions } from '../indexer/queues';
 import { STATS_QUEUE_NAME } from './stats.queue';
+
+/** Cache key prefix for per-pool stats written by StatsWorker. */
+export const STATS_CACHE_KEY = (poolId: string) => `stats:pool:${poolId}`;
 
 @Injectable()
 export class StatsWorker implements OnModuleInit, OnModuleDestroy {
@@ -92,6 +95,12 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
             feeApr: String(feeApr),
           },
         });
+
+        await this.cache.set(
+          STATS_CACHE_KEY(pool.id),
+          { tvl, volume24h, volume7d, feeApr, updatedAt: new Date().toISOString() },
+          TTL.STATS,
+        );
 
         updated++;
       } catch (err: unknown) {

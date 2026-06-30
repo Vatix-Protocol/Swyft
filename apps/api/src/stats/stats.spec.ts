@@ -21,8 +21,6 @@ jest.mock('bullmq', () => ({
   Job: jest.fn(),
 }));
 
-// ─── Prisma mock ──────────────────────────────────────────────────────────────
-
 const mockPools = [
   { id: 'pool-1', token0Address: 'TOKENA', token1Address: 'TOKENB', feeTier: 3000 },
 ];
@@ -64,6 +62,7 @@ import { CacheService } from '../cache/cache.service';
 import { STATS_JOB_NAME } from './stats.queue';
 import { defaultJobOptions } from '../indexer/queues';
 import { Job } from 'bullmq';
+import { STATS_CACHE_KEY } from './stats.worker';
 
 // ─── StatsScheduler (#354) ────────────────────────────────────────────────────
 
@@ -128,7 +127,10 @@ describe('StatsScheduler', () => {
 
 describe('StatsModule', () => {
   let module: TestingModule;
-  const mockCacheService = { get: jest.fn().mockResolvedValue(null) };
+  const mockCacheService = {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -161,7 +163,10 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
   let worker: StatsWorker;
   let module: TestingModule;
   let processJob: (job: Job) => Promise<void>;
-  const mockCacheService = { get: jest.fn().mockResolvedValue(null) };
+  const mockCacheService = {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
