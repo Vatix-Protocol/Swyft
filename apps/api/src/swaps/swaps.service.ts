@@ -7,6 +7,8 @@ import { SlippageExceededException } from '../request-validation/http.exceptions
 interface SwapResponse {
   id: string;
   poolId: string;
+  /** Normalized "TOKEN0/TOKEN1" label for the trading pair. */
+  tokenPair: string;
   token0Symbol: string;
   token1Symbol: string;
   amount0: string;
@@ -42,7 +44,7 @@ export class SwapsService {
     this._isLoading = true;
     try {
       const normalized: SwapsQuery = {
-        pool: query.pool?.trim() || undefined,
+        poolId: query.poolId?.trim() || undefined,
         wallet: query.wallet?.trim() || undefined,
         page: query.page ?? 1,
         limit: query.limit ?? 20,
@@ -75,6 +77,7 @@ export class SwapsService {
     return {
       id: swap.id,
       poolId: swap.poolId,
+      tokenPair: `${swap.token0Symbol}/${swap.token1Symbol}`,
       token0Symbol: swap.token0Symbol,
       token1Symbol: swap.token1Symbol,
       amount0: swap.amount0,

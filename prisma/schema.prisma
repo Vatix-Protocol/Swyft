@@ -267,3 +267,20 @@ model WebhookAuditLog {
   @@index([ownerWallet])
   @@map("webhook_audit_log")
 }
+
+/// Dead letter queue for failed indexer events that exceeded max retries
+model IndexerDeadLetter {
+  id           String   @id @default(cuid())
+  jobId        String   @unique
+  queueName    String
+  eventId      String
+  data         String   // JSON stringified job data
+  error        String   // Last error message
+  attemptsMade Int      @default(0)
+  createdAt    DateTime @default(now())
+  recoveredAt  DateTime?
+
+  @@index([queueName])
+  @@index([createdAt])
+  @@map("indexer_dead_letter")
+}

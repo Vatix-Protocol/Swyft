@@ -7,6 +7,12 @@ import { SwapCard } from './SwapCard';
 const mockExecute = vi.fn();
 const mockReset = vi.fn();
 
+// These variables are closed over by the mock factory; reassigning them
+// lets individual test groups change the returned state without re-mocking.
+let mockStatus: string = 'idle';
+let mockError: string | null = null;
+let mockTxHash: string | null = null;
+
 vi.mock('../hooks/useMevProtection', () => ({
   useMevProtection: () => ({
     enabled: false,
@@ -16,9 +22,15 @@ vi.mock('../hooks/useMevProtection', () => ({
 
 vi.mock('../hooks/useSwapExecution', () => ({
   useSwapExecution: () => ({
-    status: 'idle',
-    error: null,
-    txHash: null,
+    get status() {
+      return mockStatus;
+    },
+    get error() {
+      return mockError;
+    },
+    get txHash() {
+      return mockTxHash;
+    },
     execute: mockExecute,
     reset: mockReset,
   }),
@@ -35,7 +47,7 @@ function renderSwapCard() {
 }
 
 function getSwapButton() {
-  return screen.getByRole('button', { name: /^Swap|Swapping\.\.\.|Close$/ });
+  return screen.getByRole('button', { name: /^(?:Swap|Swapping\.\.\.|Close)$/ });
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -43,6 +55,9 @@ function getSwapButton() {
 describe('SwapCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStatus = 'idle';
+    mockError = null;
+    mockTxHash = null;
   });
 
   describe('rendering', () => {
@@ -71,13 +86,9 @@ describe('SwapCard', () => {
 
   describe('loading state', () => {
     beforeEach(() => {
-      vi.mocked(require('../hooks/useSwapExecution').useSwapExecution).mockReturnValue({
-        status: 'signing',
-        error: null,
-        txHash: null,
-        execute: mockExecute,
-        reset: mockReset,
-      } as any);
+      mockStatus = 'signing';
+      mockError = null;
+      mockTxHash = null;
     });
 
     it('disables submit button while loading', () => {
@@ -100,13 +111,9 @@ describe('SwapCard', () => {
 
   describe('error state', () => {
     beforeEach(() => {
-      vi.mocked(require('../hooks/useSwapExecution').useSwapExecution).mockReturnValue({
-        status: 'error',
-        error: 'slippage',
-        txHash: null,
-        execute: mockExecute,
-        reset: mockReset,
-      } as any);
+      mockStatus = 'error';
+      mockError = 'slippage';
+      mockTxHash = null;
     });
 
     it('shows slippage error message', () => {
@@ -128,14 +135,7 @@ describe('SwapCard', () => {
     });
 
     it('shows network error for network failures', () => {
-      vi.mocked(require('../hooks/useSwapExecution').useSwapExecution).mockReturnValue({
-        status: 'error',
-        error: 'network',
-        txHash: null,
-        execute: mockExecute,
-        reset: mockReset,
-      } as any);
-
+      mockError = 'network';
       renderSwapCard();
       expect(screen.getByText(/Network error.*could not be submitted/)).toBeInTheDocument();
     });
@@ -143,19 +143,17 @@ describe('SwapCard', () => {
 
   describe('success state', () => {
     beforeEach(() => {
-      vi.mocked(require('../hooks/useSwapExecution').useSwapExecution).mockReturnValue({
-        status: 'success',
-        error: null,
-        txHash: '0x1234567890abcdef',
-        execute: mockExecute,
-        reset: mockReset,
-      } as any);
+      mockStatus = 'success';
+      mockError = null;
+      mockTxHash = '0x1234567890abcdef';
     });
 
     it('shows success message with tx hash', () => {
       renderSwapCard();
       expect(screen.getByText('Transaction submitted successfully')).toBeInTheDocument();
-      expect(screen.getByText(/1234567890.*abcdef/)).toBeInTheDocument();
+      // The tx hash is rendered as "0x123456…90abcdef" split across DOM text nodes
+      expect(screen.getByText(/0x123456/)).toBeInTheDocument();
+      expect(screen.getByText(/90abcdef/)).toBeInTheDocument();
     });
 
     it('changes title to "Swap complete" on success', () => {

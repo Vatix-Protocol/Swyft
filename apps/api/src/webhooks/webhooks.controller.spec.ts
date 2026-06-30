@@ -5,6 +5,7 @@ import {
   WebhookEventType,
   WEBHOOK_EVENTS,
   WEBHOOK_PAYLOAD_EXAMPLES,
+  verifyWebhookSignature,
 } from './webhook.types';
 
 const mockService = {
@@ -32,6 +33,7 @@ const mockService = {
       createdAt: new Date(),
     },
   ]),
+  retryDeliveries: jest.fn().mockResolvedValue({ retried: 0 }),
 };
 
 describe('WebhooksController', () => {
@@ -94,6 +96,69 @@ describe('WebhooksController', () => {
       'wh-1',
       'GTEST_WALLET_ADDRESS',
     );
+  });
+
+  // ── retryDeliveries ───────────────────────────────────────────────────────
+
+  describe('retryDeliveries', () => {
+    it('delegates to service.retryDeliveries with the webhook id and wallet', async () => {
+      mockService.retryDeliveries.mockResolvedValue({ retried: 3 });
+      const request = { user: { walletAddress: 'GTEST_WALLET_ADDRESS' } };
+
+      const result = await controller.retryDeliveries('wh-1', request);
+
+      expect(mockService.retryDeliveries).toHaveBeenCalledWith(
+        'wh-1',
+        'GTEST_WALLET_ADDRESS',
+      );
+      expect(result).toEqual({ retried: 3 });
+    });
+
+    it('returns { retried: 0 } when no failed jobs exist', async () => {
+      mockService.retryDeliveries.mockResolvedValue({ retried: 0 });
+      const request = { user: { walletAddress: 'GTEST_WALLET_ADDRESS' } };
+
+      const result = await controller.retryDeliveries('wh-1', request);
+
+      expect(result).toEqual({ retried: 0 });
+    });
+  });
+
+  // ── verifySignature ────────────────────────────────────────────────────────
+
+  describe('verifySignature', () => {
+    it('returns { valid: true } for a correct HMAC signature', () => {
+      const { createHmac } = require('crypto');
+      const secret = 'test-secret';
+      const payload = '{"event":"swap"}';
+      const signature = createHmac('sha256', secret)
+        .update(payload)
+        .digest('hex');
+
+      const result = controller.verifySignature({ payload, signature, secret });
+
+      expect(result).toEqual({ valid: true });
+    });
+
+    it('returns { valid: false } for an incorrect signature', () => {
+      const result = controller.verifySignature({
+        payload: '{"event":"swap"}',
+        signature: 'badsignature00',
+        secret: 'test-secret',
+      });
+
+      expect(result).toEqual({ valid: false });
+    });
+
+    it('uses verifyWebhookSignature from webhook.types', () => {
+      const secret = 'test-secret';
+      const payload = '{"event":"pool.created"}';
+      const { createHmac } = require('crypto');
+      const sig = createHmac('sha256', secret).update(payload).digest('hex');
+
+      expect(verifyWebhookSignature(payload, sig, secret)).toBe(true);
+      expect(verifyWebhookSignature(payload, 'wrong', secret)).toBe(false);
+    });
   });
 
   // ── #409: payload examples ─────────────────────────────────────────────────

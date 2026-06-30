@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { usePoolDetail, type PoolDetail } from '@/hooks/usePoolDetail';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 describe('usePoolDetail', () => {
   const mockPoolDetail: PoolDetail = {
@@ -29,8 +30,17 @@ describe('usePoolDetail', () => {
     recentSwaps: [],
   };
 
+  let queryClient: QueryClient;
+
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
   });
 
   afterEach(() => {
@@ -43,7 +53,11 @@ describe('usePoolDetail', () => {
       json: async () => mockPoolDetail,
     });
 
-    const { result } = renderHook(() => usePoolDetail('pool-123'));
+    const { result } = renderHook(() => usePoolDetail('pool-123'), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    });
 
     await waitFor(() => {
       expect(result.current.isLoading).toBe(false);
@@ -59,7 +73,11 @@ describe('usePoolDetail', () => {
       status: 404,
     });
 
-    const { result } = renderHook(() => usePoolDetail('pool-notfound'));
+    const { result } = renderHook(() => usePoolDetail('pool-notfound'), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    });
 
     await waitFor(() => {
       expect(result.current.isLoading).toBe(false);
@@ -72,9 +90,14 @@ describe('usePoolDetail', () => {
   it('should not fetch if poolId is null', () => {
     global.fetch = vi.fn();
 
-    const { result } = renderHook(() => usePoolDetail(null));
+    const { result } = renderHook(() => usePoolDetail(null), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    });
 
     expect(global.fetch).not.toHaveBeenCalled();
     expect(result.current.isLoading).toBe(false);
   });
 });
+
