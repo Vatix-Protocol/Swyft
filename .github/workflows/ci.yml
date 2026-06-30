@@ -95,6 +95,69 @@ jobs:
           JWT_SECRET: ci-test-secret
           NODE_ENV: test
 
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: swyft_e2e
+        options: >-
+          --health-cmd "pg_isready -U postgres -d swyft_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft_e2e
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Apply database migrations
+        run: pnpm db:migrate:deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft_e2e
+
+      - name: Run E2E tests
+        run: pnpm --filter api test:e2e
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft_e2e
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: ci-e2e-test-secret
+          NODE_ENV: test
+
   build:
     name: Build
     runs-on: ubuntu-latest

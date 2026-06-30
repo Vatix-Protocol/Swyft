@@ -3,6 +3,7 @@ import {
   BadRequestException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TransactionsController } from './transactions.controller';
 import { TransactionsService } from './transactions.service';
 import {
@@ -27,7 +28,10 @@ describe('TransactionsController', () => {
       providers: [
         { provide: TransactionsService, useValue: mockTransactionsService },
       ],
-    }).compile();
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<TransactionsController>(TransactionsController);
     service = module.get(TransactionsService);
