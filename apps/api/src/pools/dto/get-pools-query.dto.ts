@@ -51,4 +51,20 @@ export class GetPoolsQueryDto {
   @IsString()
   @IsOptional()
   search?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter pools where this address is token0 or token1',
+  })
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString()
+  @IsOptional()
+  token0?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter pools where this address is token0 or token1',
+  })
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString()
+  @IsOptional()
+  token1?: string;
 }

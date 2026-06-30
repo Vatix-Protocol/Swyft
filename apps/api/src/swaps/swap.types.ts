@@ -18,7 +18,7 @@ export interface SwapSnapshot {
 }
 
 export interface SwapsQuery {
-  pool?: string;
+  poolId?: string;
   wallet?: string;
   page: number;
   limit: number;

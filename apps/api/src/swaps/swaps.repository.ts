@@ -7,13 +7,13 @@ export class SwapsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async listSwaps(query: SwapsQuery): Promise<SwapsListResult> {
-    const pool = query.pool?.trim();
+    const poolId = query.poolId?.trim();
     const wallet = query.wallet?.trim();
 
     const where: any = {};
 
-    if (pool) {
-      where.poolId = { equals: pool, mode: 'insensitive' };
+    if (poolId) {
+      where.poolId = { equals: poolId, mode: 'insensitive' };
     }
 
     if (wallet) {

@@ -47,6 +47,8 @@ interface RateLimitHit extends RateLimitRule {
  * | `INTERNAL_CANDLE_RATE_LIMIT_PER_MINUTE` | `240` | Per-minute limit for candle endpoints (internal) |
  * | `AUTH_RATE_LIMIT_PER_MINUTE` | `10` | Per-minute limit for auth endpoints (public) |
  * | `INTERNAL_AUTH_RATE_LIMIT_PER_MINUTE` | `60` | Per-minute limit for auth endpoints (internal) |
+ * | `TRANSACTION_RATE_LIMIT_PER_MINUTE` | `20` | Per-minute limit for POST /transactions (public) |
+ * | `INTERNAL_TRANSACTION_RATE_LIMIT_PER_MINUTE` | `120` | Per-minute limit for POST /transactions (internal) |
  * | `INTERNAL_API_KEY` | _(unset)_ | Shared secret sent via `x-internal-key` header |
  */
 @Injectable()
@@ -200,6 +202,16 @@ export class RateLimitMiddleware
       };
     }
 
+    if (req.path === '/transactions' && req.method === 'POST') {
+      return {
+        name: internal ? 'internal-transactions' : 'transactions',
+        limit: internal
+          ? this.envInt('INTERNAL_TRANSACTION_RATE_LIMIT_PER_MINUTE', 120)
+          : this.envInt('TRANSACTION_RATE_LIMIT_PER_MINUTE', 20),
+        windowSeconds: 60,
+      };
+    }
+
     return null;
   }
 
@@ -304,6 +316,7 @@ export class RateLimitMiddleware
       return 'prices-candles';
     }
     if (req.path.startsWith('/auth')) return 'auth';
+    if (req.path === '/transactions') return 'transactions';
     return 'global';
   }
 

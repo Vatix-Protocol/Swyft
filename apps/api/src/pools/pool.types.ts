@@ -18,6 +18,8 @@ export interface PoolListQuery {
   limit: number;
   orderBy: PoolOrderBy;
   search?: string;
+  token0?: string;
+  token1?: string;
 }
 
 export interface PoolListResult {

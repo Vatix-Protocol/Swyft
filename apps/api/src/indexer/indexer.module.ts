@@ -5,6 +5,8 @@ import { createQueue, QUEUE_NAMES } from './queues';
 import { CacheModule } from '../cache/cache.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 import { TokensModule } from '../tokens/tokens.module';
+import { IndexerCursorService } from './indexer-cursor.service';
+import { IndexerDeadLetterService } from './indexer-dead-letter.service';
 
 export const QUEUE_POOL_CREATED = 'QUEUE_POOL_CREATED';
 export const QUEUE_SWAP_PROCESSED = 'QUEUE_SWAP_PROCESSED';
@@ -17,6 +19,8 @@ export const QUEUE_FEES_COLLECTED = 'QUEUE_FEES_COLLECTED';
   controllers: [IndexerController],
   providers: [
     IndexerWorker,
+    IndexerCursorService,
+    IndexerDeadLetterService,
     {
       provide: QUEUE_POOL_CREATED,
       useFactory: () => createQueue(QUEUE_NAMES.POOL_CREATED),
@@ -40,6 +44,7 @@ export const QUEUE_FEES_COLLECTED = 'QUEUE_FEES_COLLECTED';
   ],
   exports: [
     IndexerWorker,
+    IndexerCursorService,
     QUEUE_POOL_CREATED,
     QUEUE_SWAP_PROCESSED,
     QUEUE_POSITION_MINTED,

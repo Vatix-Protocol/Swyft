@@ -60,11 +60,13 @@ export class SearchService {
           lower("address") = lower($1)
           OR "symbol" ILIKE $2
           OR "name" ILIKE $3
+          OR to_tsvector('simple', "symbol") @@ websearch_to_tsquery('simple', $4)
         ORDER BY
           CASE
             WHEN lower("symbol") = lower($1) THEN 0
             WHEN lower("address") = lower($1) THEN 0
             WHEN "symbol" ILIKE $2 THEN 1
+            WHEN to_tsvector('simple', "symbol") @@ websearch_to_tsquery('simple', $4) THEN 1
             WHEN "name" ILIKE $3 THEN 2
             ELSE 3
           END,
@@ -75,6 +77,7 @@ export class SearchService {
       query,
       `${query}%`,
       `%${query}%`,
+      query,
     );
   }
 
