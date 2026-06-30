@@ -38,6 +38,7 @@ const prismaMock = {
   indexerCursor: { findUnique: jest.fn().mockResolvedValue(null) },
   poolCreated: { findMany: emptyList },
   swapProcessed: { findMany: emptyList },
+  $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]),
 };
 
 // Redis / IORedis stub
@@ -95,6 +96,7 @@ describe('AppModule — public routes smoke test', () => {
         set: noop,
         del: noop,
         publish: noop,
+        ping: jest.fn().mockResolvedValue(true),
         setMaxNumber: jest.fn().mockResolvedValue(true),
         subscribe: jest.fn(),
       })
