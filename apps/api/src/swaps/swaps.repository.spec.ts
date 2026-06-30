@@ -79,7 +79,7 @@ describe('SwapsRepository', () => {
     const result = await repository.listSwaps({
       page: 1,
       limit: 10,
-      pool: 'pool-1',
+      poolId: 'pool-1',
       wallet: 'wallet-sender',
     });
 

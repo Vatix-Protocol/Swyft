@@ -16,7 +16,11 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WebhooksService } from './webhooks.service';
-import { WebhookEventType, WEBHOOK_PAYLOAD_EXAMPLES } from './webhook.types';
+import {
+  WebhookEventType,
+  WEBHOOK_PAYLOAD_EXAMPLES,
+  verifyWebhookSignature,
+} from './webhook.types';
 import { SWAGGER_TAGS } from '../swagger.constants';
 
 interface AuthRequest {
@@ -117,6 +121,44 @@ export class WebhooksController {
   @ApiOperation({ summary: 'Webhook CRUD audit log for the authenticated wallet' })
   auditLog(@Request() req: AuthRequest) {
     return this.service.auditLog(req.user.walletAddress);
+  }
+
+  /**
+   * Re-queue all BullMQ-failed delivery jobs for the given webhook.
+   * Only re-queues jobs owned by the authenticated wallet.
+   *
+   * @param id - UUID of the webhook whose failed deliveries to retry.
+   * @returns Count of jobs that were re-queued.
+   */
+  @Post(':id/retry')
+  @ApiOperation({ summary: 'Retry failed deliveries for a webhook' })
+  retryDeliveries(@Param('id') id: string, @Request() req: AuthRequest) {
+    return this.service.retryDeliveries(id, req.user.walletAddress);
+  }
+
+  /**
+   * Verify a webhook payload signature without persisting state.
+   * Clients can use this to confirm the `X-Swyft-Signature` header is valid.
+   *
+   * @returns `{ valid: true }` when the signature matches, `{ valid: false }` otherwise.
+   */
+  @Post('verify-signature')
+  @ApiOperation({ summary: 'Verify an HMAC-SHA256 webhook signature' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['payload', 'signature', 'secret'],
+      properties: {
+        payload: { type: 'string' },
+        signature: { type: 'string' },
+        secret: { type: 'string' },
+      },
+    },
+  })
+  verifySignature(
+    @Body() body: { payload: string; signature: string; secret: string },
+  ) {
+    return { valid: verifyWebhookSignature(body.payload, body.signature, body.secret) };
   }
 
   @Delete(':id')

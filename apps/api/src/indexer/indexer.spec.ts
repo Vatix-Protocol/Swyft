@@ -56,6 +56,12 @@ const mockPrismaClient = {
   positionMinted: { upsert: mockUpsert() },
   positionBurned: { upsert: mockUpsert() },
   feesCollected: { upsert: mockUpsert() },
+  indexerDeadLetter: {
+    upsert: mockUpsert(),
+    findMany: jest.fn().mockResolvedValue([]),
+    update: jest.fn().mockResolvedValue({}),
+    count: jest.fn().mockResolvedValue(0),
+  },
   $transaction: jest.fn((operations: Promise<unknown>[]) =>
     Promise.all(operations),
   ),
@@ -64,6 +70,13 @@ const mockPrismaClient = {
 
 const mockSetMaxNumber = jest.fn().mockResolvedValue(true);
 const mockCacheService = { setMaxNumber: mockSetMaxNumber };
+const mockAdvanceLedger = jest.fn((ledger: number) =>
+  mockSetMaxNumber('indexer:last_ledger', ledger),
+);
+const mockCursorService = { advanceLedger: mockAdvanceLedger };
+const mockDeadLetterService = {
+  recordDeadLetter: jest.fn().mockResolvedValue(undefined),
+};
 
 const mockWebhooksService = {
   dispatch: jest.fn().mockResolvedValue(undefined),
@@ -85,6 +98,8 @@ import { CacheService } from '../cache/cache.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
 import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
+import { IndexerCursorService } from './indexer-cursor.service';
+import { IndexerDeadLetterService } from './indexer-dead-letter.service';
 import {
   IndexerModule,
   QUEUE_POOL_CREATED,
@@ -276,7 +291,12 @@ describe('IndexerWorker', () => {
         IndexerWorker,
         { provide: CacheService, useValue: mockCacheService },
         { provide: WebhooksService, useValue: mockWebhooksService },
-        { provide: TokenEnrichmentService, useValue: mockTokenEnrichmentService },
+        {
+          provide: TokenEnrichmentService,
+          useValue: mockTokenEnrichmentService,
+        },
+        { provide: IndexerCursorService, useValue: mockCursorService },
+        { provide: IndexerDeadLetterService, useValue: mockDeadLetterService },
       ],
     }).compile();
 
@@ -328,6 +348,47 @@ describe('IndexerWorker', () => {
       );
       expect(completedCalls).toHaveLength(Object.keys(QUEUE_NAMES).length);
       expect(failedCalls).toHaveLength(Object.keys(QUEUE_NAMES).length);
+    });
+
+    it('records poison events in the dead letter queue after retries are exhausted', async () => {
+      worker.onModuleInit();
+      const failed = mockWorkerOn.mock.calls.find(
+        (c) => c[0] === 'failed',
+      )?.[1] as
+        | ((job: Job<PoolCreatedJobData>, err: Error) => void)
+        | undefined;
+
+      failed?.(
+        makeJob({
+          eventId: 'evt-poison',
+          poolId: 'pool',
+        } as PoolCreatedJobData) as Job<PoolCreatedJobData>,
+        new Error('poison event'),
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mockDeadLetterService.recordDeadLetter).not.toHaveBeenCalled();
+
+      failed?.(
+        {
+          ...makeJob({
+            eventId: 'evt-poison',
+            poolId: 'pool',
+          } as PoolCreatedJobData),
+          attemptsMade: 3,
+        },
+        new Error('poison event'),
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mockDeadLetterService.recordDeadLetter).toHaveBeenCalledWith(
+        expect.objectContaining({
+          queueName: QUEUE_NAMES.POOL_CREATED,
+          eventId: 'evt-poison',
+          error: 'poison event',
+          attemptsMade: 3,
+        }),
+      );
     });
 
     it('configures stalled-job recovery for a worker crash mid-batch', () => {
@@ -471,6 +532,7 @@ describe('IndexerWorker', () => {
         LAST_INDEXED_LEDGER_KEY,
         12345,
       );
+      expect(mockAdvanceLedger).toHaveBeenCalledWith(12345);
     });
 
     it('dispatches a pool.created webhook after successful write', async () => {
