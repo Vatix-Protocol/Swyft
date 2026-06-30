@@ -5,6 +5,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 import { Horizon } from '@stellar/stellar-sdk';
 import { PriceService, PriceEvent } from '../price/price.service';
@@ -23,6 +24,7 @@ import {
   PositionMintedJobData,
   PositionBurnedJobData,
 } from '../indexer/queues';
+import { STELLAR_CONFIG_KEY, StellarConfig } from '../config/stellar.config';
 
 @Injectable()
 export class HorizonService implements OnModuleInit, OnModuleDestroy {
@@ -35,6 +37,7 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
   private stopped = false;
 
   constructor(
+    private readonly config: ConfigService,
     private readonly priceService: PriceService,
     private readonly poolsService: PoolsService,
     private readonly cache: CacheService,
@@ -48,10 +51,9 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
     @Inject(QUEUE_POSITION_BURNED)
     private readonly positionBurnedQueue: Queue<PositionBurnedJobData>,
   ) {
-    this.server = new Horizon.Server(
-      process.env.HORIZON_URL ?? 'https://horizon-testnet.stellar.org',
-    );
-    this.contractId = process.env.POOL_CONTRACT_ID ?? '';
+    const stellarCfg = this.config.get<StellarConfig>(STELLAR_CONFIG_KEY)!;
+    this.server = new Horizon.Server(stellarCfg.horizonUrl);
+    this.contractId = stellarCfg.poolContractId;
   }
 
   async onModuleInit() {

@@ -4,8 +4,10 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Horizon } from '@stellar/stellar-sdk';
 import { CacheService } from '../cache/cache.service';
+import { STELLAR_CONFIG_KEY, StellarConfig } from '../config/stellar.config';
 
 export const LAST_INDEXED_LEDGER_KEY = 'indexer:last_ledger';
 const LEDGER_CLOSE_SECONDS = 5;
@@ -27,10 +29,12 @@ export class IndexerMonitorService implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private lastStatus: IndexerStatus | null = null;
 
-  constructor(private readonly cache: CacheService) {
-    this.horizon = new Horizon.Server(
-      process.env.HORIZON_URL ?? 'https://horizon-testnet.stellar.org',
-    );
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly cache: CacheService,
+  ) {
+    const stellarCfg = this.configService.get<StellarConfig>(STELLAR_CONFIG_KEY)!;
+    this.horizon = new Horizon.Server(stellarCfg.horizonUrl);
   }
 
   onModuleInit() {
