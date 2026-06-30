@@ -4,9 +4,11 @@ import {
   Headers,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { DbMetricsService } from './db-metrics.service';
 import { IndexerMonitorService } from './indexer-monitor.service';
 
+@ApiTags(SWAGGER_TAGS.INDEXER)
 @Controller('metrics')
 export class MetricsController {
   constructor(
