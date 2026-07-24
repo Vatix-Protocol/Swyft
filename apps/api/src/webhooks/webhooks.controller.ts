@@ -137,6 +137,45 @@ export class WebhooksController {
   }
 
   /**
+   * Send a test ping webhook to verify connectivity.
+   * This endpoint sends a test event to the specified webhook URL
+   * to verify that webhook delivery is working correctly.
+   *
+   * @param id - UUID of the webhook to test
+   * @param req - Authenticated request containing the wallet address
+   * @returns Information about the test ping attempt
+   */
+  @Post(':id/ping')
+  @ApiOperation({ summary: 'Send a test ping webhook to verify connectivity' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        testEventType: {
+          type: 'string',
+          enum: [
+            'pool.created',
+            'swap',
+            'swap.large',
+            'pool.tvl.milestone',
+            'position.minted',
+            'position.burned',
+          ],
+          example: 'swap',
+        },
+      },
+    },
+  })
+  ping(
+    @Param('id') id: string,
+    @Request() req: AuthRequest,
+    @Body() body?: { testEventType?: string },
+  ) {
+    const eventType = body?.testEventType || 'swap';
+    return this.service.ping(id, req.user.walletAddress, eventType);
+  }
+
+  /**
    * Verify a webhook payload signature without persisting state.
    * Clients can use this to confirm the `X-Swyft-Signature` header is valid.
    *

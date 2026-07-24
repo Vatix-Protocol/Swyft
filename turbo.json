@@ -21,6 +21,34 @@
       "dependsOn": ["build"],
       "cache": false,
       "outputs": ["deployments/testnet.json"]
+    },
+    "format": {
+      "cache": false,
+      "outputs": []
+    },
+    "type-check": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "db:generate": {
+      "cache": false,
+      "outputs": []
+    },
+    "db:migrate": {
+      "cache": false,
+      "outputs": []
+    },
+    "contract:test": {
+      "cache": false,
+      "outputs": ["target/**"]
+    },
+    "contract:build": {
+      "cache": false,
+      "outputs": ["target/**"]
+    },
+    "sdk:build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
     }
   },
   "globalEnv": ["DATABASE_URL"]

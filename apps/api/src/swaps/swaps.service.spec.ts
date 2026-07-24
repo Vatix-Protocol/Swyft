@@ -96,4 +96,117 @@ describe('SwapsService', () => {
       );
     });
   });
+
+  describe('snapshot', () => {
+    it('matches snapshot for swap processed response', async () => {
+      repo.listSwaps.mockResolvedValue({
+        items: [
+          makeSnapshot({
+            id: 'swap-test-1',
+            poolId: 'pool-test-1',
+            token0Symbol: 'USDC',
+            token1Symbol: 'XLM',
+            amount0: '150.50',
+            amount1: '-75.25',
+            priceAtSwap: '2.0015',
+            feeAmount: '0.4515',
+            txHash: 'tx-hash-test-123',
+            walletAddress: 'wallet-test-address-abc',
+            timestamp: 1_700_123_456_789,
+          }),
+          makeSnapshot({
+            id: 'swap-test-2',
+            poolId: 'pool-test-2',
+            token0Symbol: 'ETH',
+            token1Symbol: 'USDT',
+            amount0: '1.5',
+            amount1: '-3000.75',
+            priceAtSwap: '2000.50',
+            feeAmount: '4.50',
+            txHash: 'tx-hash-test-456',
+            walletAddress: 'wallet-test-address-def',
+            timestamp: 1_700_123_456_790,
+          }),
+        ],
+        total: 2,
+      });
+
+      const result = await service.getSwaps({ page: 1, limit: 20 });
+
+      // Remove timestamp-sensitive fields for stable snapshot
+      const sanitizedResult = {
+        ...result,
+        items: result.items.map(item => ({
+          ...item,
+          // Remove any dynamic fields that might change
+          id: expect.any(String),
+          timestamp: expect.any(Number),
+        })),
+      };
+
+      expect(sanitizedResult).toMatchSnapshot();
+    });
+
+    it('matches snapshot for empty swap list', async () => {
+      repo.listSwaps.mockResolvedValue({
+        items: [],
+        total: 0,
+      });
+
+      const result = await service.getSwaps({ page: 1, limit: 10 });
+
+      expect(result).toMatchSnapshot();
+    });
+
+    it('matches snapshot for pagination metadata', async () => {
+      repo.listSwaps.mockResolvedValue({
+        items: Array.from({ length: 5 }, (_, i) => 
+          makeSnapshot({
+            id: `swap-paginated-${i}`,
+            poolId: `pool-paginated-${i}`,
+            token0Symbol: 'USDC',
+            token1Symbol: 'XLM',
+            amount0: `${100 + i}`,
+            amount1: `${-50 - i}`,
+            priceAtSwap: `${2 + i * 0.1}`,
+            feeAmount: `${0.3 + i * 0.1}`,
+            txHash: `tx-paginated-${i}`,
+            walletAddress: `wallet-paginated-${i}`,
+            timestamp: 1_700_000_000_000 + i,
+          })
+        ),
+        total: 35,
+      });
+
+      const result = await service.getSwaps({ page: 2, limit: 5 });
+
+      // Test structure without dynamic values
+      expect(result).toEqual({
+        items: expect.any(Array),
+        page: 2,
+        limit: 5,
+        total: 35,
+        totalPages: 7,
+        isLoading: false,
+      });
+      
+      // Verify item structure matches expected shape
+      result.items.forEach(item => {
+        expect(item).toEqual({
+          id: expect.any(String),
+          poolId: expect.any(String),
+          tokenPair: 'USDC/XLM',
+          token0Symbol: 'USDC',
+          token1Symbol: 'XLM',
+          amount0: expect.any(String),
+          amount1: expect.any(String),
+          priceAtSwap: expect.any(String),
+          feeAmount: expect.any(String),
+          transactionHash: expect.any(String),
+          walletAddress: expect.any(String),
+          timestamp: expect.any(Number),
+        });
+      });
+    });
+  });
 });
