@@ -1,3 +1,7 @@
+import { initTracing } from './tracing';
+initTracing(); // must run first so HTTP instrumentation patches node's http module
+// before anything else requires it
+
 import { initSentry } from './sentry';
 initSentry(); // must run before any other imports take effect
 
