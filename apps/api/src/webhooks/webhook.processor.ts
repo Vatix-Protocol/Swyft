@@ -10,7 +10,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WebhookPayload } from './webhook.types';
 
 export const WEBHOOK_QUEUE = 'webhook-delivery';
-const MAX_CONSECUTIVE_FAILS = 10;
+const MAX_CONSECUTIVE_FAILS = Number(
+  process.env.WEBHOOK_MAX_CONSECUTIVE_FAILS ?? '10',
+);
 const WEBHOOK_RETRY_ATTEMPTS = Number(
   process.env.WEBHOOK_RETRY_ATTEMPTS ?? '3',
 );
