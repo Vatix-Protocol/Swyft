@@ -5,7 +5,8 @@ import type { SwapQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
 import { PriceImpactBadge } from '@swyft/ui';
 import { useSwapExecution } from '@/hooks/useSwapExecution';
-import { explorerTxUrl } from '@/lib/constants';
+import { useNetworkContext } from '@/context/NetworkContext';
+import { getExplorerTxUrl } from '@/lib/constants';
 
 interface Props {
   poolId: string;
@@ -29,6 +30,7 @@ export function SwapConfirmModal({
   onSuccess,
 }: Props) {
   const { status, error, txHash, execute, reset } = useSwapExecution();
+  const { network } = useNetworkContext();
   const overlayRef = useRef<HTMLDivElement>(null);
 
   // Trap focus / close on Escape
@@ -154,7 +156,7 @@ export function SwapConfirmModal({
                 Transaction submitted successfully
               </p>
               <a
-                href={explorerTxUrl(txHash)}
+                href={getExplorerTxUrl(txHash, network)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-green-600 underline hover:text-green-800 dark:text-green-400 dark:hover:text-green-300 font-mono"

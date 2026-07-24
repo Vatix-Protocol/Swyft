@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useWalletContext } from '@/context/WalletContext';
-import { SWYFT_NETWORK } from '@/lib/constants';
+import { useNetworkContext } from '@/context/NetworkContext';
 
 function truncate(addr: string) {
   return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
@@ -10,6 +10,7 @@ function truncate(addr: string) {
 
 export function WalletButton() {
   const { address, error, connecting, loading, connect, disconnect } = useWalletContext();
+  const { network } = useNetworkContext();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -58,7 +59,7 @@ export function WalletButton() {
                 {address}
               </p>
               <p className="mt-1 text-xs text-zinc-400">
-                Network: <span className="font-medium">{SWYFT_NETWORK}</span>
+                Network: <span className="font-medium">{network}</span>
               </p>
             </div>
             <div className="p-2 flex flex-col gap-1">
@@ -110,7 +111,7 @@ export function WalletButton() {
       {error === 'REJECTED' && <p className="text-xs text-red-500">Connection rejected.</p>}
       {error === 'WRONG_NETWORK' && (
         <p className="text-xs text-red-500">
-          Switch Freighter to <strong>{SWYFT_NETWORK}</strong> and try again.
+          Switch Freighter to <strong>{network}</strong> and try again.
         </p>
       )}
     </div>

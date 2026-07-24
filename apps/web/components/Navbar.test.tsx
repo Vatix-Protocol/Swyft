@@ -26,6 +26,11 @@ vi.mock('./WalletButton', () => ({
   WalletButton: () => <button type="button">Connect wallet</button>,
 }));
 
+// NetworkSwitcher reads from WalletContext too — stub it out for layout-only tests
+vi.mock('./NetworkSwitcher', () => ({
+  NetworkSwitcher: () => <button type="button">Testnet</button>,
+}));
+
 function renderNavbar() {
   return render(<Navbar />);
 }

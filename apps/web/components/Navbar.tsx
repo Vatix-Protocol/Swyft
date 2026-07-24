@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { WalletButton } from '@/components/WalletButton';
+import { NetworkSwitcher } from '@/components/NetworkSwitcher';
+import { TransactionStatusIndicator } from '@/components/TransactionStatusIndicator';
 
 const NAV_LINKS = [
   { href: '/', label: 'Swap' },
@@ -42,8 +44,10 @@ export function Navbar() {
           </div>
         </div>
 
-        {/* Right: wallet + hamburger */}
+        {/* Right: pending tx + network + wallet + hamburger */}
         <div className="flex items-center gap-3">
+          <TransactionStatusIndicator />
+          <NetworkSwitcher />
           <WalletButton />
           {/* Hamburger — visible only on mobile */}
           <button

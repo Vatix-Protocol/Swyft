@@ -9,7 +9,7 @@ import {
   signTransaction as freighterSignTx,
 } from '@stellar/freighter-api';
 import { useState, useEffect, useCallback } from 'react';
-import { SWYFT_NETWORK, WALLET_STORAGE_KEY } from '@/lib/constants';
+import { SWYFT_NETWORK, WALLET_STORAGE_KEY, type StellarNetwork } from '@/lib/constants';
 
 export type WalletError = 'NOT_INSTALLED' | 'REJECTED' | 'WRONG_NETWORK' | null;
 
@@ -24,24 +24,32 @@ export interface WalletState {
   signTransaction: (xdr: string) => Promise<string>;
 }
 
-export function useWallet(): WalletState {
+/**
+ * @param targetNetwork - Network the connected wallet is expected to be on.
+ *   Defaults to the build-time env network; pass the live selection from
+ *   `useNetworkContext()` to validate against the user's runtime choice.
+ */
+export function useWallet(targetNetwork: StellarNetwork = SWYFT_NETWORK): WalletState {
   const [address, setAddress] = useState<string | null>(null);
   const [error, setError] = useState<WalletError>(null);
   const [connecting, setConnecting] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const validateAndSet = useCallback(async (addr: string) => {
-    const networkResult = await getNetwork();
-    const network = 'network' in networkResult ? networkResult.network : networkResult;
-    if ((network as string).toUpperCase() !== SWYFT_NETWORK) {
-      setError('WRONG_NETWORK');
-      return false;
-    }
-    setAddress(addr);
-    localStorage.setItem(WALLET_STORAGE_KEY, addr);
-    setError(null);
-    return true;
-  }, []);
+  const validateAndSet = useCallback(
+    async (addr: string) => {
+      const networkResult = await getNetwork();
+      const network = 'network' in networkResult ? networkResult.network : networkResult;
+      if ((network as string).toUpperCase() !== targetNetwork) {
+        setError('WRONG_NETWORK');
+        return false;
+      }
+      setAddress(addr);
+      localStorage.setItem(WALLET_STORAGE_KEY, addr);
+      setError(null);
+      return true;
+    },
+    [targetNetwork]
+  );
 
   // Restore session on mount
   useEffect(() => {
