@@ -1,9 +1,24 @@
 import { defineConfig } from 'tsup';
 
+// Each submodule gets its own entry so consumers can either import the
+// `.` barrel or reach a single module directly (e.g. `@swyft/sdk/swap`).
+// Subpath imports guarantee unused modules never enter the bundle, even
+// under bundlers/runtimes that don't tree-shake a barrel file well (or
+// CJS `require`, which can't tree-shake at all).
+const entry = {
+  index: 'src/index.ts',
+  quote: 'src/quote.ts',
+  liquidity: 'src/liquidity.ts',
+  queries: 'src/queries.ts',
+  swap: 'src/swap.ts',
+  types: 'src/types.ts',
+  config: 'src/config.ts',
+};
+
 export default defineConfig([
   // ESM build
   {
-    entry: { index: 'src/index.ts' },
+    entry,
     format: ['esm'],
     dts: false,
     outDir: 'dist/esm',
@@ -18,7 +33,7 @@ export default defineConfig([
   },
   // CJS build
   {
-    entry: { index: 'src/index.ts' },
+    entry,
     format: ['cjs'],
     dts: false,
     outDir: 'dist/cjs',
@@ -33,7 +48,7 @@ export default defineConfig([
   },
   // Type declarations only
   {
-    entry: { index: 'src/index.ts' },
+    entry,
     format: ['esm'],
     dts: { only: true },
     outDir: 'dist/types',

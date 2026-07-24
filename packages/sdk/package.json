@@ -20,14 +20,53 @@
     "directory": "packages/sdk"
   },
   "main": "./dist/cjs/index.js",
-  "module": "./dist/esm/index.js",
-  "types": "./dist/types/index.d.ts",
+  "module": "./dist/esm/index.mjs",
+  "browser": "./dist/esm/index.mjs",
+  "types": "./dist/types/index.d.mts",
   "exports": {
     ".": {
-      "types": "./dist/types/index.d.ts",
-      "import": "./dist/esm/index.js",
+      "types": "./dist/types/index.d.mts",
+      "browser": "./dist/esm/index.mjs",
+      "import": "./dist/esm/index.mjs",
       "require": "./dist/cjs/index.js"
-    }
+    },
+    "./quote": {
+      "types": "./dist/types/quote.d.mts",
+      "browser": "./dist/esm/quote.mjs",
+      "import": "./dist/esm/quote.mjs",
+      "require": "./dist/cjs/quote.js"
+    },
+    "./liquidity": {
+      "types": "./dist/types/liquidity.d.mts",
+      "browser": "./dist/esm/liquidity.mjs",
+      "import": "./dist/esm/liquidity.mjs",
+      "require": "./dist/cjs/liquidity.js"
+    },
+    "./queries": {
+      "types": "./dist/types/queries.d.mts",
+      "browser": "./dist/esm/queries.mjs",
+      "import": "./dist/esm/queries.mjs",
+      "require": "./dist/cjs/queries.js"
+    },
+    "./swap": {
+      "types": "./dist/types/swap.d.mts",
+      "browser": "./dist/esm/swap.mjs",
+      "import": "./dist/esm/swap.mjs",
+      "require": "./dist/cjs/swap.js"
+    },
+    "./types": {
+      "types": "./dist/types/types.d.mts",
+      "browser": "./dist/esm/types.mjs",
+      "import": "./dist/esm/types.mjs",
+      "require": "./dist/cjs/types.js"
+    },
+    "./config": {
+      "types": "./dist/types/config.d.mts",
+      "browser": "./dist/esm/config.mjs",
+      "import": "./dist/esm/config.mjs",
+      "require": "./dist/cjs/config.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
