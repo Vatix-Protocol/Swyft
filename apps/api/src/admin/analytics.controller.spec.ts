@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
+import { AdminAuditService } from './admin-audit.service';
+import { AdminAuditInterceptor } from './admin-audit.interceptor';
 import { InternalKeyGuard } from './internal-key.guard';
 
 const mockService = {
@@ -8,6 +10,11 @@ const mockService = {
   getTvl: jest.fn().mockResolvedValue({ interval: '7d', series: [] }),
   getVolume: jest.fn().mockResolvedValue({ interval: '7d', series: [] }),
   getFees: jest.fn().mockResolvedValue({ byPool: [] }),
+};
+
+const mockAuditService = {
+  log: jest.fn().mockResolvedValue(undefined),
+  findRecent: jest.fn().mockResolvedValue([]),
 };
 
 describe('AnalyticsController', () => {
@@ -19,6 +26,8 @@ describe('AnalyticsController', () => {
       controllers: [AnalyticsController],
       providers: [
         { provide: AnalyticsService, useValue: mockService },
+        { provide: AdminAuditService, useValue: mockAuditService },
+        { provide: AdminAuditInterceptor, useValue: { intercept: (_: unknown, next: { handle: () => unknown }) => next.handle() } },
         { provide: InternalKeyGuard, useValue: { canActivate: () => true } },
       ],
     }).compile();
@@ -65,5 +74,23 @@ describe('AnalyticsController', () => {
 
     expect(mockService.getFees).toHaveBeenCalled();
     expect(result).toEqual({ byPool: [{ poolId: 'p1', feesAmount0: '10', feesAmount1: '20' }] });
+  });
+
+  it('returns audit log entries with defaults', async () => {
+    const entries = [{ id: '1', actor: 'abc', action: 'GET /admin/analytics/overview', resource: 'analytics', meta: '{}', ip: null, statusCode: 200, createdAt: new Date() }];
+    mockAuditService.findRecent.mockResolvedValue(entries);
+
+    const result = await controller.getAuditLog(undefined, undefined);
+
+    expect(mockAuditService.findRecent).toHaveBeenCalledWith(100, 0);
+    expect(result).toEqual(entries);
+  });
+
+  it('passes limit and offset to audit service', async () => {
+    mockAuditService.findRecent.mockResolvedValue([]);
+
+    await controller.getAuditLog('50', '10');
+
+    expect(mockAuditService.findRecent).toHaveBeenCalledWith(50, 10);
   });
 });
