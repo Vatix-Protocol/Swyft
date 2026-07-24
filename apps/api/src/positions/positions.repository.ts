@@ -5,7 +5,11 @@ import {
   PositionsQuery,
   PositionSnapshot,
   PositionStatus,
+  PositionStatusFilter,
 } from './position.types';
+
+/** Cap on rows fetched per bulk-by-wallet lookup — a portfolio overview, not a paginated feed. */
+const BULK_POSITIONS_LIMIT = 500;
 
 @Injectable()
 export class PositionsRepository {
@@ -47,9 +51,76 @@ export class PositionsRepository {
       take: query.limit,
     });
 
-    if (positions.length === 0) {
-      return { items: [], total };
+    const items = await this.toSnapshots(positions);
+    return { items, total };
+  }
+
+  /**
+   * Fetches positions for many wallets in one round trip. Returns a snapshot
+   * list per wallet (lowercased address) plus each wallet's total matching
+   * count, capped at BULK_POSITIONS_LIMIT rows overall since this is a
+   * portfolio-overview lookup rather than a paginated feed.
+   */
+  async listPositionsByWallets(
+    walletAddresses: string[],
+    status: PositionStatusFilter,
+  ): Promise<Map<string, { items: PositionSnapshot[]; total: number }>> {
+    const wallets = [...new Set(walletAddresses.map((w) => w.toLowerCase()))];
+    const result = new Map<
+      string,
+      { items: PositionSnapshot[]; total: number }
+    >();
+    for (const wallet of wallets) {
+      result.set(wallet, { items: [], total: 0 });
     }
+
+    if (wallets.length === 0) return result;
+
+    const where: any = {
+      ownerAddress: { in: wallets, mode: 'insensitive' },
+    };
+    if (status === 'active') {
+      where.closedAt = null;
+    } else if (status === 'closed') {
+      where.closedAt = { not: null };
+    }
+
+    const [counts, positions] = await Promise.all([
+      this.prisma.position.groupBy({
+        by: ['ownerAddress'],
+        where,
+        _count: { _all: true },
+      }),
+      this.prisma.position.findMany({
+        where,
+        include: { pool: true },
+        orderBy: { createdAt: 'desc' },
+        take: BULK_POSITIONS_LIMIT,
+      }),
+    ]);
+
+    for (const c of counts) {
+      const wallet = c.ownerAddress.toLowerCase();
+      const entry = result.get(wallet);
+      if (entry) entry.total = c._count._all;
+    }
+
+    const snapshots = await this.toSnapshots(positions);
+    for (const snapshot of snapshots) {
+      const entry = result.get(snapshot.ownerWallet.toLowerCase());
+      entry?.items.push(snapshot);
+    }
+
+    return result;
+  }
+
+  /**
+   * Maps raw position rows (with their pool relation) into PositionSnapshot
+   * objects, resolving token symbols and unclaimed fees without N+1 queries.
+   * Shared by both the single-wallet and bulk-by-wallet lookups above.
+   */
+  private async toSnapshots(positions: any[]): Promise<PositionSnapshot[]> {
+    if (positions.length === 0) return [];
 
     // Resolve token symbols
     const tokenAddresses = new Set<string>();
@@ -71,7 +142,7 @@ export class PositionsRepository {
     );
 
     // Pre-fetch swaps and fees-collected for every distinct pool referenced
-    // by this page of positions so we can compute unclaimed fees per position
+    // by these positions so we can compute unclaimed fees per position
     // without N+1 queries.
     const poolIds = [...new Set(positions.map((p) => p.poolId))];
 
@@ -110,7 +181,7 @@ export class PositionsRepository {
       poolFeesCollected.set(f.poolId, cur);
     }
 
-    const items: PositionSnapshot[] = positions.map((position) => {
+    return positions.map((position) => {
       const token0Symbol =
         tokenSymbolMap.get(position.pool.token0Address.toLowerCase()) ??
         'UNKNOWN';
@@ -142,7 +213,8 @@ export class PositionsRepository {
         amount1: 0,
       };
 
-      const rawUnclaimed0 = totalPoolFees0 * liquidityShare - collected.amount0 * liquidityShare;
+      const rawUnclaimed0 =
+        totalPoolFees0 * liquidityShare - collected.amount0 * liquidityShare;
       const rawUnclaimed1 = collected.amount1 * liquidityShare;
 
       const uncollectedFeesToken0 = String(Math.max(0, rawUnclaimed0));
@@ -166,10 +238,5 @@ export class PositionsRepository {
         poolCurrentPrice: poolPrice,
       };
     });
-
-    return {
-      items,
-      total,
-    };
   }
 }
