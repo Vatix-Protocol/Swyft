@@ -94,3 +94,21 @@ export function makeQueueOptions(): QueueOptions {
 export function createQueue(name: QueueName): Queue {
   return new Queue(name, makeQueueOptions());
 }
+
+const DEFAULT_WORKER_CONCURRENCY = 5;
+
+/**
+ * Per-queue BullMQ worker concurrency. Each event type is an independent,
+ * idempotent projection, so jobs of the same type can safely run in parallel
+ * within a worker process. Overridable per queue via
+ * `INDEXER_CONCURRENCY_<QUEUE_NAME>` (queue name upper-cased, dots to
+ * underscores), falling back to `INDEXER_CONCURRENCY` and finally the default.
+ */
+export function getWorkerConcurrency(queueName: QueueName): number {
+  const envKey = `INDEXER_CONCURRENCY_${queueName.toUpperCase().replace(/\./g, '_')}`;
+  const raw = process.env[envKey] ?? process.env.INDEXER_CONCURRENCY;
+  const parsed = raw !== undefined ? Number(raw) : NaN;
+  return Number.isInteger(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_WORKER_CONCURRENCY;
+}

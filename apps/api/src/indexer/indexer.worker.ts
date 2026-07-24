@@ -13,11 +13,13 @@ import { IndexerDeadLetterService } from './indexer-dead-letter.service';
 import {
   QUEUE_NAMES,
   makeQueueOptions,
+  getWorkerConcurrency,
   PoolCreatedJobData,
   SwapProcessedJobData,
   PositionMintedJobData,
   PositionBurnedJobData,
   FeesCollectedJobData,
+  QueueName,
 } from './queues';
 import { PoolsRepository } from '../pools/pools.repository';
 
@@ -37,6 +39,11 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
   private queueDepthTimer: NodeJS.Timeout | null = null;
   private _isLoading = false;
   private _isReady = false;
+  private _isShuttingDown = false;
+  /** Bounds how long a SIGTERM/SIGINT shutdown waits for in-flight jobs before giving up. */
+  private static readonly SHUTDOWN_TIMEOUT_MS = Number(
+    process.env.INDEXER_SHUTDOWN_TIMEOUT_MS ?? 25_000,
+  );
 
   constructor(
     private readonly webhooks: WebhooksService,
@@ -47,6 +54,11 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
   get isLoading(): boolean {
     return this._isLoading;
+  }
+
+  /** True from the moment a shutdown signal is received until cleanup finishes. */
+  get isShuttingDown(): boolean {
+    return this._isShuttingDown;
   }
 
   async onModuleInit() {
@@ -94,16 +106,52 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /**
+   * Invoked by Nest's shutdown hooks on SIGTERM/SIGINT (see main.ts's
+   * `enableShutdownHooks()`). Stops routing new jobs immediately, then lets
+   * BullMQ drain in-flight jobs — bounded by SHUTDOWN_TIMEOUT_MS so a stuck
+   * job cannot hang the process past its deploy platform's kill timeout.
+   */
   async onModuleDestroy() {
+    this._isShuttingDown = true;
     this._isReady = false;
+    this.logger.log(
+      `Received shutdown signal — draining in-flight jobs (timeout ${IndexerWorker.SHUTDOWN_TIMEOUT_MS}ms)`,
+    );
     if (this.queueDepthTimer) clearInterval(this.queueDepthTimer);
-    await Promise.all([
+
+    const closeAll = Promise.all([
       ...this.workers.map((w) => w.close()),
       ...this.queueEvents.map((qe) => qe.close()),
     ]);
+    await this.withTimeout(
+      closeAll,
+      IndexerWorker.SHUTDOWN_TIMEOUT_MS,
+      'Timed out waiting for indexer workers to drain in-flight jobs — forcing shutdown',
+    );
+
     await this.prisma.$disconnect();
     this._isLoading = false;
+    this._isShuttingDown = false;
     this.logger.log('Indexer workers shut down gracefully');
+  }
+
+  /** Races `promise` against a timeout, logging (but not throwing) if the timeout wins. */
+  private async withTimeout(
+    promise: Promise<unknown>,
+    timeoutMs: number,
+    timeoutMessage: string,
+  ): Promise<void> {
+    let timer: NodeJS.Timeout;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        this.logger.warn(timeoutMessage);
+        resolve();
+      }, timeoutMs);
+    });
+
+    await Promise.race([promise.then(() => undefined), timeout]);
+    clearTimeout(timer!);
   }
 
   private makeWorker<T>(
@@ -127,6 +175,9 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       lockDuration: 60_000,
       stalledInterval: 30_000,
       maxStalledCount: 2,
+      // Each event type is an independent, idempotent projection, so jobs of
+      // the same type can safely run in parallel within this worker process.
+      concurrency: getWorkerConcurrency(queueName as QueueName),
     });
 
     worker.on('completed', (job) => {
@@ -226,6 +277,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         tokenB: d.tokenB,
         fee: d.fee,
         sqrtPriceX96: d.sqrtPriceX96,
+        ledger: d.ledger ?? null,
       },
     });
 
@@ -266,6 +318,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         sqrtPriceX96: d.sqrtPriceX96,
         liquidity: d.liquidity,
         tick: d.tick,
+        ledger: d.ledger ?? null,
       },
     });
 
@@ -302,12 +355,14 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       create: {
         eventId: d.eventId,
         poolId: d.poolId,
+        tokenId: d.tokenId || null,
         owner: d.owner,
         tickLower: d.tickLower,
         tickUpper: d.tickUpper,
         liquidity: d.liquidity,
         amount0: d.amount0,
         amount1: d.amount1,
+        ledger: d.ledger ?? null,
       },
     });
     // Project into relational Position table when the event includes a tokenId.
@@ -338,12 +393,14 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       create: {
         eventId: d.eventId,
         poolId: d.poolId,
+        tokenId: d.tokenId || null,
         owner: d.owner,
         tickLower: d.tickLower,
         tickUpper: d.tickUpper,
         liquidity: d.liquidity,
         amount0: d.amount0,
         amount1: d.amount1,
+        ledger: d.ledger ?? null,
       },
     });
     // Project into relational Position table when the event includes a tokenId.
@@ -382,6 +439,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         recipient: d.recipient,
         amount0: d.amount0,
         amount1: d.amount1,
+        ledger: d.ledger ?? null,
       },
     });
     await this.advanceLedger(job.id, d.ledger);
