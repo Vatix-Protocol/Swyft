@@ -10,6 +10,15 @@ export const QUEUE_NAMES = {
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
+// DI tokens for each queue's BullMQ Queue provider. Defined here (rather
+// than in indexer.module.ts) so indexer-replay.service.ts can import them
+// without a module -> service -> module circular import.
+export const QUEUE_POOL_CREATED = 'QUEUE_POOL_CREATED';
+export const QUEUE_SWAP_PROCESSED = 'QUEUE_SWAP_PROCESSED';
+export const QUEUE_POSITION_MINTED = 'QUEUE_POSITION_MINTED';
+export const QUEUE_POSITION_BURNED = 'QUEUE_POSITION_BURNED';
+export const QUEUE_FEES_COLLECTED = 'QUEUE_FEES_COLLECTED';
+
 /**
  * Metadata shared by all events emitted by the ledger indexer. `ledger` is
  * optional while upstream producers are rolled out; events without it are
