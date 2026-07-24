@@ -4,6 +4,7 @@ export interface ErrorResponse {
   error: string;
   timestamp: string;
   path: string;
+  requestId?: string;
 }
 
 export interface ValidationErrorResponse extends ErrorResponse {
