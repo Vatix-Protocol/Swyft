@@ -52,7 +52,7 @@ jobs:
           pnpm --filter contracts deploy:testnet $FLAGS
 
       - name: Upload deployment manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: testnet-deployment
           path: packages/contract/deployments/testnet.json
