@@ -32,7 +32,7 @@ jobs:
         run: cargo install --locked stellar-cli --no-default-features
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v6
         with:
           version: 8
 
