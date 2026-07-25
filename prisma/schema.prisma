@@ -177,9 +177,11 @@ model PoolCreated {
   tokenB       String
   fee          String
   sqrtPriceX96 String
+  ledger       Int?
   createdAt    DateTime @default(now())
 
   @@index([poolId])
+  @@index([ledger])
   @@map("pool_created")
 }
 
@@ -193,39 +195,51 @@ model SwapProcessed {
   sqrtPriceX96 String
   liquidity    String
   tick         Int
+  ledger       Int?
   createdAt    DateTime @default(now())
 
   @@index([poolId, createdAt])
+  @@index([ledger])
   @@map("swap_processed")
 }
 
 model PositionMinted {
   eventId    String   @id
   poolId     String
+  /// Pool-local NFT/position identifier; nullable for events emitted before
+  /// this field was tracked.
+  tokenId    String?
   owner      String
   tickLower  Int
   tickUpper  Int
   liquidity  String
   amount0    String
   amount1    String
+  ledger     Int?
   createdAt  DateTime @default(now())
 
   @@index([poolId])
+  @@index([ledger])
   @@map("position_minted")
 }
 
 model PositionBurned {
   eventId    String   @id
   poolId     String
+  /// Pool-local NFT/position identifier; nullable for events emitted before
+  /// this field was tracked.
+  tokenId    String?
   owner      String
   tickLower  Int
   tickUpper  Int
   liquidity  String
   amount0    String
   amount1    String
+  ledger     Int?
   createdAt  DateTime @default(now())
 
   @@index([poolId])
+  @@index([ledger])
   @@map("position_burned")
 }
 
@@ -235,9 +249,11 @@ model FeesCollected {
   recipient String
   amount0   String
   amount1   String
+  ledger    Int?
   createdAt DateTime @default(now())
 
   @@index([poolId])
+  @@index([ledger])
   @@map("fees_collected")
 }
 
