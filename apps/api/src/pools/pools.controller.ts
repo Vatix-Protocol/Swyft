@@ -2,9 +2,11 @@ import {
   BadRequestException,
   Controller,
   Get,
+  Headers,
   NotFoundException,
   Param,
   Query,
+  Res,
 } from '@nestjs/common';
 import {
   ApiOperation,
@@ -13,6 +15,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { createHash } from 'crypto';
+import { Response } from 'express';
 import { CacheService } from '../cache/cache.service';
 import { GetPoolsQueryDto } from './dto/get-pools-query.dto';
 import { GetTicksQueryDto } from './dto/get-ticks-query.dto';
@@ -74,28 +78,51 @@ export class PoolsController {
     description:
       'Returns a paginated list of pools. Items array is empty when no pools match.',
   })
+  @ApiResponse({
+    status: 304,
+    description:
+      'Not Modified — returned when the If-None-Match request header matches the current ETag.',
+  })
   /**
    * Returns a paginated list of active pools.
    *
+   * Supports conditional GET via ETag: the response body is hashed into an
+   * ETag header, and a matching If-None-Match request short-circuits to a
+   * bodyless 304 so clients with a fresh cache skip re-downloading the list.
+   *
    * @param query - Pagination and filter options (page, limit, feeTier, token).
-   * @returns A paginated response containing pool summaries and total count.
+   * @param ifNoneMatch - Value of the incoming If-None-Match request header, if any.
+   * @param res - Express response, used to set the ETag header and short-circuit to 304.
    */
-  async getPools(@Query() query: GetPoolsQueryDto): Promise<PoolsListResponse> {
+  async getPools(
+    @Query() query: GetPoolsQueryDto,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
     const result = await this.poolsService.getPools(query);
 
-    if (!result || !Array.isArray(result.items)) {
-      return {
-        items: [],
-        page: query.page ?? 1,
-        limit: query.limit ?? 20,
-        total: 0,
-        totalPages: 0,
-        orderBy: query.orderBy ?? 'tvl',
-        search: query.search?.trim() || undefined,
-      };
+    const body: PoolsListResponse =
+      !result || !Array.isArray(result.items)
+        ? {
+            items: [],
+            page: query.page ?? 1,
+            limit: query.limit ?? 20,
+            total: 0,
+            totalPages: 0,
+            orderBy: query.orderBy ?? 'tvl',
+            search: query.search?.trim() || undefined,
+          }
+        : result;
+
+    const etag = `"${createHash('sha1').update(JSON.stringify(body)).digest('hex')}"`;
+    res.setHeader('ETag', etag);
+
+    if (ifNoneMatch === etag || ifNoneMatch === '*') {
+      res.status(304).end();
+      return;
     }
 
-    return result;
+    res.status(200).json(body);
   }
 
   /**

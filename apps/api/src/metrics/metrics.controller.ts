@@ -7,6 +7,7 @@ import {
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { DbMetricsService } from './db-metrics.service';
 import { IndexerMonitorService } from './indexer-monitor.service';
+import { SWAGGER_TAGS } from '../swagger.constants';
 
 @ApiTags(SWAGGER_TAGS.INDEXER)
 @Controller('metrics')

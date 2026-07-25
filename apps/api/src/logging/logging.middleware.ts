@@ -1,6 +1,8 @@
 import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'crypto';
+import { getActiveTraceIds } from '../tracing';
+import { RequestContext } from './request-context';
 
 const SENSITIVE_HEADERS = new Set(['authorization', 'cookie', 'set-cookie']);
 const SENSITIVE_BODY_KEYS = new Set([
@@ -43,46 +45,53 @@ export class LoggingMiddleware implements NestMiddleware {
     res.setHeader('X-Request-Id', requestId);
     (req as Request & { requestId: string }).requestId = requestId;
 
-    const isProd = process.env.NODE_ENV === 'production';
+    RequestContext.run({ requestId }, () => {
+      const isProd = process.env.NODE_ENV === 'production';
+      const trace = getActiveTraceIds();
 
-    if (isProd) {
-      this.logger.log(
-        JSON.stringify({
-          event: 'request',
-          requestId,
-          method: req.method,
-          path: req.path,
-          query: req.query,
-          ip: req.ip,
-          userAgent: req.get('user-agent'),
-          headers: redactHeaders(req.headers),
-          body: redactBody(req.body),
-        }),
-      );
-    } else {
-      this.logger.log(
-        `→ ${req.method} ${req.path} requestId=${requestId} ip=${req.ip}`,
-      );
-    }
-
-    res.on('finish', () => {
-      const elapsed = Date.now() - start;
       if (isProd) {
         this.logger.log(
           JSON.stringify({
-            event: 'response',
+            event: 'request',
             requestId,
-            status: res.statusCode,
-            elapsed,
+            ...trace,
+            method: req.method,
+            path: req.path,
+            query: req.query,
+            ip: req.ip,
+            userAgent: req.get('user-agent'),
+            headers: redactHeaders(req.headers),
+            body: redactBody(req.body),
           }),
         );
       } else {
+        const traceSuffix = trace ? ` traceId=${trace.traceId}` : '';
         this.logger.log(
-          `← ${res.statusCode} ${req.method} ${req.path} ${elapsed}ms requestId=${requestId}`,
+          `→ ${req.method} ${req.path} requestId=${requestId}${traceSuffix} ip=${req.ip}`,
         );
       }
-    });
 
-    next();
+      res.on('finish', () => {
+        const elapsed = Date.now() - start;
+        if (isProd) {
+          this.logger.log(
+            JSON.stringify({
+              event: 'response',
+              requestId,
+              ...trace,
+              status: res.statusCode,
+              elapsed,
+            }),
+          );
+        } else {
+          const traceSuffix = trace ? ` traceId=${trace.traceId}` : '';
+          this.logger.log(
+            `← ${res.statusCode} ${req.method} ${req.path} ${elapsed}ms requestId=${requestId}${traceSuffix}`,
+          );
+        }
+      });
+
+      next();
+    });
   }
 }

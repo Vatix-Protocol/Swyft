@@ -36,6 +36,11 @@ interface PositionsListResponse {
   totalPages: number;
 }
 
+interface WalletPositions {
+  items: PositionResponse[];
+  total: number;
+}
+
 @Injectable()
 export class PositionsService {
   constructor(
@@ -71,6 +76,41 @@ export class PositionsService {
       total,
       totalPages: total === 0 ? 0 : Math.ceil(total / normalized.limit),
     };
+  }
+
+  /**
+   * Fetches positions for many wallets in a single round trip, returning a
+   * per-wallet breakdown keyed by the original wallet address as supplied by
+   * the caller (case preserved), so a wallet with no positions still appears
+   * with an empty items array rather than being silently dropped.
+   */
+  async getBulkPositions(
+    wallets: string[],
+    status: 'active' | 'closed' | 'all' = 'all',
+  ): Promise<Record<string, WalletPositions>> {
+    const byWallet = await this.positionsRepository.listPositionsByWallets(
+      wallets,
+      status,
+    );
+
+    const result: Record<string, WalletPositions> = {};
+
+    await Promise.all(
+      wallets.map(async (wallet) => {
+        const entry = byWallet.get(wallet.toLowerCase()) ?? {
+          items: [],
+          total: 0,
+        };
+        result[wallet] = {
+          items: await Promise.all(
+            entry.items.map((position) => this.toResponse(position)),
+          ),
+          total: entry.total,
+        };
+      }),
+    );
+
+    return result;
   }
 
   private async toResponse(
@@ -135,4 +175,4 @@ export class PositionsService {
   }
 }
 
-export type { PositionsListResponse };
+export type { PositionsListResponse, WalletPositions };
