@@ -4,10 +4,11 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { useWalletContext } from '@/context/WalletContext';
+import { useNetworkContext } from '@/context/NetworkContext';
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { PositionCard } from '@/components/PositionCard';
 import { WalletButton } from '@/components/WalletButton';
-import { API_BASE, SWYFT_NETWORK_PASSPHRASE } from '@/lib/constants';
+import { API_BASE, getNetworkPassphrase } from '@/lib/constants';
 import { signTransaction } from '@stellar/freighter-api';
 import { buildCollectTx } from '@swyft/sdk';
 import Link from 'next/link';
@@ -20,6 +21,7 @@ function getAuthToken(): string | null {
 export default function PortfolioPage() {
   const router = useRouter();
   const { address } = useWalletContext();
+  const { network } = useNetworkContext();
   const authToken = getAuthToken();
   const { active, closed, loading, refresh, totalValueUsd } = usePortfolio(authToken);
   const [showClosed, setShowClosed] = useState(false);
@@ -42,7 +44,7 @@ export default function PortfolioPage() {
         });
 
         const signResult = await signTransaction(xdr, {
-          networkPassphrase: SWYFT_NETWORK_PASSPHRASE,
+          networkPassphrase: getNetworkPassphrase(network),
         });
         const signedXdr =
           typeof signResult === 'string'
@@ -69,7 +71,7 @@ export default function PortfolioPage() {
         setCollectingId(null);
       }
     },
-    [authToken, active, refresh]
+    [authToken, active, refresh, network]
   );
 
   if (!address) return null;

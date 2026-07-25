@@ -107,12 +107,32 @@ console.log(tx.xdr);
 
 ---
 
+## Tree-shaking & entrypoints
+
+Every submodule is published as its own subpath export, so a bundler only
+includes the code your app actually imports:
+
+```ts
+import { buildSwapTx } from '@swyft/sdk';        // full barrel — still tree-shakeable
+import { buildSwapTx } from '@swyft/sdk/swap';    // same function, narrower import graph
+```
+
+Available subpaths: `@swyft/sdk/quote`, `@swyft/sdk/liquidity`, `@swyft/sdk/queries`,
+`@swyft/sdk/swap`, `@swyft/sdk/types`, `@swyft/sdk/config`.
+
+The package sets `"sideEffects": false` and ships separate `browser` / `import`
+(ESM) / `require` (CJS) conditions per entrypoint, so browser bundlers (webpack,
+Vite, esbuild, Next.js/Turbopack) and Node (both `require` and native `import`)
+each resolve the correct build automatically — no manual configuration needed.
+
+---
+
 ## Advanced: On-chain Quote Simulation
 
 For a precise quote that accounts for the full tick ladder, use `getSwapQuote` from the quote module:
 
 ```ts
-import { getSwapQuote } from '@swyft/sdk/dist/esm/quote';
+import { getSwapQuote } from '@swyft/sdk/quote';
 import { getPool } from '@swyft/sdk';
 
 const poolState = await getPool({ rpcUrl: 'https://soroban-testnet.stellar.org', poolAddress: 'CPOOL...' });

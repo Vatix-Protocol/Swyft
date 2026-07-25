@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useSwaps, SwapSnapshot } from '@/hooks/useSwaps';
 import { useLpActivity, LpActivity, LpActivityType } from '@/hooks/useLpActivity';
-import { SWYFT_NETWORK } from '@/lib/constants';
+import { useNetworkContext } from '@/context/NetworkContext';
 
 type Tab = 'swaps' | 'lp';
 
@@ -24,6 +24,7 @@ interface TransactionHistoryProps {
  * @returns A history panel with tabs, date filters, and paginated transaction tables.
  */
 export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
+  const { network } = useNetworkContext();
   const [activeTab, setActiveTab] = useState<Tab>('swaps');
   const [page, setPage] = useState(1);
   const [startDate, setStartDate] = useState<string>('');
@@ -61,8 +62,7 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
   }
 
   function getExplorerUrl(txHash: string): string {
-    const network = SWYFT_NETWORK.toLowerCase();
-    return `https://stellar.expert/explorer/${network}/tx/${txHash}`;
+    return `https://stellar.expert/explorer/${network.toLowerCase()}/tx/${txHash}`;
   }
 
   function formatDate(timestamp: number): string {

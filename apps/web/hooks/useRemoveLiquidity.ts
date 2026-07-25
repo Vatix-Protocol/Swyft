@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { signTransaction } from '@stellar/freighter-api';
 import { buildBurnTx, buildCollectTx } from '@swyft/sdk';
 import type { PositionSnapshot } from '@swyft/ui';
-import { API_BASE, SWYFT_NETWORK_PASSPHRASE } from '@/lib/constants';
+import { API_BASE, getNetworkPassphrase } from '@/lib/constants';
+import { useNetworkContext } from '@/context/NetworkContext';
 
 /** Lifecycle status of a remove-liquidity or collect-fees transaction. */
 export type TxStatus = 'idle' | 'signing' | 'submitting' | 'success' | 'error';
@@ -55,6 +56,7 @@ function resolveSignedXdr(signResult: unknown): string | null {
  *   (`removeLiquidity`, `collectFees`, `reset`).
  */
 export function useRemoveLiquidity(position: PositionSnapshot | null, authToken: string | null) {
+  const { network } = useNetworkContext();
   const [state, setState] = useState<State>({ status: 'idle', txError: null, txHash: null });
 
   /** Resets transaction state back to idle. */
@@ -80,7 +82,7 @@ export function useRemoveLiquidity(position: PositionSnapshot | null, authToken:
       });
 
       const signResult = await signTransaction(xdr, {
-        networkPassphrase: SWYFT_NETWORK_PASSPHRASE,
+        networkPassphrase: getNetworkPassphrase(network),
       });
       const signedXdr = resolveSignedXdr(signResult);
 
@@ -117,7 +119,7 @@ export function useRemoveLiquidity(position: PositionSnapshot | null, authToken:
       });
 
       const signResult = await signTransaction(xdr, {
-        networkPassphrase: SWYFT_NETWORK_PASSPHRASE,
+        networkPassphrase: getNetworkPassphrase(network),
       });
       const signedXdr = resolveSignedXdr(signResult);
 
