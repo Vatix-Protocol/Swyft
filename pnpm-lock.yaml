@@ -200,8 +200,8 @@ importers:
         specifier: ^1.1.4
         version: 1.1.21(@types/react-dom@19.2.3)(@types/react@19.2.17)(react-dom@19.2.4)(react@19.2.4)
       '@radix-ui/react-visually-hidden':
-        specifier: ^1.1.2
-        version: 1.2.9(@types/react-dom@19.2.3)(@types/react@19.2.17)(react-dom@19.2.4)(react@19.2.4)
+        specifier: ^1.2.11
+        version: 1.2.11(@types/react-dom@19.2.3)(@types/react@19.2.17)(react-dom@19.2.4)(react@19.2.4)
       '@stellar/freighter-api':
         specifier: ^3.1.0
         version: 3.1.0
@@ -324,8 +324,8 @@ importers:
         specifier: ^1.1.1
         version: 1.1.21(@types/react-dom@19.2.3)(@types/react@19.2.17)(react-dom@19.2.4)(react@19.2.4)
       '@radix-ui/react-visually-hidden':
-        specifier: ^1.0.3
-        version: 1.2.9(@types/react-dom@19.2.3)(@types/react@19.2.17)(react-dom@19.2.4)(react@19.2.4)
+        specifier: ^1.2.11
+        version: 1.2.11(@types/react-dom@19.2.3)(@types/react@19.2.17)(react-dom@19.2.4)(react@19.2.4)
       react:
         specifier: '>=18'
         version: 19.2.4
@@ -844,8 +844,8 @@ packages:
     dev: true
     optional: true
 
-  /@emnapi/runtime@1.11.2:
-    resolution: {integrity: sha512-kyOl3X0DuTiT1h2ft8r2fYO8JYtU9a9Xis/zBSiGArNaagCOWx90N1k2wxp18czFDH+OgcWGb5ZP/XMt3dcyPA==}
+  /@emnapi/runtime@1.11.3:
+    resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
     requiresBuild: true
     dependencies:
       tslib: 2.8.1
@@ -1863,7 +1863,7 @@ packages:
     cpu: [wasm32]
     requiresBuild: true
     dependencies:
-      '@emnapi/runtime': 1.11.2
+      '@emnapi/runtime': 1.11.3
     dev: false
     optional: true
 
@@ -3434,6 +3434,19 @@ packages:
       react: 19.2.4
     dev: false
 
+  /@radix-ui/react-compose-refs@1.1.5(@types/react@19.2.17)(react@19.2.4):
+    resolution: {integrity: sha512-+48PbAAbq3didjJxa+OaWY2ZwgAKsNiRGyeHKszblZMQ+kcpd9pAaT11cMkGEie0vsOi3QdeTE6d5Fe3Gn61kA==}
+    peerDependencies:
+      '@types/react': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+    dependencies:
+      '@types/react': 19.2.17
+      react: 19.2.4
+    dev: false
+
   /@radix-ui/react-context@1.2.1(@types/react@19.2.17)(react@19.2.4):
     resolution: {integrity: sha512-EraVbFjiIjibpLr6EjvEDmSCYJU2SlKDMiO+qEK/D9GOWnQoAQlpQo2occGYC1UM9MBeEx5Bek3UtW/Qi57vAg==}
     peerDependencies:
@@ -3595,6 +3608,26 @@ packages:
       react-dom: 19.2.4(react@19.2.4)
     dev: false
 
+  /@radix-ui/react-primitive@2.1.10(@types/react-dom@19.2.3)(@types/react@19.2.17)(react-dom@19.2.4)(react@19.2.4):
+    resolution: {integrity: sha512-MucOnzh6hR5mid6VpkbglRAMYMjKLqRnGBbjXkzjK52fuQDd1qbkx78a5P40mkcnVXJdEVxm26E9OPAiUq7nBg==}
+    peerDependencies:
+      '@types/react': '*'
+      '@types/react-dom': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+      react-dom: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
+    dependencies:
+      '@radix-ui/react-slot': 1.3.3(@types/react@19.2.17)(react@19.2.4)
+      '@types/react': 19.2.17
+      '@types/react-dom': 19.2.3(@types/react@19.2.17)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+    dev: false
+
   /@radix-ui/react-primitive@2.1.8(@types/react-dom@19.2.3)(@types/react@19.2.17)(react-dom@19.2.4)(react@19.2.4):
     resolution: {integrity: sha512-DOlK1BdcIeYYUcFkSYFka4v1h95XTov93b0jCgW1EEiZuIhdwHY2NlE1teLIh+p0uBsuZI5A+voay+iVWpprfA==}
     peerDependencies:
@@ -3626,6 +3659,20 @@ packages:
     dependencies:
       '@radix-ui/primitive': 1.1.7
       '@radix-ui/react-compose-refs': 1.1.4(@types/react@19.2.17)(react@19.2.4)
+      '@types/react': 19.2.17
+      react: 19.2.4
+    dev: false
+
+  /@radix-ui/react-slot@1.3.3(@types/react@19.2.17)(react@19.2.4):
+    resolution: {integrity: sha512-qx7oqnYbxnK9kYI9m317qmFmEgo6ywqWvbTogdj7cL9p3/yx4M48p7Rnw5z3H890cL/ow/EeWJsuTykeZVXP5Q==}
+    peerDependencies:
+      '@types/react': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+    dependencies:
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.2.17)(react@19.2.4)
       '@types/react': 19.2.17
       react: 19.2.4
     dev: false
@@ -3686,8 +3733,8 @@ packages:
       react: 19.2.4
     dev: false
 
-  /@radix-ui/react-visually-hidden@1.2.9(@types/react-dom@19.2.3)(@types/react@19.2.17)(react-dom@19.2.4)(react@19.2.4):
-    resolution: {integrity: sha512-seuZXNZVCz1kLSQMRO/TdNOSahBI3S5nXE4jzO7u7aFRWQlMAnwyrr8vKMkEU115fCLEyzR2YyjnP+aRMxK34w==}
+  /@radix-ui/react-visually-hidden@1.2.11(@types/react-dom@19.2.3)(@types/react@19.2.17)(react-dom@19.2.4)(react@19.2.4):
+    resolution: {integrity: sha512-NFS86RYYZb4/exihaESBGOpMJFz8MGLAfu3mOBSGByVnVPC9JPASfYubxd/8KbkQK0sYAv8lVQDEQukDX/qXvQ==}
     peerDependencies:
       '@types/react': '*'
       '@types/react-dom': '*'
@@ -3699,7 +3746,7 @@ packages:
       '@types/react-dom':
         optional: true
     dependencies:
-      '@radix-ui/react-primitive': 2.1.8(@types/react-dom@19.2.3)(@types/react@19.2.17)(react-dom@19.2.4)(react@19.2.4)
+      '@radix-ui/react-primitive': 2.1.10(@types/react-dom@19.2.3)(@types/react@19.2.17)(react-dom@19.2.4)(react@19.2.4)
       '@types/react': 19.2.17
       '@types/react-dom': 19.2.3(@types/react@19.2.17)
       react: 19.2.4
@@ -9566,6 +9613,15 @@ packages:
       source-map-js: 1.2.1
     dev: true
 
+  /postcss@8.5.23:
+    resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
+    engines: {node: ^10 || ^12 || >=14}
+    dependencies:
+      nanoid: 3.3.16
+      picocolors: 1.1.1
+      source-map-js: 1.2.1
+    dev: true
+
   /prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
@@ -11377,7 +11433,7 @@ packages:
       esbuild: 0.28.1
       fdir: 6.5.0(picomatch@4.0.5)
       picomatch: 4.0.5
-      postcss: 8.5.22
+      postcss: 8.5.23
       rollup: 4.62.2
       tinyglobby: 0.2.17
     optionalDependencies:
