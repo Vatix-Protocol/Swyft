@@ -117,6 +117,8 @@ Copy `apps/api/.env.example` to `apps/api/.env` and fill in the values below.
 | `SENTRY_TRACES_SAMPLE_RATE` | ❌ | `0.1` | Sentry trace sampling rate (0–1) |
 | `COMPRESSION_LEVEL` | ❌ | `6` | zlib compression level for HTTP responses (1–9) |
 | `WEBHOOK_LARGE_SWAP_USD` | ❌ | `10000` | USD threshold above which a swap triggers a webhook notification |
+| `WEBHOOK_MAX_CONSECUTIVE_FAILS` | ❌ | `10` | Number of consecutive delivery failures before disabling a webhook |
+| `WEBHOOK_RETRY_ATTEMPTS` | ❌ | `3` | Number of times to retry webhook delivery before marking as failed |
 
 ---
 

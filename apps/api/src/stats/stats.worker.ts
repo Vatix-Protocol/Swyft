@@ -9,6 +9,7 @@ import { PrismaClient, Swap } from '@prisma/client';
 import { CacheService, TTL } from '../cache/cache.service';
 import { makeQueueOptions } from '../indexer/queues';
 import { STATS_QUEUE_NAME } from './stats.queue';
+import { TvlAlertService } from './tvl-alert.service';
 
 /** Cache key prefix for per-pool stats written by StatsWorker. */
 export const STATS_CACHE_KEY = (poolId: string) => `stats:pool:${poolId}`;
@@ -19,7 +20,10 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
   private readonly prisma = new PrismaClient();
   private worker!: Worker;
 
-  constructor(private readonly cache: CacheService) {}
+  constructor(
+    private readonly cache: CacheService,
+    private readonly tvlAlertService: TvlAlertService,
+  ) {}
 
   onModuleInit() {
     const { connection } = makeQueueOptions();
@@ -101,6 +105,12 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
           { tvl, volume24h, volume7d, feeApr, updatedAt: new Date().toISOString() },
           TTL.STATS,
         );
+
+        // Record TVL snapshot for historical time series
+        await this.tvlAlertService.recordTvlSnapshot(pool.id, tvl);
+
+        // Check and trigger TVL alerts
+        await this.tvlAlertService.checkAndTriggerAlerts(pool, tvl);
 
         updated++;
       } catch (err: unknown) {

@@ -300,3 +300,40 @@ model IndexerDeadLetter {
   @@index([createdAt])
   @@map("indexer_dead_letter")
 }
+
+/// #488 — TVL alert thresholds
+/// User-defined thresholds for TVL alerts (e.g., alert when TVL drops below $X)
+model TvlAlertThreshold {
+  id               String   @id @default(cuid())
+  poolId           String
+  ownerWallet      String
+  thresholdUsd     Float
+  direction        String   // 'below' or 'above'
+  enabled          Boolean  @default(true)
+  lastTriggeredAt  DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  pool             Pool     @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@unique([poolId, ownerWallet])
+  @@index([poolId])
+  @@index([ownerWallet])
+  @@map("tvl_alert_threshold")
+}
+
+/// #489 — Historical TVL time series
+/// Daily TVL snapshots for time series export
+model TvlSnapshot {
+  id               String   @id @default(cuid())
+  poolId           String
+  tvlUsd           Float
+  date             DateTime
+  createdAt        DateTime @default(now())
+
+  pool             Pool     @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@unique([poolId, date])
+  @@index([poolId, date])
+  @@map("tvl_snapshot")
+}
