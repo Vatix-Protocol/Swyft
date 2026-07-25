@@ -34,6 +34,11 @@ const mockService = {
     },
   ]),
   retryDeliveries: jest.fn().mockResolvedValue({ retried: 0 }),
+  ping: jest.fn().mockResolvedValue({
+    sent: true,
+    testEvent: 'swap',
+    timestamp: '2024-01-01T00:00:00Z',
+  }),
 };
 
 describe('WebhooksController', () => {
@@ -183,6 +188,54 @@ describe('WebhooksController', () => {
         expect(typeof ex.timestamp).toBe('string');
         expect(ex.data).toBeDefined();
       }
+    });
+  });
+
+  // ── ping ──────────────────────────────────────────────────────────────────
+
+  describe('ping', () => {
+    it('sends a test ping webhook', async () => {
+      mockService.ping.mockResolvedValue({
+        sent: true,
+        testEvent: 'swap',
+        timestamp: '2024-01-01T00:00:00Z',
+      });
+      const request = { user: { walletAddress: 'GTEST_WALLET_ADDRESS' } };
+
+      const result = await controller.ping('wh-1', request, { testEventType: 'swap' });
+
+      expect(mockService.ping).toHaveBeenCalledWith(
+        'wh-1',
+        'GTEST_WALLET_ADDRESS',
+        'swap',
+      );
+      expect(result).toEqual({
+        sent: true,
+        testEvent: 'swap',
+        timestamp: '2024-01-01T00:00:00Z',
+      });
+    });
+
+    it('uses default event type when not specified', async () => {
+      mockService.ping.mockResolvedValue({
+        sent: true,
+        testEvent: 'swap',
+        timestamp: '2024-01-01T00:00:00Z',
+      });
+      const request = { user: { walletAddress: 'GTEST_WALLET_ADDRESS' } };
+
+      const result = await controller.ping('wh-1', request);
+
+      expect(mockService.ping).toHaveBeenCalledWith(
+        'wh-1',
+        'GTEST_WALLET_ADDRESS',
+        'swap',
+      );
+      expect(result).toEqual({
+        sent: true,
+        testEvent: 'swap',
+        timestamp: '2024-01-01T00:00:00Z',
+      });
     });
   });
 });

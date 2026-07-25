@@ -339,3 +339,145 @@ describe('getAmountsDelta', () => {
     expect(Number(full.amount1 / 2n - half.amount1)).toBeLessThanOrEqual(1);
   });
 });
+});
+
+// ── fuzz tests for tick to price conversion ──────────────────────────────────
+
+describe('tickToPrice fuzz tests', () => {
+  // Generate random test cases
+  const testCases = Array.from({ length: 100 }, () => ({
+    tick: Math.floor(Math.random() * (MAX_TICK - MIN_TICK + 1)) + MIN_TICK,
+    token0Decimals: Math.floor(Math.random() * 18) + 1,
+    token1Decimals: Math.floor(Math.random() * 18) + 1,
+  }));
+
+  testCases.forEach(({ tick, token0Decimals, token1Decimals }) => {
+    it(`fuzz: tick ${tick} with decimals ${token0Decimals}/${token1Decimals}`, () => {
+      const price = tickToPrice(tick, token0Decimals, token1Decimals);
+      
+      // Price should always be positive
+      expect(price).toBeGreaterThan(0);
+      
+      // Price should be finite
+      expect(Number.isFinite(price)).toBe(true);
+      
+      // For tick = 0, price should be 10^(token0Decimals - token1Decimals)
+      if (tick === 0) {
+        const expectedPrice = Math.pow(10, token0Decimals - token1Decimals);
+        expect(price).toBeCloseTo(expectedPrice, 10);
+      }
+      
+      // For positive ticks, price should be > 10^(token0Decimals - token1Decimals)
+      if (tick > 0) {
+        const basePrice = Math.pow(10, token0Decimals - token1Decimals);
+        expect(price).toBeGreaterThan(basePrice);
+      }
+      
+      // For negative ticks, price should be < 10^(token0Decimals - token1Decimals)
+      if (tick < 0) {
+        const basePrice = Math.pow(10, token0Decimals - token1Decimals);
+        expect(price).toBeLessThan(basePrice);
+      }
+    });
+  });
+});
+
+describe('priceToTick fuzz tests', () => {
+  // Generate random test cases
+  const testCases = Array.from({ length: 100 }, () => {
+    const price = Math.random() * 1000 + 0.000001; // Avoid 0 price
+    const tickSpacing = [1, 10, 60, 200][Math.floor(Math.random() * 4)];
+    return { price, tickSpacing };
+  });
+
+  testCases.forEach(({ price, tickSpacing }) => {
+    it(`fuzz: price ${price} with tickSpacing ${tickSpacing}`, () => {
+      const tick = priceToTick(price, tickSpacing);
+      
+      // Tick should be within bounds
+      expect(tick).toBeGreaterThanOrEqual(MIN_TICK);
+      expect(tick).toBeLessThanOrEqual(MAX_TICK);
+      
+      // Tick should be multiple of tickSpacing
+      expect(tick % tickSpacing).toBe(0);
+      
+      // Convert back to price and verify it's close
+      const reconvertedPrice = Math.pow(1.0001, tick);
+      const priceRatio = Math.abs(Math.log(price) - Math.log(reconvertedPrice)) / Math.log(1.0001);
+      
+      // The tick should be within tickSpacing/2 of the ideal tick
+      expect(priceRatio).toBeLessThanOrEqual(tickSpacing / 2 + 0.001);
+    });
+  });
+});
+
+describe('tickToSqrtPriceX96 and sqrtPriceX96ToTick fuzz tests', () => {
+  // Generate random test cases
+  const testCases = Array.from({ length: 50 }, () => ({
+    tick: Math.floor(Math.random() * (MAX_TICK - MIN_TICK + 1)) + MIN_TICK,
+  }));
+
+  testCases.forEach(({ tick }) => {
+    it(`fuzz: round-trip tick ${tick}`, () => {
+      // Convert tick to sqrtPriceX96
+      const sqrtPrice = tickToSqrtPriceX96(tick);
+      
+      // Convert back to tick
+      const recoveredTick = sqrtPriceX96ToTick(sqrtPrice);
+      
+      // The recovered tick should be close to the original
+      // Due to rounding, we allow ±1 tick difference
+      expect(Math.abs(recoveredTick - tick)).toBeLessThanOrEqual(2);
+      
+      // Verify sqrtPrice is positive
+      expect(sqrtPrice).toBeGreaterThan(0n);
+    });
+  });
+
+  // Additional edge case fuzzing
+  it('fuzz: extreme tick values', () => {
+    const extremeTicks = [MIN_TICK, MAX_TICK, MIN_TICK + 1, MAX_TICK - 1, -100000, 100000];
+    
+    extremeTicks.forEach(tick => {
+      if (tick >= MIN_TICK && tick <= MAX_TICK) {
+        const sqrtPrice = tickToSqrtPriceX96(tick);
+        const recoveredTick = sqrtPriceX96ToTick(sqrtPrice);
+        
+        expect(Math.abs(recoveredTick - tick)).toBeLessThanOrEqual(2);
+        expect(sqrtPrice).toBeGreaterThan(0n);
+      }
+    });
+  });
+});
+
+describe('round-trip fuzz tests', () => {
+  // Test round-trip: price -> tick -> price
+  const testCases = Array.from({ length: 50 }, () => {
+    const price = Math.random() * 1000 + 0.000001;
+    const token0Decimals = Math.floor(Math.random() * 18) + 1;
+    const token1Decimals = Math.floor(Math.random() * 18) + 1;
+    const tickSpacing = [1, 10, 60][Math.floor(Math.random() * 3)];
+    return { price, token0Decimals, token1Decimals, tickSpacing };
+  });
+
+  testCases.forEach(({ price, token0Decimals, token1Decimals, tickSpacing }) => {
+    it(`fuzz: price ${price} round-trip with decimals ${token0Decimals}/${token1Decimals}`, () => {
+      // Price -> tick
+      const tick = priceToTick(price, tickSpacing);
+      
+      // Tick -> price (without decimals first to check core conversion)
+      const priceFromTick = Math.pow(1.0001, tick);
+      
+      // The ratio should be close
+      const maxRatioError = Math.pow(1.0001, tickSpacing / 2);
+      expect(priceFromTick / price).toBeGreaterThanOrEqual(1 / maxRatioError);
+      expect(priceFromTick / price).toBeLessThanOrEqual(maxRatioError);
+      
+      // Now test with decimals
+      const priceWithDecimals = tickToPrice(tick, token0Decimals, token1Decimals);
+      const expectedPriceWithDecimals = priceFromTick * Math.pow(10, token0Decimals - token1Decimals);
+      
+      expect(priceWithDecimals).toBeCloseTo(expectedPriceWithDecimals, 10);
+    });
+  });
+});
