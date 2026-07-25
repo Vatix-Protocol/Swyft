@@ -95,7 +95,7 @@
     "rimraf": "^6.0.1",
     "ts-jest": "^29.2.5",
     "tsup": "^8.4.0",
-    "typescript": "^5"
+    "typescript": "^7"
   },
   "jest": {
     "preset": "ts-jest",
