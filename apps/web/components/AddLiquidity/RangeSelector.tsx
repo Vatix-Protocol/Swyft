@@ -129,6 +129,33 @@ export function RangeSelector({
   const upperX = tickToX(upperTick);
   const currentX = tickToX(currentTick);
 
+  // Guard manual price entry against inverted/out-of-range bounds before
+  // forwarding to the parent, since a bad tick pair here becomes a bad
+  // on-chain call (mint would revert or silently create a degenerate range).
+  const handleLowerPriceChange = useCallback(
+    (value: string) => {
+      const price = parseFloat(value);
+      if (value.trim() !== '' && !isNaN(price) && price > 0) {
+        const proposedTick = nearestUsableTick(priceToTick(price), tickSpacing);
+        if (proposedTick >= upperTick) return;
+      }
+      onLowerPriceChange(value);
+    },
+    [onLowerPriceChange, tickSpacing, upperTick]
+  );
+
+  const handleUpperPriceChange = useCallback(
+    (value: string) => {
+      const price = parseFloat(value);
+      if (value.trim() !== '' && !isNaN(price) && price > 0) {
+        const proposedTick = nearestUsableTick(priceToTick(price), tickSpacing);
+        if (proposedTick <= lowerTick) return;
+      }
+      onUpperPriceChange(value);
+    },
+    [onUpperPriceChange, tickSpacing, lowerTick]
+  );
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -265,7 +292,7 @@ export function RangeSelector({
             type="text"
             inputMode="decimal"
             value={lowerPrice}
-            onChange={(e) => onLowerPriceChange(e.target.value)}
+            onChange={(e) => handleLowerPriceChange(e.target.value)}
             aria-label="Minimum price"
             placeholder="0.00"
             className="w-full bg-transparent text-sm font-semibold text-zinc-900 placeholder-zinc-300 focus:outline-none dark:text-white dark:placeholder-zinc-600"
@@ -280,7 +307,7 @@ export function RangeSelector({
             type="text"
             inputMode="decimal"
             value={upperPrice}
-            onChange={(e) => onUpperPriceChange(e.target.value)}
+            onChange={(e) => handleUpperPriceChange(e.target.value)}
             aria-label="Maximum price"
             placeholder="0.00"
             className="w-full bg-transparent text-sm font-semibold text-zinc-900 placeholder-zinc-300 focus:outline-none dark:text-white dark:placeholder-zinc-600"
