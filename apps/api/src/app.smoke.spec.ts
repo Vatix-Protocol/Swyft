@@ -27,7 +27,11 @@ const emptyPage = jest.fn().mockResolvedValue({
 const prismaMock = {
   $connect: noop,
   $disconnect: noop,
-  pool: { findMany: emptyList, findUnique: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(0) },
+  pool: {
+    findMany: emptyList,
+    findUnique: jest.fn().mockResolvedValue(null),
+    count: jest.fn().mockResolvedValue(0),
+  },
   token: { findMany: emptyList },
   swap: { findMany: emptyList, count: jest.fn().mockResolvedValue(0) },
   position: { findMany: emptyList, count: jest.fn().mockResolvedValue(0) },
@@ -56,18 +60,30 @@ const redisMock = {
 redisMock.duplicate.mockReturnValue(redisMock);
 
 // BullMQ Queue stub
-const queueMock = { add: jest.fn().mockResolvedValue({ id: '1' }), close: jest.fn().mockResolvedValue(undefined) };
+const queueMock = {
+  add: jest.fn().mockResolvedValue({ id: '1' }),
+  close: jest.fn().mockResolvedValue(undefined),
+};
 
 // BullMQ Worker / QueueEvents stubs (prevents real Redis connection in IndexerWorker)
 jest.mock('bullmq', () => ({
-  Worker: jest.fn().mockImplementation(() => ({ on: jest.fn(), close: jest.fn().mockResolvedValue(undefined), client: Promise.resolve({ llen: jest.fn().mockResolvedValue(0) }) })),
+  Worker: jest.fn().mockImplementation(() => ({
+    on: jest.fn(),
+    close: jest.fn().mockResolvedValue(undefined),
+    client: Promise.resolve({ llen: jest.fn().mockResolvedValue(0) }),
+  })),
   Queue: jest.fn().mockImplementation(() => queueMock),
-  QueueEvents: jest.fn().mockImplementation(() => ({ on: jest.fn(), close: jest.fn().mockResolvedValue(undefined) })),
+  QueueEvents: jest.fn().mockImplementation(() => ({
+    on: jest.fn(),
+    close: jest.fn().mockResolvedValue(undefined),
+  })),
   Job: jest.fn(),
 }));
 
 // Prisma client stub
-jest.mock('@prisma/client', () => ({ PrismaClient: jest.fn().mockImplementation(() => prismaMock) }));
+jest.mock('@prisma/client', () => ({
+  PrismaClient: jest.fn().mockImplementation(() => prismaMock),
+}));
 
 // IORedis stub
 jest.mock('ioredis', () => jest.fn().mockImplementation(() => redisMock));
@@ -106,7 +122,9 @@ describe('AppModule — public routes smoke test', () => {
 
     app = module.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
-    app.setGlobalPrefix('v1', { exclude: ['health', 'docs', 'docs-json', '/'] });
+    app.setGlobalPrefix('v1', {
+      exclude: ['health', 'docs', 'docs-json', '/'],
+    });
     await app.init();
   });
 

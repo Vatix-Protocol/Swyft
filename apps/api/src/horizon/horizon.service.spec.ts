@@ -178,7 +178,10 @@ describe('HorizonService — poller (Horizon mocked)', () => {
         expect.arrayContaining([
           expect.objectContaining({
             name: 'evt-swap-1',
-            data: expect.objectContaining({ sender: 'GSENDER', recipient: 'GRECIPIENT' }),
+            data: expect.objectContaining({
+              sender: 'GSENDER',
+              recipient: 'GRECIPIENT',
+            }),
           }),
         ]),
       );
@@ -255,7 +258,10 @@ describe('HorizonService — poller (Horizon mocked)', () => {
         expect.arrayContaining([
           expect.objectContaining({
             name: 'evt-pos-1',
-            data: expect.objectContaining({ owner: 'GOWNER', tokenId: 'nft-1' }),
+            data: expect.objectContaining({
+              owner: 'GOWNER',
+              tokenId: 'nft-1',
+            }),
           }),
         ]),
       );
@@ -292,7 +298,9 @@ describe('HorizonService — poller (Horizon mocked)', () => {
             cursor: () => ({
               order: () => ({
                 limit: () => ({
-                  call: jest.fn().mockRejectedValue(new Error('network timeout')),
+                  call: jest
+                    .fn()
+                    .mockRejectedValue(new Error('network timeout')),
                 }),
               }),
             }),

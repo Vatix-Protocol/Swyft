@@ -99,7 +99,10 @@ export class TvlAlertService {
    * Check TVL against thresholds and trigger alerts if needed
    * This should be called from the StatsWorker after updating TVL
    */
-  async checkAndTriggerAlerts(pool: Pool, currentTvlUsd: number): Promise<void> {
+  async checkAndTriggerAlerts(
+    pool: Pool,
+    currentTvlUsd: number,
+  ): Promise<void> {
     const thresholds = await this.prisma.tvlAlertThreshold.findMany({
       where: {
         poolId: pool.id,
@@ -185,18 +188,16 @@ export class TvlAlertService {
         },
       });
     } catch (error) {
-      this.logger.error(`Failed to record TVL snapshot for pool=${poolId}: ${error}`);
+      this.logger.error(
+        `Failed to record TVL snapshot for pool=${poolId}: ${error}`,
+      );
     }
   }
 
   /**
    * Get historical TVL time series for a pool
    */
-  async getTvlHistory(
-    poolId: string,
-    startDate: Date,
-    endDate: Date,
-  ) {
+  async getTvlHistory(poolId: string, startDate: Date, endDate: Date) {
     return this.prisma.tvlSnapshot.findMany({
       where: {
         poolId,

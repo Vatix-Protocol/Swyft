@@ -21,8 +21,7 @@
  */
 export function getCorsOrigins(): string[] {
   const isProduction = process.env.NODE_ENV === 'production';
-  const raw =
-    process.env.WEB_APP_ORIGIN ?? process.env.CORS_ORIGIN ?? null;
+  const raw = process.env.WEB_APP_ORIGIN ?? process.env.CORS_ORIGIN ?? null;
 
   if (!raw) {
     if (isProduction) {
@@ -53,8 +52,8 @@ export function validateCorsConfig(): void {
       );
     }
 
-    const hasLocalhost = origins.some((origin) =>
-      origin.includes('localhost') || origin.includes('127.0.0.1'),
+    const hasLocalhost = origins.some(
+      (origin) => origin.includes('localhost') || origin.includes('127.0.0.1'),
     );
     if (hasLocalhost) {
       throw new Error(

@@ -37,7 +37,9 @@ describe('Swaps E2E (mocked RPC)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ transform: true, whitelist: true }),
+    );
     await app.init();
   });
 
@@ -64,9 +66,7 @@ describe('Swaps E2E (mocked RPC)', () => {
     it('returns empty list when no swaps exist', async () => {
       mockRepo.listSwaps.mockResolvedValue({ items: [], total: 0 });
 
-      const res = await request(app.getHttpServer())
-        .get('/swaps')
-        .expect(200);
+      const res = await request(app.getHttpServer()).get('/swaps').expect(200);
 
       expect(res.body.items).toEqual([]);
       expect(res.body.total).toBe(0);

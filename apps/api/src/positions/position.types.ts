@@ -29,6 +29,8 @@ export interface PositionSnapshot {
   readonly ownerWallet: string;
   /** Pool identifier where the position is deployed */
   readonly poolId: string;
+  /** NFT token ID for the on-chain position, or null when unavailable */
+  readonly tokenId: string | null;
   /** First token in the trading pair */
   readonly token0: string;
   /** Second token in the trading pair */

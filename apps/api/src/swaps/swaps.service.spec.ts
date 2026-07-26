@@ -1,8 +1,12 @@
+import { Pool, Token } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { SwapsService } from './swaps.service';
 import { SwapsRepository } from './swaps.repository';
 import { SwapErrorCode, SwapSnapshot } from './swap.types';
-import { SlippageExceededException } from '../request-validation/http.exceptions';
+import {
+  SlippageExceededException,
+  UnknownTokenException,
+} from '../request-validation/http.exceptions';
 
 const makeSnapshot = (overrides: Partial<SwapSnapshot> = {}): SwapSnapshot => ({
   id: 'swap-1',
@@ -19,12 +23,27 @@ const makeSnapshot = (overrides: Partial<SwapSnapshot> = {}): SwapSnapshot => ({
   ...overrides,
 });
 
+const makeToken = (overrides: Partial<Token> = {}): Token =>
+  ({
+    id: 'tok-1',
+    address: 'USDC-addr',
+    symbol: 'USDC',
+    name: 'USD Coin',
+    decimals: 6,
+    logoUri: null,
+    ...overrides,
+  }) as Token;
+
 describe('SwapsService', () => {
   let service: SwapsService;
   let repo: jest.Mocked<SwapsRepository>;
 
   beforeEach(async () => {
-    repo = { listSwaps: jest.fn() } as unknown as jest.Mocked<SwapsRepository>;
+    repo = {
+      listSwaps: jest.fn(),
+      findTokenByAddress: jest.fn(),
+      findPoolByTokenPair: jest.fn(),
+    } as unknown as jest.Mocked<SwapsRepository>;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [SwapsService, { provide: SwapsRepository, useValue: repo }],
@@ -97,6 +116,96 @@ describe('SwapsService', () => {
     });
   });
 
+  describe('getQuote()', () => {
+    it('throws UnknownTokenException with UNKNOWN_TOKEN code when tokenIn is unknown', async () => {
+      repo.findTokenByAddress
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(
+          makeToken({ address: 'XLM-addr', symbol: 'XLM' }),
+        );
+
+      let caught: UnknownTokenException | undefined;
+      try {
+        await service.getQuote({
+          tokenIn: 'unknown-in',
+          tokenOut: 'XLM-addr',
+          amountIn: '100',
+        });
+      } catch (err) {
+        caught = err as UnknownTokenException;
+      }
+
+      expect(caught).toBeInstanceOf(UnknownTokenException);
+      const response = caught!.getResponse() as Record<string, unknown>;
+      expect(response.code).toBe(SwapErrorCode.UNKNOWN_TOKEN);
+      expect(repo.findPoolByTokenPair).not.toHaveBeenCalled();
+    });
+
+    it('throws UnknownTokenException when tokenOut is unknown', async () => {
+      repo.findTokenByAddress
+        .mockResolvedValueOnce(makeToken())
+        .mockResolvedValueOnce(null);
+
+      await expect(
+        service.getQuote({
+          tokenIn: 'USDC-addr',
+          tokenOut: 'unknown-out',
+          amountIn: '100',
+        }),
+      ).rejects.toThrow(UnknownTokenException);
+    });
+
+    it('returns quote shape for a known token pair', async () => {
+      repo.findTokenByAddress
+        .mockResolvedValueOnce(makeToken())
+        .mockResolvedValueOnce(
+          makeToken({
+            id: 'tok-2',
+            address: 'XLM-addr',
+            symbol: 'XLM',
+            name: 'Stellar',
+          }),
+        );
+      repo.findPoolByTokenPair.mockResolvedValue({
+        id: 'pool-1',
+        token0Address: 'USDC-addr',
+        token1Address: 'XLM-addr',
+        feeTier: 30,
+        currentSqrtPrice: '1',
+        currentTick: 0,
+        liquidity: '0',
+        tvl: '100',
+        volume24h: '50',
+        feeApr: '2.5',
+        currentPrice: '2',
+        active: true,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+      } as Pool);
+
+      const quote = await service.getQuote({
+        tokenIn: 'USDC-addr',
+        tokenOut: 'XLM-addr',
+        amountIn: '100',
+        slippageBps: 50,
+      });
+
+      expect(quote).toEqual({
+        tokenIn: 'USDC-addr',
+        tokenOut: 'XLM-addr',
+        tokenInSymbol: 'USDC',
+        tokenOutSymbol: 'XLM',
+        amountIn: '100',
+        amountOut: '200',
+        executionPrice: '2',
+        minimumReceived: '199',
+        priceImpact: 0,
+        poolId: 'pool-1',
+        slippageBps: 50,
+      });
+    });
+  });
+
   describe('snapshot', () => {
     it('matches snapshot for swap processed response', async () => {
       repo.listSwaps.mockResolvedValue({
@@ -133,12 +242,10 @@ describe('SwapsService', () => {
 
       const result = await service.getSwaps({ page: 1, limit: 20 });
 
-      // Remove timestamp-sensitive fields for stable snapshot
       const sanitizedResult = {
         ...result,
-        items: result.items.map(item => ({
+        items: result.items.map((item) => ({
           ...item,
-          // Remove any dynamic fields that might change
           id: expect.any(String),
           timestamp: expect.any(Number),
         })),
@@ -160,7 +267,7 @@ describe('SwapsService', () => {
 
     it('matches snapshot for pagination metadata', async () => {
       repo.listSwaps.mockResolvedValue({
-        items: Array.from({ length: 5 }, (_, i) => 
+        items: Array.from({ length: 5 }, (_, i) =>
           makeSnapshot({
             id: `swap-paginated-${i}`,
             poolId: `pool-paginated-${i}`,
@@ -173,14 +280,13 @@ describe('SwapsService', () => {
             txHash: `tx-paginated-${i}`,
             walletAddress: `wallet-paginated-${i}`,
             timestamp: 1_700_000_000_000 + i,
-          })
+          }),
         ),
         total: 35,
       });
 
       const result = await service.getSwaps({ page: 2, limit: 5 });
 
-      // Test structure without dynamic values
       expect(result).toEqual({
         items: expect.any(Array),
         page: 2,
@@ -189,9 +295,8 @@ describe('SwapsService', () => {
         totalPages: 7,
         isLoading: false,
       });
-      
-      // Verify item structure matches expected shape
-      result.items.forEach(item => {
+
+      result.items.forEach((item) => {
         expect(item).toEqual({
           id: expect.any(String),
           poolId: expect.any(String),

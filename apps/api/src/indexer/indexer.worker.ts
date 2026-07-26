@@ -194,13 +194,16 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
       // Record to DLQ if max retries exceeded
       if (isDeadLettered && job) {
+        const rawEventId = (job.data as Record<string, unknown>)?.eventId;
         const eventId =
-          (job.data as Record<string, unknown>)?.eventId || 'unknown';
+          typeof rawEventId === 'string' || typeof rawEventId === 'number'
+            ? String(rawEventId)
+            : 'unknown';
         this.deadLetterService
           .recordDeadLetter({
             jobId: job.id || 'unknown',
             queueName,
-            eventId: String(eventId),
+            eventId,
             data: job.data as Record<string, unknown>,
             error: err.message,
             attemptsMade: attempts,

@@ -85,8 +85,10 @@ describe('LoggingMiddleware', () => {
     const res = response();
     const req = request();
     const logSpy = jest
-      .spyOn((middleware as unknown as { logger: { log: () => void } })
-        .logger, 'log')
+      .spyOn(
+        (middleware as unknown as { logger: { log: () => void } }).logger,
+        'log',
+      )
       .mockImplementation(() => undefined);
 
     middleware.use(req as never, res as never, next);

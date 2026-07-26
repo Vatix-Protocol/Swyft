@@ -249,10 +249,8 @@ describe('PriceService', () => {
           pool: null,
         },
       ];
-      mockPrisma.pool.findFirst.mockResolvedValueOnce(mockPool as never);
-      mockPrisma.priceCandle.findMany.mockResolvedValueOnce(
-        mockCandles as never,
-      );
+      mockPrisma.pool.findFirst.mockResolvedValueOnce(mockPool);
+      mockPrisma.priceCandle.findMany.mockResolvedValueOnce(mockCandles);
 
       const result = await service.getCandles(
         'USDC',

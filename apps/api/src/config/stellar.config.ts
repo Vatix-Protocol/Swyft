@@ -14,7 +14,13 @@
  */
 
 import { registerAs } from '@nestjs/config';
-import { IsOptional, IsIn, validateSync, IsString, Matches } from 'class-validator';
+import {
+  IsOptional,
+  IsIn,
+  validateSync,
+  IsString,
+  Matches,
+} from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 
 // ── Allowed networks ─────────────────────────────────────────────────────────
@@ -69,27 +75,33 @@ export const STELLAR_CONFIG_KEY = 'stellar';
  * const cfg = this.config.get<StellarConfig>(STELLAR_CONFIG_KEY)!;
  * ```
  */
-export const stellarConfig = registerAs(STELLAR_CONFIG_KEY, (): StellarConfig => {
-  const env = plainToInstance(StellarEnvVars, {
-    STELLAR_RPC_URL: process.env.STELLAR_RPC_URL ?? TESTNET_DEFAULTS.rpcUrl,
-    HORIZON_URL: process.env.HORIZON_URL ?? TESTNET_DEFAULTS.horizonUrl,
-    STELLAR_NETWORK: process.env.STELLAR_NETWORK ?? 'testnet',
-    POOL_CONTRACT_ID: process.env.POOL_CONTRACT_ID,
-  });
+export const stellarConfig = registerAs(
+  STELLAR_CONFIG_KEY,
+  (): StellarConfig => {
+    const env = plainToInstance(StellarEnvVars, {
+      STELLAR_RPC_URL: process.env.STELLAR_RPC_URL ?? TESTNET_DEFAULTS.rpcUrl,
+      HORIZON_URL: process.env.HORIZON_URL ?? TESTNET_DEFAULTS.horizonUrl,
+      STELLAR_NETWORK: process.env.STELLAR_NETWORK ?? 'testnet',
+      POOL_CONTRACT_ID: process.env.POOL_CONTRACT_ID,
+    });
 
-  const errors = validateSync(env, { skipMissingProperties: false });
+    const errors = validateSync(env, { skipMissingProperties: false });
 
-  if (errors.length > 0) {
-    const details = errors
-      .map((e) => `  ${e.property}: ${Object.values(e.constraints ?? {}).join(', ')}`)
-      .join('\n');
-    throw new Error(`Stellar configuration is invalid:\n${details}`);
-  }
+    if (errors.length > 0) {
+      const details = errors
+        .map(
+          (e) =>
+            `  ${e.property}: ${Object.values(e.constraints ?? {}).join(', ')}`,
+        )
+        .join('\n');
+      throw new Error(`Stellar configuration is invalid:\n${details}`);
+    }
 
-  return {
-    rpcUrl: env.STELLAR_RPC_URL,
-    horizonUrl: env.HORIZON_URL,
-    network: env.STELLAR_NETWORK,
-    poolContractId: env.POOL_CONTRACT_ID ?? '',
-  };
-});
+    return {
+      rpcUrl: env.STELLAR_RPC_URL,
+      horizonUrl: env.HORIZON_URL,
+      network: env.STELLAR_NETWORK,
+      poolContractId: env.POOL_CONTRACT_ID ?? '',
+    };
+  },
+);

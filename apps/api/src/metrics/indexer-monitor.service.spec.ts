@@ -45,7 +45,9 @@ describe('IndexerMonitorService', () => {
   describe('getMetrics()', () => {
     it('returns healthy when no checkpoint exists yet (prevents false critical alert)', async () => {
       mockCache.get.mockResolvedValue(null);
-      mockLedgers.call.mockResolvedValue({ records: [{ sequence: 5_000_000 }] });
+      mockLedgers.call.mockResolvedValue({
+        records: [{ sequence: 5_000_000 }],
+      });
 
       const metrics = await service.getMetrics();
 

@@ -131,7 +131,14 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
   private async batchEnqueueLedgerWindow(
     records: IndexerEffectRecord[],
   ): Promise<void> {
-    type JobEntry = { name: string; data: PoolCreatedJobData | SwapProcessedJobData | PositionMintedJobData | PositionBurnedJobData };
+    type JobEntry = {
+      name: string;
+      data:
+        | PoolCreatedJobData
+        | SwapProcessedJobData
+        | PositionMintedJobData
+        | PositionBurnedJobData;
+    };
 
     const poolCreatedJobs: JobEntry[] = [];
     const swapProcessedJobs: JobEntry[] = [];
@@ -215,16 +222,24 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
     const opts = { removeOnComplete: true };
     await Promise.all([
       poolCreatedJobs.length
-        ? this.poolCreatedQueue.addBulk(poolCreatedJobs.map((j) => ({ ...j, opts })))
+        ? this.poolCreatedQueue.addBulk(
+            poolCreatedJobs.map((j) => ({ ...j, opts })),
+          )
         : Promise.resolve(),
       swapProcessedJobs.length
-        ? this.swapProcessedQueue.addBulk(swapProcessedJobs.map((j) => ({ ...j, opts })))
+        ? this.swapProcessedQueue.addBulk(
+            swapProcessedJobs.map((j) => ({ ...j, opts })),
+          )
         : Promise.resolve(),
       positionMintedJobs.length
-        ? this.positionMintedQueue.addBulk(positionMintedJobs.map((j) => ({ ...j, opts })))
+        ? this.positionMintedQueue.addBulk(
+            positionMintedJobs.map((j) => ({ ...j, opts })),
+          )
         : Promise.resolve(),
       positionBurnedJobs.length
-        ? this.positionBurnedQueue.addBulk(positionBurnedJobs.map((j) => ({ ...j, opts })))
+        ? this.positionBurnedQueue.addBulk(
+            positionBurnedJobs.map((j) => ({ ...j, opts })),
+          )
         : Promise.resolve(),
     ]);
   }

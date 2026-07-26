@@ -19,6 +19,9 @@ model Pool {
   volume24h         String
   feeApr            String
   currentPrice      String?
+  /// Soft activity flag. Inactive pools are hidden from the default list
+  /// unless `includeInactive=true` is passed to GET /pools.
+  active            Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -26,10 +29,13 @@ model Pool {
   swaps             Swap[]
   positions         Position[]
   priceCandles      PriceCandle[]
+  tvlAlertThresholds TvlAlertThreshold[]
+  tvlSnapshots      TvlSnapshot[]
 
   @@map("pool")
   @@index([token0Address, token1Address])
   @@index([createdAt])
+  @@index([active])
 }
 
 model Swap {

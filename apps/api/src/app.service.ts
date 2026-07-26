@@ -20,9 +20,7 @@ export class AppService {
 
   async getHealth(): Promise<HealthStatus> {
     const [postgres, redis] = await Promise.all([
-      this.prisma.$queryRaw`SELECT 1`
-        .then(() => true)
-        .catch(() => false),
+      this.prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false),
       this.cache.ping(),
     ]);
     return {

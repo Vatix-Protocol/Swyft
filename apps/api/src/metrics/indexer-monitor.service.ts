@@ -33,7 +33,8 @@ export class IndexerMonitorService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly cache: CacheService,
   ) {
-    const stellarCfg = this.configService.get<StellarConfig>(STELLAR_CONFIG_KEY)!;
+    const stellarCfg =
+      this.configService.get<StellarConfig>(STELLAR_CONFIG_KEY)!;
     this.horizon = new Horizon.Server(stellarCfg.horizonUrl);
   }
 
@@ -53,7 +54,8 @@ export class IndexerMonitorService implements OnModuleInit, OnModuleDestroy {
     ]);
 
     const latestLedger = latestLedgerStr ?? 0;
-    const hasCheckpoint = lastIndexedStr !== null && lastIndexedStr !== undefined;
+    const hasCheckpoint =
+      lastIndexedStr !== null && lastIndexedStr !== undefined;
     const lastIndexedLedger = lastIndexedStr ?? 0;
     const lagLedgers = hasCheckpoint
       ? Math.max(0, latestLedger - lastIndexedLedger)
@@ -83,7 +85,10 @@ export class IndexerMonitorService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private computeStatus(lagLedgers: number, hasCheckpoint: boolean): IndexerStatus {
+  private computeStatus(
+    lagLedgers: number,
+    hasCheckpoint: boolean,
+  ): IndexerStatus {
     if (!hasCheckpoint) return 'healthy';
     if (lagLedgers < 10) return 'healthy';
     if (lagLedgers <= 50) return 'degraded';

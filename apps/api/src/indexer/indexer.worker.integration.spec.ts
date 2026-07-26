@@ -106,57 +106,94 @@ function makeUpsert<T extends Record<string, unknown>>(
   store: Map<string, T>,
   keyFn: (where: Record<string, unknown>) => string,
 ) {
-  return jest.fn().mockImplementation(async ({ where, create, update }: {
-    where: Record<string, unknown>;
-    create: T;
-    update: Partial<T>;
-  }) => {
-    const key = keyFn(where);
-    if (store.has(key)) {
-      const existing = store.get(key)!;
-      const merged = { ...existing, ...update } as T;
-      store.set(key, merged);
-      return merged;
-    }
-    store.set(key, create);
-    return create;
-  });
+  return jest
+    .fn()
+    .mockImplementation(
+      async ({
+        where,
+        create,
+        update,
+      }: {
+        where: Record<string, unknown>;
+        create: T;
+        update: Partial<T>;
+      }) => {
+        const key = keyFn(where);
+        if (store.has(key)) {
+          const existing = store.get(key)!;
+          const merged = { ...existing, ...update };
+          store.set(key, merged);
+          return merged;
+        }
+        store.set(key, create);
+        return create;
+      },
+    );
 }
 
 const mockPrismaClient = {
   token: {
-    upsert: makeUpsert(db.tokens as Map<string, Record<string, unknown>>, (w) => w.address as string),
+    upsert: makeUpsert(
+      db.tokens as Map<string, Record<string, unknown>>,
+      (w) => w.address as string,
+    ),
   },
   pool: {
-    upsert: makeUpsert(db.pools as Map<string, Record<string, unknown>>, (w) => w.id as string),
-    findUnique: jest.fn().mockImplementation(async ({ where }: { where: { id: string } }) => {
-      return db.pools.get(where.id) ?? null;
-    }),
+    upsert: makeUpsert(
+      db.pools as Map<string, Record<string, unknown>>,
+      (w) => w.id as string,
+    ),
+    findUnique: jest
+      .fn()
+      .mockImplementation(async ({ where }: { where: { id: string } }) => {
+        return db.pools.get(where.id) ?? null;
+      }),
   },
   swap: {
-    upsert: makeUpsert(db.swaps as Map<string, Record<string, unknown>>, (w) => w.eventId as string),
+    upsert: makeUpsert(
+      db.swaps as Map<string, Record<string, unknown>>,
+      (w) => w.eventId as string,
+    ),
   },
   position: {
-    upsert: makeUpsert(db.positions as Map<string, Record<string, unknown>>, (w) => {
-      const pk = w.poolId_tokenId as { poolId: string; tokenId: string };
-      return `${pk.poolId}:${pk.tokenId}`;
-    }),
+    upsert: makeUpsert(
+      db.positions as Map<string, Record<string, unknown>>,
+      (w) => {
+        const pk = w.poolId_tokenId as { poolId: string; tokenId: string };
+        return `${pk.poolId}:${pk.tokenId}`;
+      },
+    ),
     update: jest.fn().mockResolvedValue({}),
   },
   poolCreated: {
-    upsert: makeUpsert(db.poolCreated as Map<string, Record<string, unknown>>, (w) => w.eventId as string),
+    upsert: makeUpsert(
+      db.poolCreated as Map<string, Record<string, unknown>>,
+      (w) => w.eventId as string,
+    ),
   },
   swapProcessed: {
-    upsert: makeUpsert(db.swapProcessed as Map<string, Record<string, unknown>>, (w) => w.eventId as string),
+    upsert: makeUpsert(
+      db.swapProcessed as Map<string, Record<string, unknown>>,
+      (w) => w.eventId as string,
+    ),
   },
   positionMinted: {
-    upsert: makeUpsert(db.positionMinted as Map<string, Record<string, unknown>>, (w) => w.eventId as string),
+    upsert: makeUpsert(
+      db.positionMinted as Map<string, Record<string, unknown>>,
+      (w) => w.eventId as string,
+    ),
   },
   positionBurned: {
-    upsert: makeUpsert(db.positionBurned as Map<string, Record<string, unknown>>, (w) => w.eventId as string),
+    upsert: makeUpsert(
+      db.positionBurned as Map<string, Record<string, unknown>>,
+      (w) => w.eventId as string,
+    ),
   },
   feesCollected: {
-    upsert: makeUpsert(db.feesCollected as Map<string, Record<string, unknown>>, (w) => w.eventId as string),
+    upsert: makeUpsert(
+      db.feesCollected as Map<string, Record<string, unknown>>,
+      (w) => w.eventId as string,
+    ),
   },
   $disconnect: jest.fn().mockResolvedValue(undefined),
 };
@@ -281,7 +318,10 @@ describe('IndexerWorker Integration (test-db)', () => {
       const handler = getHandler(QUEUE_NAMES.POOL_CREATED);
       await handler(makeJob(poolData));
 
-      expect(mockSetMaxNumber).toHaveBeenCalledWith(LAST_INDEXED_LEDGER_KEY, 1000);
+      expect(mockSetMaxNumber).toHaveBeenCalledWith(
+        LAST_INDEXED_LEDGER_KEY,
+        1000,
+      );
     });
 
     it('is idempotent: duplicate event does not create duplicate rows', async () => {
@@ -359,12 +399,21 @@ describe('IndexerWorker Integration (test-db)', () => {
       const handler = getHandler(QUEUE_NAMES.SWAP_PROCESSED);
       await handler(makeJob(swapData));
 
-      expect(mockSetMaxNumber).toHaveBeenCalledWith(LAST_INDEXED_LEDGER_KEY, 1001);
+      expect(mockSetMaxNumber).toHaveBeenCalledWith(
+        LAST_INDEXED_LEDGER_KEY,
+        1001,
+      );
     });
 
     it('skips invalid sqrtPrice but still persists swap row', async () => {
       const handler = getHandler(QUEUE_NAMES.SWAP_PROCESSED);
-      await handler(makeJob({ ...swapData, sqrtPriceX96: '0', eventId: 'int-swap-invalid' }));
+      await handler(
+        makeJob({
+          ...swapData,
+          sqrtPriceX96: '0',
+          eventId: 'int-swap-invalid',
+        }),
+      );
 
       expect(db.swaps.has('int-swap-invalid')).toBe(true);
     });
@@ -391,7 +440,10 @@ describe('IndexerWorker Integration (test-db)', () => {
       const handler = getHandler(QUEUE_NAMES.FEES_COLLECTED);
       await handler(makeJob(feesData));
 
-      expect(mockSetMaxNumber).toHaveBeenCalledWith(LAST_INDEXED_LEDGER_KEY, 1002);
+      expect(mockSetMaxNumber).toHaveBeenCalledWith(
+        LAST_INDEXED_LEDGER_KEY,
+        1002,
+      );
     });
   });
 

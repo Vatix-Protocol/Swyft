@@ -1,5 +1,6 @@
 export enum SwapErrorCode {
   SLIPPAGE_EXCEEDED = 'SLIPPAGE_EXCEEDED',
+  UNKNOWN_TOKEN = 'UNKNOWN_TOKEN',
 }
 
 export interface SwapSnapshot {
@@ -27,4 +28,19 @@ export interface SwapsQuery {
 export interface SwapsListResult {
   items: SwapSnapshot[];
   total: number;
+}
+
+/** Response shape for GET /swaps/quote. */
+export interface SwapQuoteResult {
+  tokenIn: string;
+  tokenOut: string;
+  tokenInSymbol: string;
+  tokenOutSymbol: string;
+  amountIn: string;
+  amountOut: string;
+  executionPrice: string;
+  minimumReceived: string;
+  priceImpact: number;
+  poolId: string | null;
+  slippageBps: number;
 }
