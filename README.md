@@ -175,6 +175,7 @@ Full architecture details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 - **API Changelog** — [`docs/API_CHANGELOG.md`](docs/API_CHANGELOG.md) — Breaking changes and migration guides for the REST API
 - **Architecture** — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Data flow from Horizon to API to frontend
+- **Ops & Deployment** — [`docs/OPS_DEPLOYMENT.md`](docs/OPS_DEPLOYMENT.md) — Deployment strategies, health checks, and rollback procedures
 
 ---
 
