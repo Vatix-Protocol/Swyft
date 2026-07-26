@@ -148,6 +148,7 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
             getExplorerUrl={getExplorerUrl}
             formatDate={formatDate}
             truncateHash={truncateHash}
+            cols={7}
           />
         ) : (
           <LpTable
@@ -194,6 +195,7 @@ interface SwapTableProps {
   getExplorerUrl: (hash: string) => string;
   formatDate: (timestamp: number) => string;
   truncateHash: (hash: string) => string;
+  cols?: number;
 }
 
 function SkeletonRows({ cols }: { cols: number }) {
@@ -203,7 +205,7 @@ function SkeletonRows({ cols }: { cols: number }) {
         <tr key={i} aria-hidden="true">
           {Array.from({ length: cols }).map((__, j) => (
             <td key={j} className="py-3 px-4">
-              <div className="h-4 rounded bg-zinc-200 dark:bg-zinc-700 animate-pulse" />
+              <div className={`h-4 rounded ${j === 1 ? 'w-32' : 'w-full'} bg-zinc-200 dark:bg-zinc-700 animate-pulse`} />
             </td>
           ))}
         </tr>
@@ -219,6 +221,7 @@ function SwapTable({
   getExplorerUrl,
   formatDate,
   truncateHash,
+  cols = 7,
 }: SwapTableProps) {
   if (error) {
     return <div className="text-center py-8 text-red-500">Failed to load swaps</div>;
@@ -250,6 +253,9 @@ function SwapTable({
             <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
               Pair
             </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Route
+            </th>
             <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
               Input
             </th>
@@ -269,7 +275,7 @@ function SwapTable({
         </thead>
         <tbody>
           {loading ? (
-            <SkeletonRows cols={6} />
+            <SkeletonRows cols={cols} />
           ) : (
             swaps.map((swap) => (
               <tr
@@ -278,6 +284,15 @@ function SwapTable({
               >
                 <td className="py-3 px-4 text-sm text-zinc-900 dark:text-zinc-100">
                   {swap.token0Symbol}/{swap.token1Symbol}
+                </td>
+                <td className="py-3 px-4 text-sm text-zinc-700 dark:text-zinc-300">
+                  {swap.routeLeg && swap.routeLeg.length > 0 ? (
+                    <span className="font-mono text-xs">
+                      {swap.routeLeg.join(' → ')}
+                    </span>
+                  ) : (
+                    <span className="text-zinc-400 dark:text-zinc-500">—</span>
+                  )}
                 </td>
                 <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
                   {swap.amount0}
