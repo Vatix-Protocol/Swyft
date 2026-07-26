@@ -140,6 +140,15 @@ PostgreSQL         │
 
 The NestJS backend indexes Soroban events from Stellar Horizon, caches pool state in Redis, and exposes a REST API and WebSocket gateway for real-time price feeds. The frontend communicates with both the API and Soroban RPC directly via the SDK.
 
+Full architecture details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+
+---
+
+## API Documentation
+
+- **API Changelog** — [`docs/API_CHANGELOG.md`](docs/API_CHANGELOG.md) — Breaking changes and migration guides for the REST API
+- **Architecture** — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Data flow from Horizon to API to frontend
+
 ---
 
 ## Roadmap
