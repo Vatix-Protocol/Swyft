@@ -61,25 +61,52 @@ swyft/
 - Rust + `stellar-cli` ([install guide](https://developers.stellar.org/docs/smart-contracts/getting-started/setup))
 - Docker (for local Postgres + Redis)
 
-### Local dev
+### Local dev — quick start (5 minutes)
 
 ```bash
-# Clone the repo
+# 1. Clone and enter repo
 git clone https://github.com/vatix-protocol/Swyft.git
 cd swyft
 
-# Install all dependencies
+# 2. Install dependencies (~2 min)
 pnpm install
 
-# Copy env files
+# 3. Set up environment files
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
 
-# Start everything
+# 4. Start Docker services (Postgres, Redis) (~30 sec with docker-compose --wait)
+docker-compose up -d --wait
+
+# 5. Initialize database (~30 sec)
+pnpm db:generate        # Generate Prisma client
+pnpm db:migrate:deploy  # Run migrations
+
+# 6. Start all dev servers (~2 min)
 pnpm dev
 ```
 
 This starts the Next.js dApp, NestJS API, and watches contract changes simultaneously via Turborepo.
+
+**Total time: ~5 minutes** (mostly waiting for pnpm install and Docker)
+
+### What each command does
+
+| Step | Command | What it does | Time |
+|------|---------|-------------|------|
+| 1 | `git clone` | Clone the repository | ~10s |
+| 2 | `pnpm install` | Install all dependencies via monorepo | ~2 min |
+| 3 | `cp .env.example` | Create environment files (uses safe defaults) | ~1s |
+| 4 | `docker-compose up -d --wait` | Start Postgres + Redis, wait for health checks | ~30s |
+| 5 | `pnpm db:generate` | Generate Prisma ORM types | ~10s |
+| 5 | `pnpm db:migrate:deploy` | Apply pending database migrations | ~20s |
+| 6 | `pnpm dev` | Start Next.js, NestJS, and Turborepo watchers | ~1 min |
+
+**Troubleshooting:**
+- **"postgres is not reachable"** — Check Docker is running: `docker ps`. If needed, re-run: `docker-compose up -d --wait`
+- **"Port 5432 already in use"** — Stop other services: `docker-compose down` then retry
+- **"Database migration failed"** — Ensure Postgres is healthy: `docker-compose logs postgres`
+- **"pnpm not found"** — Install pnpm 8+: `npm install -g pnpm@latest`
 
 ### Run contract tests
 
@@ -139,6 +166,16 @@ PostgreSQL         │
 ```
 
 The NestJS backend indexes Soroban events from Stellar Horizon, caches pool state in Redis, and exposes a REST API and WebSocket gateway for real-time price feeds. The frontend communicates with both the API and Soroban RPC directly via the SDK.
+
+Full architecture details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+
+---
+
+## API Documentation
+
+- **API Changelog** — [`docs/API_CHANGELOG.md`](docs/API_CHANGELOG.md) — Breaking changes and migration guides for the REST API
+- **Architecture** — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Data flow from Horizon to API to frontend
+- **Ops & Deployment** — [`docs/OPS_DEPLOYMENT.md`](docs/OPS_DEPLOYMENT.md) — Deployment strategies, health checks, and rollback procedures
 
 ---
 

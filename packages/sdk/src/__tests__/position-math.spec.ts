@@ -9,6 +9,7 @@ import {
   getAmountsDelta,
   tickToSqrtPriceX96,
   sqrtPriceX96ToTick,
+  getImpermanentLossPercentage,
 } from '../position-math';
 
 // ── tickToSqrtPriceX96 / sqrtPriceX96ToTick ──────────────────────────────────
@@ -464,20 +465,116 @@ describe('round-trip fuzz tests', () => {
     it(`fuzz: price ${price} round-trip with decimals ${token0Decimals}/${token1Decimals}`, () => {
       // Price -> tick
       const tick = priceToTick(price, tickSpacing);
-      
+
       // Tick -> price (without decimals first to check core conversion)
       const priceFromTick = Math.pow(1.0001, tick);
-      
+
       // The ratio should be close
       const maxRatioError = Math.pow(1.0001, tickSpacing / 2);
       expect(priceFromTick / price).toBeGreaterThanOrEqual(1 / maxRatioError);
       expect(priceFromTick / price).toBeLessThanOrEqual(maxRatioError);
-      
+
       // Now test with decimals
       const priceWithDecimals = tickToPrice(tick, token0Decimals, token1Decimals);
       const expectedPriceWithDecimals = priceFromTick * Math.pow(10, token0Decimals - token1Decimals);
-      
+
       expect(priceWithDecimals).toBeCloseTo(expectedPriceWithDecimals, 10);
     });
+  });
+});
+
+// ── getImpermanentLossPercentage ──────────────────────────────────────────
+
+describe('getImpermanentLossPercentage', () => {
+  it('no price movement returns zero IL', () => {
+    const il = getImpermanentLossPercentage({
+      amount0Current: 100,
+      amount1Current: 100,
+      amount0Initial: 100,
+      amount1Initial: 100,
+      token0Price: 1,
+    });
+    expect(il).toBeCloseTo(0, 5);
+  });
+
+  it('returns null for zero hodl value', () => {
+    const il = getImpermanentLossPercentage({
+      amount0Current: 100,
+      amount1Current: 100,
+      amount0Initial: 0,
+      amount1Initial: 0,
+      token0Price: 1,
+    });
+    expect(il).toBeNull();
+  });
+
+  it('detects positive IL (gain from rebalancing)', () => {
+    // If price stays same but we rebalance, we might have gains
+    const il = getImpermanentLossPercentage({
+      amount0Current: 150,
+      amount1Current: 150,
+      amount0Initial: 100,
+      amount1Initial: 100,
+      token0Price: 1,
+    });
+    expect(il).toBeLessThan(0);
+  });
+
+  it('detects negative IL (loss from price movement)', () => {
+    // Token0 price doubled; amounts stayed same
+    const il = getImpermanentLossPercentage({
+      amount0Current: 100,
+      amount1Current: 100,
+      amount0Initial: 100,
+      amount1Initial: 100,
+      token0Price: 2,
+    });
+    expect(il).toBeGreaterThan(0);
+  });
+
+  it('uses provided token1Price if given', () => {
+    const il1 = getImpermanentLossPercentage({
+      amount0Current: 100,
+      amount1Current: 100,
+      amount0Initial: 100,
+      amount1Initial: 100,
+      token0Price: 2,
+      token1Price: 0.5,
+    });
+    const il2 = getImpermanentLossPercentage({
+      amount0Current: 100,
+      amount1Current: 100,
+      amount0Initial: 100,
+      amount1Initial: 100,
+      token0Price: 2,
+    });
+    expect(il1).toBeCloseTo(il2, 10);
+  });
+
+  it('returns null for non-finite result', () => {
+    const il = getImpermanentLossPercentage({
+      amount0Current: 0,
+      amount1Current: 0,
+      amount0Initial: 100,
+      amount1Initial: 100,
+      token0Price: 0,
+    });
+    expect(il).toBeNull();
+  });
+
+  it('large price divergence shows significant IL', () => {
+    // Token0 price went from 1 to 4 (4x increase)
+    // Equal initial amounts, but position now has less token0 and more token1
+    const il = getImpermanentLossPercentage({
+      amount0Current: 50,
+      amount1Current: 200,
+      amount0Initial: 100,
+      amount1Initial: 100,
+      token0Price: 4,
+      token1Price: 0.25,
+    });
+    // With 4x price divergence, IL should be around 5.7% for equal liquidity
+    expect(il).toBeGreaterThan(4);
+    expect(il).toBeLessThan(7);
   });
 });
