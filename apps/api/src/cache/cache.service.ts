@@ -151,4 +151,89 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
       /* degrade gracefully */
     }
   }
+
+  /**
+   * Acquires a singleflight lock for a key.
+   *
+   * Returns true if the lock was acquired (this process should load the data),
+   * or false if another process already holds the lock (wait for result).
+   *
+   * Lock is stored as `${key}:lock` and expires in `lockTtlSeconds`.
+   *
+   * @param key - Cache key to lock
+   * @param lockTtlSeconds - TTL for the lock in seconds (default 5)
+   * @returns true if lock acquired, false if already locked
+   */
+  async acquireSingleflightLock(
+    key: string,
+    lockTtlSeconds = 5,
+  ): Promise<boolean> {
+    if (!this.available) return true; // If Redis is down, allow load
+    try {
+      const lockKey = `${key}:lock`;
+      // SET NX EX: set only if not exists, expire in lockTtlSeconds
+      const result = await this.client!.set(
+        lockKey,
+        '1',
+        'EX',
+        lockTtlSeconds,
+        'NX',
+      );
+      return result === 'OK';
+    } catch {
+      return true; // If Redis fails, allow load
+    }
+  }
+
+  /**
+   * Releases a singleflight lock.
+   *
+   * @param key - Cache key that was locked
+   */
+  async releaseSingleflightLock(key: string): Promise<void> {
+    if (!this.available) return;
+    try {
+      const lockKey = `${key}:lock`;
+      await this.client!.del(lockKey);
+    } catch {
+      /* degrade gracefully */
+    }
+  }
+
+  /**
+   * Wait for a singleflight lock to be released, with timeout.
+   *
+   * Useful when another process holds the lock; this waits for the lock to
+   * expire or be released before retrying the cache get.
+   *
+   * @param key - Cache key that is locked
+   * @param maxWaitMs - Maximum time to wait in milliseconds (default 1000)
+   * @param pollIntervalMs - Poll interval in milliseconds (default 50)
+   * @returns true if lock was released, false if timeout
+   */
+  async waitForSingleflightLock(
+    key: string,
+    maxWaitMs = 1000,
+    pollIntervalMs = 50,
+  ): Promise<boolean> {
+    if (!this.available) return true;
+
+    const lockKey = `${key}:lock`;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitMs) {
+      try {
+        const exists = await this.client!.exists(lockKey);
+        if (exists === 0) {
+          return true; // Lock released
+        }
+      } catch {
+        return true; // If Redis fails, proceed
+      }
+      // Sleep before next poll
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+    }
+
+    return false; // Timeout
+  }
 }
