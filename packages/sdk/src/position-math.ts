@@ -207,3 +207,22 @@ export function sqrtPriceX96ToTick(sqrtPriceX96: bigint): number {
     return -Number((ratio * 20000n) / Q96);
   }
 }
+
+/**
+ * Estimates impermanent loss versus a hold-at-deposit baseline, using the
+ * standard constant-product approximation (price ratio between deposit and
+ * current price). Returned as a negative fraction (e.g. -0.012 = -1.2%).
+ *
+ * This is an approximation for concentrated-liquidity positions — it does
+ * not account for the position's tick range, only the price movement since
+ * deposit.
+ *
+ * @param depositPrice - Pool price (token1/token0) at the time liquidity was deposited
+ * @param currentPrice - Current pool price (token1/token0)
+ * @returns Impermanent loss as a fraction relative to the hold baseline (<= 0)
+ */
+export function estimateImpermanentLoss(depositPrice: number, currentPrice: number): number {
+  if (depositPrice <= 0 || currentPrice <= 0) throw new RangeError('prices must be positive');
+  const priceRatio = currentPrice / depositPrice;
+  return (2 * Math.sqrt(priceRatio)) / (1 + priceRatio) - 1;
+}
