@@ -16,6 +16,15 @@ All 9 Swyft smart contracts compile and build successfully.
 | `oracle-adapter` | TWAP oracle                 | ✅     |
 | `cl-pool`        | Additional pool logic       | ✅     |
 
+## Testnet registry
+
+Deployed testnet contract IDs live in:
+
+- **JSON registry**: [`packages/contract/deployments/testnet.json`](packages/contract/deployments/testnet.json)
+- **Key map / docs**: [`packages/contract/deployments/TESTNET.md`](packages/contract/deployments/TESTNET.md)
+
+Wire addresses into the API via the env keys listed in that registry (see `apps/api/.env.example`).
+
 ## Validation
 
 Run the contract validation CLI:

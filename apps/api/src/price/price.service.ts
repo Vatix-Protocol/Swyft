@@ -42,13 +42,65 @@ export function spotPriceCacheKey(tokenA: string, tokenB: string): string {
   return `price:spot:${a}:${b}`;
 }
 
+/**
+ * OHLCV candle for a fixed interval bucket.
+ *
+ * Gap policy (null buckets): when no trades occurred in a bucket inside the
+ * requested `[from, to]` range, the API returns an explicit null candle —
+ * `open`/`high`/`low`/`close`/`volume` are all `null`. Gaps are never
+ * carry-forward filled. See `docs/CANDLE_GAP_POLICY.md`.
+ */
 export interface PriceCandle {
   time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  volume: number | null;
+}
+
+/** Build an explicit null-bucket candle for a missing interval. */
+export function nullCandle(time: number): PriceCandle {
+  return {
+    time,
+    open: null,
+    high: null,
+    low: null,
+    close: null,
+    volume: null,
+  };
+}
+
+/**
+ * Align `from`/`to` unix seconds onto interval boundaries and insert
+ * null-bucket candles for any missing period in the closed range.
+ *
+ * Existing candles are left unchanged; only absent buckets are filled with
+ * null OHLC/volume (never carry-forward).
+ */
+export function fillCandleGaps(
+  candles: PriceCandle[],
+  intervalSec: number,
+  from: number,
+  to: number,
+  limit: number,
+): PriceCandle[] {
+  if (intervalSec <= 0 || limit <= 0) return [];
+
+  const start = Math.floor(from / intervalSec) * intervalSec;
+  const end = Math.floor(to / intervalSec) * intervalSec;
+  if (end < start) return [];
+
+  const byTime = new Map<number, PriceCandle>();
+  for (const c of candles) {
+    byTime.set(c.time, c);
+  }
+
+  const filled: PriceCandle[] = [];
+  for (let t = start; t <= end && filled.length < limit; t += intervalSec) {
+    filled.push(byTime.get(t) ?? nullCandle(t));
+  }
+  return filled;
 }
 
 @Injectable()
@@ -224,7 +276,6 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
         },
       },
       orderBy: { periodStart: 'asc' },
-      take: limit,
     });
 
     const candles = priceCandles.map((candle) => ({
@@ -236,7 +287,10 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
       volume: parseFloat(candle.volumeUsd.toString()),
     }));
 
-    return { poolId: pool.id, candles };
+    const intervalSec = this.getIntervalSeconds(interval);
+    const filled = fillCandleGaps(candles, intervalSec, from, to, limit);
+
+    return { poolId: pool.id, candles: filled };
   }
 
   private getIntervalSeconds(interval: string): number {
