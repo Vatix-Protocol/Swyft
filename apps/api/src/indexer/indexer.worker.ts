@@ -489,6 +489,8 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         }),
       ]);
 
+      const createdAt = d.timestamp ? new Date(d.timestamp) : new Date();
+
       await this.prisma.pool.upsert({
         where: { id: d.poolId },
         // A swap/position event may have created a placeholder pool (see
@@ -513,6 +515,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
           tvl: '0',
           volume24h: '0',
           feeApr: '0',
+          createdAt,
         },
       });
 
