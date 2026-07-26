@@ -260,6 +260,9 @@ function SwapTable({
               Price
             </th>
             <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Route
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
               Transaction
             </th>
             <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
@@ -269,7 +272,7 @@ function SwapTable({
         </thead>
         <tbody>
           {loading ? (
-            <SkeletonRows cols={6} />
+            <SkeletonRows cols={7} />
           ) : (
             swaps.map((swap) => (
               <tr
@@ -287,6 +290,9 @@ function SwapTable({
                 </td>
                 <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
                   {swap.priceAtSwap}
+                </td>
+                <td className="py-3 px-4 text-sm text-zinc-600 dark:text-zinc-400 font-mono">
+                  {swap.route && swap.route.length > 0 ? swap.route.join(' → ') : '—'}
                 </td>
                 <td className="py-3 px-4 text-sm">
                   <a
