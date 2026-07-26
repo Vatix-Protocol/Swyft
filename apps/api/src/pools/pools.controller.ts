@@ -174,7 +174,10 @@ export class PoolsController {
   @ApiResponse({ status: 404, description: 'Pool not found' })
   /**
    * Returns full details for a single pool, including token pair, fee tier, and current price.
-   * Results are cached for 15 seconds.
+   * Results are cached for 15 seconds with cache stampede protection.
+   *
+   * Uses singleflight locking to prevent multiple concurrent database queries
+   * when the cache expires (thundering herd problem).
    *
    * @param id - Pool ID (cuid) or Soroban contract address.
    * @returns Pool detail object.
@@ -183,19 +186,58 @@ export class PoolsController {
   async getPoolById(@Param('id') id: string): Promise<PoolDetailDto> {
     const cacheKey = `pool:${id}`;
 
+    // Check cache first
     const cached = await this.cacheService.get<PoolDetailDto>(cacheKey);
     if (cached) {
       return cached;
     }
 
-    const pool = await this.poolsService.findPoolById(id);
+    // Try to acquire singleflight lock (prevents cache stampede)
+    const lockAcquired = await this.cacheService.acquireSingleflightLock(
+      cacheKey,
+      5,
+    );
+
+    let pool: PoolDetailDto | null = null;
+
+    try {
+      if (lockAcquired) {
+        // This process won the lock — fetch from database
+        pool = await this.poolsService.findPoolById(id);
+        if (pool) {
+          // Cache the result for other waiting processes
+          await this.cacheService.set(cacheKey, pool, 15);
+        }
+      } else {
+        // Another process is loading — wait for lock to release, then retry cache
+        const lockReleased = await this.cacheService.waitForSingleflightLock(
+          cacheKey,
+          1000,
+        );
+        if (lockReleased) {
+          const cached2 = await this.cacheService.get<PoolDetailDto>(cacheKey);
+          if (cached2) {
+            pool = cached2;
+          }
+        }
+        // If lock wasn't released or cache still miss, fetch directly (fallback)
+        if (!pool) {
+          pool = await this.poolsService.findPoolById(id);
+        }
+      }
+    } finally {
+      // Always release the lock if we held it
+      if (lockAcquired) {
+        await this.cacheService.releaseSingleflightLock(cacheKey);
+      }
+    }
+
     if (!pool) {
       throw new NotFoundException(
         `Pool with ID "${id}" not found. Check the ID and try again.`,
       );
     }
 
-    await this.cacheService.set(cacheKey, pool, 15);
     return pool;
   }
 
