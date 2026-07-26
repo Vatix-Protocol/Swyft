@@ -218,7 +218,7 @@ export function SwapWidget({
     setAmountIn(quote?.amountOut ?? '');
   }
 
-  const highImpact = quote && quote.priceImpact >= 5;
+  const highImpact = quote && !quoteLoading && quote.priceImpact >= 5;
 
   // ── Loading skeleton ──────────────────────────────────────────────────────
   if (tokensLoading) {
@@ -383,8 +383,9 @@ export function SwapWidget({
             )}
           </div>
 
-          {/* Quote details */}
-          {quote && pair.tokenIn && pair.tokenOut && (
+          {/* Quote details — hidden while refetching so a stale quote for
+              the previous token pair isn't shown as if it were current. */}
+          {quote && !quoteLoading && pair.tokenIn && pair.tokenOut && (
             <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-3 sm:px-4 py-3 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400 flex flex-col gap-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="shrink-0">Rate</span>
@@ -486,7 +487,7 @@ export function SwapWidget({
       </div>
 
       {/* Confirmation modal */}
-      {showModal && quote && pair.tokenIn && pair.tokenOut && wallet.address && poolId && (
+      {showModal && quote && !quoteLoading && pair.tokenIn && pair.tokenOut && wallet.address && poolId && (
         <SwapConfirmModal
           poolId={poolId}
           tokenIn={pair.tokenIn}
