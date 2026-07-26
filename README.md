@@ -211,4 +211,3 @@ Please do not open public GitHub issues for security vulnerabilities. See [`SECU
 
 ---
 
-_Swyft is in active development. Contracts are unaudited. Do not use on mainnet until a security audit has been completed._
