@@ -104,6 +104,20 @@ export function TokenSelectorModal({
       e.preventDefault();
       if (idx <= 0) inputRef.current?.focus();
       else items[idx - 1]?.focus();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+    }
+  }
+
+  function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const items = document.querySelectorAll<HTMLButtonElement>('button[data-token]');
+      items[0]?.focus();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
     }
   }
 
@@ -153,6 +167,7 @@ export function TokenSelectorModal({
               placeholder="Search by name or symbol"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleInputKeyDown}
               disabled={loading}
               className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="Search tokens"

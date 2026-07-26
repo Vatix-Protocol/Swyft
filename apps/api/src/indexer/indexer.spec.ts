@@ -571,6 +571,41 @@ describe('IndexerWorker', () => {
       expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(data.tokenA);
       expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(data.tokenB);
     });
+
+    it('persists pool createdAt from event timestamp', async () => {
+      const timestamp = '2026-07-26T10:30:00Z';
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      await handler(makeJob({ ...data, timestamp }));
+
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            createdAt: new Date(timestamp),
+          }),
+        }),
+      );
+    });
+
+    it('uses current time for createdAt when timestamp is missing', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      const before = new Date();
+      await handler(makeJob(data));
+      const after = new Date();
+
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            createdAt: expect.any(Date),
+          }),
+        }),
+      );
+
+      // Verify the date is between before and after (within 1s tolerance)
+      const callArgs = (mockPrismaClient.pool.upsert as any).mock.calls[0][0];
+      const createdAt = callArgs.create.createdAt;
+      expect(createdAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
+      expect(createdAt.getTime()).toBeLessThanOrEqual(after.getTime() + 1000);
+    });
   });
 
   describe('handleSwapProcessed()', () => {

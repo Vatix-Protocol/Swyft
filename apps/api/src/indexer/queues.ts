@@ -35,6 +35,8 @@ export interface PoolCreatedJobData extends IndexerJobData {
   tokenB: string;
   fee: string;
   sqrtPriceX96: string;
+  /** ISO-8601 timestamp from Horizon ledger close time. */
+  timestamp?: string;
 }
 
 export interface SwapProcessedJobData extends IndexerJobData {
