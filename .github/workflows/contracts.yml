@@ -1,0 +1,43 @@
+name: Contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/contracts/**"
+      - ".github/workflows/contracts.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/contracts/**"
+      - ".github/workflows/contracts.yml"
+
+jobs:
+  contracts:
+    name: router + fee-collector
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/contracts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/contracts -> target
+
+      - name: cargo check fee-collector
+        run: cargo check -p swyft-fee-collector
+
+      - name: cargo check router
+        run: cargo check -p swyft-router
+
+      - name: cargo build (workspace release wasm)
+        run: cargo build --workspace --release --target wasm32-unknown-unknown

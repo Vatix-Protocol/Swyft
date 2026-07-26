@@ -1,0 +1,47 @@
+{
+  "$schema_comment": "Shared concentrated-liquidity math vectors. tick_to_sqrt_price matches packages/contract/contracts/cl-pool (linear Q96 ± tick*Q96/20000). amounts_* assert @swyft/sdk position-math (Uniswap-style range-aware).",
+  "Q96": "79228162514264337593543950336",
+  "tick_to_sqrt_price": [
+    {
+      "tick": 0,
+      "sqrtPriceX96": "79228162514264337593543950336"
+    },
+    {
+      "tick": 100,
+      "sqrtPriceX96": "79624303326835659281511670087"
+    },
+    {
+      "tick": -100,
+      "sqrtPriceX96": "78832021701693015905576230585"
+    }
+  ],
+  "amounts_for_liquidity": [
+    {
+      "name": "in_range",
+      "sqrtPriceX96": "79228162514264337593543950336",
+      "sqrtPriceLowerX96": "78435880889121694217608510833",
+      "sqrtPriceUpperX96": "80020444139406980969479389839",
+      "liquidity": "1000000",
+      "amount0": "10101",
+      "amount1": "9999"
+    },
+    {
+      "name": "below_range",
+      "sqrtPriceX96": "78435880889121694217608510832",
+      "sqrtPriceLowerX96": "78435880889121694217608510833",
+      "sqrtPriceUpperX96": "80020444139406980969479389839",
+      "liquidity": "1000000",
+      "amount0": "20002",
+      "amount1": "0"
+    },
+    {
+      "name": "above_range",
+      "sqrtPriceX96": "80020444139406980969479389840",
+      "sqrtPriceLowerX96": "78435880889121694217608510833",
+      "sqrtPriceUpperX96": "80020444139406980969479389839",
+      "liquidity": "1000000",
+      "amount0": "0",
+      "amount1": "19999"
+    }
+  ]
+}
