@@ -29,6 +29,8 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
   const [quote, setQuote] = useState<SwapQuote | null>(null);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const sequenceRef = useRef(0);
 
   // Recalculate quote whenever inputs change (debounced)
   useEffect(() => {
@@ -40,10 +42,15 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
 
     setLoading(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+
+    const currentSequence = ++sequenceRef.current;
 
     debounceRef.current = setTimeout(() => {
       const result = calculateSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippageBps });
-      setQuote(result);
+      if (currentSequence === sequenceRef.current) {
+        setQuote(result);
+      }
       setLoading(false);
     }, DEBOUNCE_MS);
 
