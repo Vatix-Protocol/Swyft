@@ -220,6 +220,13 @@ export function SwapWidget({
 
   const highImpact = quote && quote.priceImpact >= 5;
 
+  // Generate stable IDs for form error messages
+  const errorIds = {
+    insufficientBalance: 'swap-error-insufficient-balance',
+    noPool: 'swap-error-no-pool',
+    highImpact: 'swap-error-high-impact',
+  };
+
   // ── Loading skeleton ──────────────────────────────────────────────────────
   if (tokensLoading) {
     return (
@@ -311,7 +318,15 @@ export function SwapWidget({
 
         <div className="px-3 sm:px-4 pb-4 flex flex-col gap-2">
           {/* Sell input */}
-          <div className="relative">
+          <div
+            className="relative"
+            role="group"
+            aria-labelledby="swap-label-pay"
+            aria-describedby={insufficient ? errorIds.insufficientBalance : undefined}
+          >
+            <label id="swap-label-pay" className="sr-only">
+              You pay
+            </label>
             <SwapInput
               label="You pay"
               token={pair.tokenIn}
@@ -319,6 +334,7 @@ export function SwapWidget({
               balance={inBalance}
               onAmountChange={setAmountIn}
               onTokenClick={() => {}}
+              aria-invalid={insufficient}
             />
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
               <TokenPickerButton
@@ -356,7 +372,19 @@ export function SwapWidget({
           </div>
 
           {/* Buy input */}
-          <div className="relative">
+          <div
+            className="relative"
+            role="group"
+            aria-labelledby="swap-label-receive"
+            aria-describedby={
+              poolExists === false && pair.tokenIn && pair.tokenOut
+                ? errorIds.noPool
+                : undefined
+            }
+          >
+            <label id="swap-label-receive" className="sr-only">
+              You receive
+            </label>
             <SwapInput
               label="You receive"
               token={pair.tokenOut}
@@ -420,9 +448,16 @@ export function SwapWidget({
             </div>
           )}
 
+          {/* Insufficient balance error */}
+          {insufficient && (
+            <p id={errorIds.insufficientBalance} role="alert" className="text-xs text-red-600 dark:text-red-400">
+              Insufficient {pair.tokenIn?.symbol} balance
+            </p>
+          )}
+
           {/* No pool warning */}
           {poolExists === false && pair.tokenIn && pair.tokenOut && (
-            <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">
+            <p id={errorIds.noPool} role="alert" className="text-xs text-amber-600 dark:text-amber-400">
               No pool exists for this pair. Try a different token combination.
             </p>
           )}
@@ -430,6 +465,7 @@ export function SwapWidget({
           {/* High price impact warning */}
           {highImpact && (
             <div
+              id={errorIds.highImpact}
               role="alert"
               className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 sm:px-4 py-3 dark:border-red-800 dark:bg-red-950"
             >
@@ -460,6 +496,13 @@ export function SwapWidget({
             onClick={() => setShowModal(true)}
             disabled={swapDisabled}
             aria-disabled={swapDisabled}
+            aria-describedby={
+              insufficient
+                ? errorIds.insufficientBalance
+                : highImpact
+                  ? errorIds.highImpact
+                  : undefined
+            }
             className="mt-1 w-full min-h-[52px] sm:min-h-[44px] rounded-xl bg-indigo-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {quoteLoading ? (
