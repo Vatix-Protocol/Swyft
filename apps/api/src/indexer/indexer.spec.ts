@@ -355,14 +355,13 @@ describe('IndexerWorker', () => {
       const failed = mockWorkerOn.mock.calls.find(
         (c) => c[0] === 'failed',
       )?.[1] as
-        | ((job: Job<PoolCreatedJobData>, err: Error) => void)
-        | undefined;
+        ((job: Job<PoolCreatedJobData>, err: Error) => void) | undefined;
 
       failed?.(
         makeJob({
           eventId: 'evt-poison',
           poolId: 'pool',
-        } as PoolCreatedJobData) as Job<PoolCreatedJobData>,
+        } as PoolCreatedJobData),
         new Error('poison event'),
       );
 
@@ -533,6 +532,7 @@ describe('IndexerWorker', () => {
         12345,
       );
       expect(mockAdvanceLedger).toHaveBeenCalledWith(12345);
+      expect(mockSetMaxNumber).toHaveBeenCalledTimes(1);
     });
 
     it('dispatches a pool.created webhook after successful write', async () => {
@@ -568,8 +568,12 @@ describe('IndexerWorker', () => {
       const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
       await handler(makeJob(data));
 
-      expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(data.tokenA);
-      expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(data.tokenB);
+      expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(
+        data.tokenA,
+      );
+      expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(
+        data.tokenB,
+      );
     });
 
     it('persists pool createdAt from event timestamp', async () => {
@@ -603,7 +607,9 @@ describe('IndexerWorker', () => {
       // Verify the date is between before and after (within 1s tolerance)
       const callArgs = (mockPrismaClient.pool.upsert as any).mock.calls[0][0];
       const createdAt = callArgs.create.createdAt;
-      expect(createdAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
+      expect(createdAt.getTime()).toBeGreaterThanOrEqual(
+        before.getTime() - 1000,
+      );
       expect(createdAt.getTime()).toBeLessThanOrEqual(after.getTime() + 1000);
     });
   });
