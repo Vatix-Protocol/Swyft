@@ -7,6 +7,14 @@ import { tickToPrice, priceToTick, nearestUsableTick } from '@/hooks/useAddLiqui
 export interface RangeSelectorProps {
   /** Tick data used to render the liquidity depth chart */
   ticks: TickData[];
+  /**
+   * Set when the tick fetch failed and `ticks` is synthetic placeholder
+   * data rather than real liquidity. Shows a warning banner with a retry
+   * action when present.
+   */
+  ticksError?: string | null;
+  /** Re-fetches tick data after a failed load. */
+  onRetryTicks?: () => void;
   /** The pool's current active tick */
   currentTick: number;
   /** Currently selected lower bound tick */
@@ -47,6 +55,8 @@ const CHART_W = 100; // percentage units
 
 export function RangeSelector({
   ticks,
+  ticksError,
+  onRetryTicks,
   currentTick,
   lowerTick,
   upperTick,
@@ -145,6 +155,21 @@ export function RangeSelector({
           Full range
         </button>
       </div>
+
+      {ticksError && (
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+          <span>Showing estimated liquidity — live data failed to load.</span>
+          {onRetryTicks && (
+            <button
+              type="button"
+              onClick={onRetryTicks}
+              className="shrink-0 font-semibold underline hover:no-underline"
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Depth chart */}
       <div className="relative rounded-xl border border-zinc-100 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50 overflow-hidden">
