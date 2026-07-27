@@ -80,7 +80,13 @@ docker-compose up -d --wait
 
 # 5. Initialize database (~30 sec)
 pnpm db:generate        # Generate Prisma client
-pnpm db:migrate:deploy  # Run migrations
+pnpm db:migrate:deploy  # Run migrations (same command CI uses for migrate smoke)
+
+# Local equivalent of the CI Prisma migration smoke
+# (.github/workflows/db-migrations.yml — ephemeral Postgres + migrate deploy):
+#   docker-compose up -d postgres   # or any Postgres 16 with DATABASE_URL set
+#   pnpm prisma migrate deploy --schema prisma/schema.prisma
+# This must succeed; a failing migrate fails CI on main/PRs that touch prisma/**.
 
 # 6. Start all dev servers (~2 min)
 pnpm dev

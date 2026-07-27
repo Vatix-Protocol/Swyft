@@ -12,6 +12,21 @@ Swyft API supports two deployment models:
 | **Database** | PostgreSQL in container | Managed PostgreSQL (RDS, Cloud SQL) |
 | **Cache** | Redis in container | Managed Redis (ElastiCache, Memorystore) |
 | **Migrations** | Manual `pnpm db:migrate:deploy` | Blue-green or rolling deploy |
+
+### CI migration smoke (local equivalent)
+
+GitHub Actions runs Prisma migrate against ephemeral Postgres on main/PRs
+(`.github/workflows/db-migrations.yml`). Locally:
+
+```bash
+# Start Postgres (docker-compose or otherwise), then:
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/swyft_test?schema=public
+pnpm prisma migrate deploy --schema prisma/schema.prisma
+pnpm prisma migrate status --schema prisma/schema.prisma
+```
+
+Or simply: `pnpm db:migrate:deploy` with your local `DATABASE_URL` set.
+A failing migrate fails the CI job.
 | **Scaling** | Single instance | Multiple replicas with load balancer |
 | **Health checks** | Container health endpoint | HTTP `/health` probe |
 

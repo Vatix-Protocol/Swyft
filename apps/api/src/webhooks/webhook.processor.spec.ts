@@ -1,4 +1,9 @@
-import { WebhookWorker, WebhookJob } from './webhook.processor';
+import {
+  WebhookWorker,
+  WebhookJob,
+  WEBHOOK_RETRY_ATTEMPTS,
+  WEBHOOK_RETRY_BACKOFF_MS,
+} from './webhook.processor';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebhookPayload } from './webhook.types';
 import { Job } from 'bullmq';
@@ -12,6 +17,9 @@ function buildMockPrisma() {
       update: jest.fn().mockResolvedValue({}),
     },
     webhookDelivery: {
+      create: jest.fn().mockResolvedValue({}),
+    },
+    webhookAuditLog: {
       create: jest.fn().mockResolvedValue({}),
     },
   };
@@ -28,6 +36,7 @@ function buildMockQueue() {
 
 const baseWebhook = {
   id: 'wh-1',
+  ownerWallet: 'GTESTOWNER',
   url: 'https://example.com/hook',
   secret: null as string | null,
   disabled: false,
@@ -40,8 +49,16 @@ const basePayload: WebhookPayload = {
   data: { poolId: 'pool-1', token0: 'XLM', token1: 'USDC' },
 };
 
-function makeJob(data: WebhookJob): Job<WebhookJob> {
-  return { data } as Job<WebhookJob>;
+function makeJob(
+  data: WebhookJob,
+  extras: Partial<Job<WebhookJob>> = {},
+): Job<WebhookJob> {
+  return {
+    data,
+    attemptsMade: 0,
+    opts: { attempts: WEBHOOK_RETRY_ATTEMPTS },
+    ...extras,
+  } as Job<WebhookJob>;
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -84,7 +101,19 @@ describe('WebhookWorker (dispatch integration)', () => {
       await worker.dispatch('wh-1', basePayload);
 
       const [, , opts] = (worker as any).queue.add.mock.calls[0];
-      expect(opts.backoff).toEqual({ type: 'exponential', delay: 2000 });
+      expect(opts.backoff).toEqual({
+        type: 'exponential',
+        delay: WEBHOOK_RETRY_BACKOFF_MS,
+      });
+      expect(opts.attempts).toBe(WEBHOOK_RETRY_ATTEMPTS);
+    });
+
+    it('stops retries at max attempts (no unbounded retries)', async () => {
+      await worker.dispatch('wh-1', basePayload);
+
+      const [, , opts] = (worker as any).queue.add.mock.calls[0];
+      expect(opts.attempts).toBe(3);
+      expect(opts.attempts).toBeLessThanOrEqual(WEBHOOK_RETRY_ATTEMPTS);
     });
 
     it('resolves without throwing on successful enqueue', async () => {
@@ -189,6 +218,52 @@ describe('WebhookWorker (dispatch integration)', () => {
           responseStatus: 200,
         }),
       });
+    });
+
+    it('records attempt count in the webhook audit log', async () => {
+      prisma.webhook.findUnique.mockResolvedValue(baseWebhook);
+
+      await deliver({ webhookId: 'wh-1', payload: basePayload });
+
+      expect(prisma.webhookAuditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          webhookId: 'wh-1',
+          action: 'delivery_attempt',
+          ownerWallet: 'GTESTOWNER',
+          meta: expect.stringContaining('"attempt":1'),
+        }),
+      });
+      const meta = JSON.parse(
+        prisma.webhookAuditLog.create.mock.calls[0][0].data.meta,
+      );
+      expect(meta).toEqual(
+        expect.objectContaining({
+          attempt: 1,
+          maxAttempts: WEBHOOK_RETRY_ATTEMPTS,
+          success: true,
+          responseStatus: 200,
+        }),
+      );
+    });
+
+    it('increments audit attempt on BullMQ retries', async () => {
+      fetchSpy.mockResolvedValue({ status: 500 } as Response);
+      prisma.webhook.findUnique.mockResolvedValue(baseWebhook);
+
+      await expect(
+        (worker as any).deliver(
+          makeJob(
+            { webhookId: 'wh-1', payload: basePayload },
+            { attemptsMade: 1 },
+          ),
+        ),
+      ).rejects.toThrow(/Delivery failed/);
+
+      const meta = JSON.parse(
+        prisma.webhookAuditLog.create.mock.calls[0][0].data.meta,
+      );
+      expect(meta.attempt).toBe(2);
+      expect(meta.success).toBe(false);
     });
 
     it('resets consecutiveFails to 0 on success', async () => {
