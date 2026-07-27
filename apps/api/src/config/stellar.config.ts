@@ -6,6 +6,9 @@
  *   • injectable via NestJS DI rather than scattered `process.env` reads
  *   • documented in one place
  *
+ * Default URL values come from @swyft/config so there is a single source
+ * of truth for testnet/mainnet endpoints across the monorepo.
+ *
  * Required env vars (see apps/api/.env.example):
  *   STELLAR_RPC_URL   — Soroban JSON-RPC endpoint
  *   HORIZON_URL       — Horizon REST API endpoint
@@ -16,14 +19,16 @@
 import { registerAs } from '@nestjs/config';
 import { IsOptional, IsIn, validateSync, IsString, Matches } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
+import { NETWORK_PRESETS } from '@swyft/config';
 
 // ── Allowed networks ─────────────────────────────────────────────────────────
 
 export type StellarNetwork = 'testnet' | 'mainnet';
 
+// Default URLs sourced from @swyft/config — single source of truth.
 const TESTNET_DEFAULTS = {
-  rpcUrl: 'https://soroban-testnet.stellar.org',
-  horizonUrl: 'https://horizon-testnet.stellar.org',
+  rpcUrl: NETWORK_PRESETS.TESTNET.rpcUrl,
+  horizonUrl: NETWORK_PRESETS.TESTNET.horizonUrl,
 } as const;
 
 // Accepts http:// and https:// only — rejects ftp, ws, etc.

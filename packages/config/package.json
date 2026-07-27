@@ -1,9 +1,23 @@
 {
   "name": "@swyft/config",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "files": [
+    "src",
     "tsconfig.base.json",
     "eslint.js"
-  ]
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "vitest": "^2.1.8"
+  }
 }
