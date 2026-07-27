@@ -256,12 +256,30 @@ export function useAddLiquidity() {
     const depositValue = parseFloat(state.amount0 || '0') * cp + parseFloat(state.amount1 || '0');
     const shareOfPool =
       state.pool.tvl > 0 ? ((depositValue / state.pool.tvl) * 100).toFixed(4) : '0.0000';
-    const rangeRatio = Math.min(1, (up - lp) / cp);
-    const boostedApr =
-      rangeRatio > 0
-        ? (state.pool.feeApr / Math.max(0.01, rangeRatio)).toFixed(1)
-        : state.pool.feeApr.toFixed(1);
-    return { shareOfPool, estimatedApr: boostedApr, inRange };
+
+    // Fee APR assumptions live in docs/FEE_APR_CALCULATION.md: the boosted
+    // APR extrapolates from the pool's trailing-24h fee/TVL ratio. Without a
+    // volume24h reading there's no fee data to extrapolate from (distinct
+    // from a *confirmed* zero-volume pool, which the backend already prices
+    // at a real 0% per that doc), so we surface "N/A" rather than a
+    // misleading number.
+    const hasVolumeData =
+      typeof state.pool.volume24h === 'number' && !Number.isNaN(state.pool.volume24h);
+    const hasFeeAprData =
+      typeof state.pool.feeApr === 'number' && !Number.isNaN(state.pool.feeApr);
+
+    let estimatedApr: string;
+    if (!hasVolumeData || !hasFeeAprData) {
+      estimatedApr = 'N/A';
+    } else {
+      const rangeRatio = Math.min(1, (up - lp) / cp);
+      estimatedApr =
+        rangeRatio > 0
+          ? (state.pool.feeApr / Math.max(0.01, rangeRatio)).toFixed(1)
+          : state.pool.feeApr.toFixed(1);
+    }
+
+    return { shareOfPool, estimatedApr, inRange };
   }, [state]);
 
   return {

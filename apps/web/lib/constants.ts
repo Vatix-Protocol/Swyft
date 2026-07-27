@@ -9,6 +9,9 @@ export const WALLET_STORAGE_KEY = 'swyft_wallet_address';
 /** localStorage key for the user's runtime testnet/mainnet selection. */
 export const NETWORK_STORAGE_KEY = 'swyft_selected_network';
 export const API_BASE = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/v1`;
+/** Source-of-truth doc for how estimated fee APR is calculated and its assumptions. */
+export const FEE_APR_DOC_URL =
+  'https://github.com/Vatix-Protocol/Swyft/blob/main/docs/FEE_APR_CALCULATION.md';
 
 export function isStellarNetwork(value: unknown): value is StellarNetwork {
   return value === 'TESTNET' || value === 'PUBLIC';
