@@ -26,6 +26,8 @@ model Pool {
   swaps             Swap[]
   positions         Position[]
   priceCandles      PriceCandle[]
+  tvlAlertThresholds TvlAlertThreshold[]
+  tvlSnapshots      TvlSnapshot[]
 
   @@map("pool")
   @@index([token0Address, token1Address])
