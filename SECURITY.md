@@ -4,12 +4,25 @@
 
 This policy covers the Swyft monorepo, including:
 
-- Soroban smart contracts (`packages/contract/`)
-- NestJS backend API (`apps/api/`)
-- TypeScript SDK (`packages/sdk/`)
-- Next.js frontend (`apps/web/`)
+- **DEX / Soroban smart contracts** (`packages/contract/`) — pool, router, position NFT, and factory contracts
+- **Backend API** (`apps/api/`) — NestJS REST + WebSocket surface, including auth, webhooks, and admin routes
+- **Indexer** (`apps/api/src/horizon/`, `apps/api/src/indexer/`) — Horizon polling, BullMQ workers, and the ledger checkpoint that feeds pool/swap/position state into Postgres
+- **TypeScript SDK** (`packages/sdk/`)
+- **Next.js frontend** (`apps/web/`)
 
 > **Important:** Swyft contracts are **unaudited**. Do not deploy to mainnet or use with real funds until a security audit has been completed and published.
+
+### Out of scope
+
+The following are **not** eligible for a disclosure report under this policy:
+
+- Third-party infrastructure we don't control (Stellar Horizon, Soroban RPC, wallet browser extensions such as Freighter/xBull, hosting/CDN providers)
+- Issues that require physical access to a user's device, a compromised wallet, or a compromised local machine
+- Social engineering, phishing, or spam targeting maintainers or contributors
+- Denial of service achieved purely through volumetric/traffic flooding (rather than an application-level flaw)
+- Vulnerabilities in outdated forks, unmerged branches, or dependencies with no available upstream fix
+- Missing security headers or best-practice suggestions with no demonstrated exploit path
+- Automated scanner output submitted without manual verification of impact
 
 ---
 
