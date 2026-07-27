@@ -35,6 +35,29 @@ Passed: 9/9
 All Swyft contracts validated!
 ```
 
+### Address drift (CI gate)
+
+`scripts/deploy-testnet.sh` records a sha256 hash of each deployed contract's
+wasm under `.wasmHashes` in `packages/contract/deployments/testnet.json`,
+alongside its address. `pnpm validate:contracts:drift` rebuilds every
+contract and compares the fresh wasm hash against the recorded one for any
+contract that has a deployed address — if they don't match, the contract's
+source has changed since it was deployed (drifted) and the command exits
+non-zero.
+
+This runs as the `Contracts` job in CI (`.github/workflows/ci.yml`) on every
+push/PR — a contract build failure or address drift fails the job. The
+comparison logic itself (`packages/contract/scripts/check-address-drift.js`)
+is unit-tested against a fixture with an intentional mismatch:
+
+```bash
+pnpm --filter contracts test:drift
+```
+
+If a contract's address genuinely drifts (source changed post-deploy),
+redeploy with `pnpm --filter contracts deploy:testnet` and commit the
+updated `testnet.json`.
+
 ## Build Details
 
 - **Language**: Rust
