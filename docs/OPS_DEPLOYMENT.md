@@ -12,6 +12,21 @@ Swyft API supports two deployment models:
 | **Database** | PostgreSQL in container | Managed PostgreSQL (RDS, Cloud SQL) |
 | **Cache** | Redis in container | Managed Redis (ElastiCache, Memorystore) |
 | **Migrations** | Manual `pnpm db:migrate:deploy` | Blue-green or rolling deploy |
+
+### CI migration smoke (local equivalent)
+
+GitHub Actions runs Prisma migrate against ephemeral Postgres on main/PRs
+(`.github/workflows/db-migrations.yml`). Locally:
+
+```bash
+# Start Postgres (docker-compose or otherwise), then:
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/swyft_test?schema=public
+pnpm prisma migrate deploy --schema prisma/schema.prisma
+pnpm prisma migrate status --schema prisma/schema.prisma
+```
+
+Or simply: `pnpm db:migrate:deploy` with your local `DATABASE_URL` set.
+A failing migrate fails the CI job.
 | **Scaling** | Single instance | Multiple replicas with load balancer |
 | **Health checks** | Container health endpoint | HTTP `/health` probe |
 
@@ -191,6 +206,46 @@ curl http://localhost:3001/indexer/status
 - Check `indexer:last_ledger` in Redis
 - Verify HorizonService is polling effects
 - Check job queue in BullMQ UI (if available)
+
+---
+
+## Graceful Shutdown (SIGTERM)
+
+BullMQ-backed workers — the candle aggregation worker
+(`CandlesWorker`, `apps/api/src/candles/candles.processor.ts`) and the
+ledger indexer (`IndexerWorker`, `apps/api/src/indexer/indexer.worker.ts`) —
+drain in-flight jobs on SIGTERM/SIGINT instead of dying mid-write. This is
+wired through Nest's `app.enableShutdownHooks()` in `main.ts`, which calls
+each provider's `onModuleDestroy()`.
+
+**What happens on SIGTERM:**
+1. The worker stops accepting new jobs immediately (`Worker#close()`).
+2. Any job already running is allowed to finish rather than being cut off.
+3. The wait is bounded — `CANDLES_SHUTDOWN_TIMEOUT_MS` (default `25000`) for
+   candles, `INDEXER_SHUTDOWN_TIMEOUT_MS` (default `25000`) for the indexer —
+   so a stuck job can't hang the process past the platform's kill timeout
+   (e.g. Kubernetes' `terminationGracePeriodSeconds`, which should be set
+   comfortably above these defaults).
+
+**Why candle jobs can't leave a corrupt candle:** each period's OHLCV row is
+written with a single `priceCandle.upsert()` of the fully-computed values —
+there is no partial/incremental write to a candle row. If the process is
+killed between pools within one aggregation run, the candles already upserted
+are complete and correct; any pools not yet reached simply have a stale (not
+corrupt) candle for that period, which the next scheduled run recomputes from
+source data.
+
+**Verifying a deploy drains cleanly:**
+```bash
+# Tail worker logs around a deploy/restart — expect these two lines with no
+# unhandled rejection or crash in between:
+#   "Received shutdown signal — draining in-flight candle job (timeout ...)"
+#   "Candle aggregation worker shut down gracefully"
+docker logs -f <api-container> 2>&1 | grep -i candle
+```
+If you instead see `"Timed out waiting for candle worker to drain in-flight
+job — forcing shutdown"`, a job ran longer than the timeout; check for a slow
+query or Redis latency before raising the timeout.
 
 ---
 

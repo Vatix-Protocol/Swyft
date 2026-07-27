@@ -285,9 +285,7 @@ describe('AuthService', () => {
   // ── #412: issuer and audience in issued JWTs ───────────────────────────────
 
   describe('issueJwt — issuer and audience claims', () => {
-    async function signIn(
-      configOverrides: Record<string, string | undefined>,
-    ) {
+    async function signIn(configOverrides: Record<string, string | undefined>) {
       mockConfigService.get.mockImplementation(
         (key: string) => configOverrides[key],
       );

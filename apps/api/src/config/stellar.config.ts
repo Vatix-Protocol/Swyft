@@ -20,7 +20,13 @@
  */
 
 import { registerAs } from '@nestjs/config';
-import { IsOptional, IsIn, validateSync, IsString, Matches } from 'class-validator';
+import {
+  IsOptional,
+  IsIn,
+  validateSync,
+  IsString,
+  Matches,
+} from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 
 // ── Allowed networks ─────────────────────────────────────────────────────────
@@ -75,48 +81,33 @@ export const STELLAR_CONFIG_KEY = 'stellar';
  * const cfg = this.config.get<StellarConfig>(STELLAR_CONFIG_KEY)!;
  * ```
  */
-export const stellarConfig = registerAs(STELLAR_CONFIG_KEY, (): StellarConfig => {
-  const isProduction = process.env.NODE_ENV === 'production';
+export const stellarConfig = registerAs(
+  STELLAR_CONFIG_KEY,
+  (): StellarConfig => {
+    const env = plainToInstance(StellarEnvVars, {
+      STELLAR_RPC_URL: process.env.STELLAR_RPC_URL ?? TESTNET_DEFAULTS.rpcUrl,
+      HORIZON_URL: process.env.HORIZON_URL ?? TESTNET_DEFAULTS.horizonUrl,
+      STELLAR_NETWORK: process.env.STELLAR_NETWORK ?? 'testnet',
+      POOL_CONTRACT_ID: process.env.POOL_CONTRACT_ID,
+    });
 
-  if (isProduction) {
-    const missing = [
-      !process.env.STELLAR_RPC_URL && 'STELLAR_RPC_URL',
-      !process.env.HORIZON_URL && 'HORIZON_URL',
-    ].filter((name): name is string => Boolean(name));
+    const errors = validateSync(env, { skipMissingProperties: false });
 
-    if (missing.length > 0) {
-      throw new Error(
-        `Stellar configuration is invalid:\n` +
-          missing
-            .map(
-              (name) =>
-                `  ${name}: must be set in production — refusing to fall back to the testnet default`,
-            )
-            .join('\n'),
-      );
+    if (errors.length > 0) {
+      const details = errors
+        .map(
+          (e) =>
+            `  ${e.property}: ${Object.values(e.constraints ?? {}).join(', ')}`,
+        )
+        .join('\n');
+      throw new Error(`Stellar configuration is invalid:\n${details}`);
     }
-  }
 
-  const env = plainToInstance(StellarEnvVars, {
-    STELLAR_RPC_URL: process.env.STELLAR_RPC_URL ?? TESTNET_DEFAULTS.rpcUrl,
-    HORIZON_URL: process.env.HORIZON_URL ?? TESTNET_DEFAULTS.horizonUrl,
-    STELLAR_NETWORK: process.env.STELLAR_NETWORK ?? 'testnet',
-    POOL_CONTRACT_ID: process.env.POOL_CONTRACT_ID,
-  });
-
-  const errors = validateSync(env, { skipMissingProperties: false });
-
-  if (errors.length > 0) {
-    const details = errors
-      .map((e) => `  ${e.property}: ${Object.values(e.constraints ?? {}).join(', ')}`)
-      .join('\n');
-    throw new Error(`Stellar configuration is invalid:\n${details}`);
-  }
-
-  return {
-    rpcUrl: env.STELLAR_RPC_URL,
-    horizonUrl: env.HORIZON_URL,
-    network: env.STELLAR_NETWORK,
-    poolContractId: env.POOL_CONTRACT_ID ?? '',
-  };
-});
+    return {
+      rpcUrl: env.STELLAR_RPC_URL,
+      horizonUrl: env.HORIZON_URL,
+      network: env.STELLAR_NETWORK,
+      poolContractId: env.POOL_CONTRACT_ID ?? '',
+    };
+  },
+);

@@ -1,4 +1,11 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -37,7 +44,8 @@ export class TransactionsController {
   })
   @ApiResponse({
     status: 422,
-    description: 'Transaction rejected by Stellar (slippage, expiry, Horizon unreachable)',
+    description:
+      'Transaction rejected by Stellar (slippage, expiry, Horizon unreachable)',
   })
   submit(@Body() body: SubmitTransactionDto): Promise<TransactionResult> {
     return this.service.submit(body.xdr);

@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 import Redis from 'ioredis';
+import { RequestContext } from '../logging/request-context';
+import { ErrorResponse } from '../request-validation/error-response.interface';
 
 /** A named rate-limit rule that defines a sliding-window counter. */
 interface RateLimitRule {
@@ -85,7 +87,9 @@ export class RateLimitMiddleware
    *
    * Evaluates all applicable rate-limit rules for the incoming request and
    * either calls `next()` (request allowed) or responds with HTTP 429
-   * (request blocked).
+   * (request blocked) using the shared {@link ErrorResponse} body shape
+   * (`statusCode`, `message`, `error`, `timestamp`, `path`, optional
+   * `requestId`) plus `retryAfter` and the `Retry-After` response header.
    *
    * Response headers set on every non-health request:
    * - `X-RateLimit-Limit` — the effective window limit
@@ -132,12 +136,18 @@ export class RateLimitMiddleware
     );
 
     if (effective.exceeded) {
-      res.setHeader('Retry-After', effective.resetSeconds.toString());
-      res.status(429).json({
+      const retryAfter = effective.resetSeconds.toString();
+      res.setHeader('Retry-After', retryAfter);
+      const body: ErrorResponse & { retryAfter?: string } = {
         statusCode: 429,
         message: 'Too many requests',
         error: 'Too Many Requests',
-      });
+        timestamp: new Date().toISOString(),
+        path: req.originalUrl || req.path,
+        requestId: RequestContext.requestId,
+        retryAfter,
+      };
+      res.status(429).json(body);
       return;
     }
 

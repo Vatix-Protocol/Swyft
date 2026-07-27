@@ -147,6 +147,24 @@ const quote = getSwapQuote({
 
 ---
 
+## Math fixtures (contract parity)
+
+Liquidity / position math is pinned against shared golden vectors:
+
+- **Canonical file:** [`fixtures/cl-math-vectors.json`](../../fixtures/cl-math-vectors.json)
+- **Copies for package-local runs:** `packages/sdk/src/__tests__/fixtures/` and `packages/contract/fixtures/`
+- **SDK tests:** `src/__tests__/contract-math-fixtures.spec.ts` (requires ≥3 vectors to pass)
+- **Contract tests:** `cl-pool` `fixture_tests::tick_to_sqrt_price_matches_shared_fixtures`
+
+### Math fixture divergence process
+
+1. Prefer changing **one** source of truth: update `fixtures/cl-math-vectors.json`, then sync the package copies.
+2. Re-run SDK tests (`pnpm --filter @swyft/sdk test`) and `cargo test -p cl-pool` (or workspace) so both sides agree on `tick_to_sqrt_price`.
+3. `amounts_for_liquidity` vectors assert the **SDK** Uniswap-style range-aware formula. The on-chain `cl-pool` helper uses a simpler clamp-based variant — if those diverge intentionally, document the difference in the fixture `$schema_comment` and do **not** silently change expected amounts.
+4. Extreme ticks (e.g. `-20000`) may differ (`cl-pool` saturates to `0`, SDK floors to `1`). Keep shared vectors in the overlapping safe range unless both implementations are updated together.
+
+---
+
 ## Publishing
 
 Releases are automated via GitHub Actions. To publish a new version:

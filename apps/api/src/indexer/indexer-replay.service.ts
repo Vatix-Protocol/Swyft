@@ -1,7 +1,14 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
 import {
+  QUEUE_NAMES,
   QUEUE_POOL_CREATED,
   QUEUE_SWAP_PROCESSED,
   QUEUE_POSITION_MINTED,
@@ -12,7 +19,12 @@ import {
   PositionMintedJobData,
   PositionBurnedJobData,
   FeesCollectedJobData,
+  QueueName,
 } from './queues';
+import {
+  DeadLetterEntry,
+  IndexerDeadLetterService,
+} from './indexer-dead-letter.service';
 
 export interface ReplaySummary {
   fromLedger: number;
@@ -23,6 +35,14 @@ export interface ReplaySummary {
     positionBurned: number;
     feesCollected: number;
   };
+  total: number;
+}
+
+export interface DeadLetterReplaySummary {
+  /** Job ids that were re-enqueued. */
+  replayed: string[];
+  /** Job ids skipped because the payload/queue was invalid. */
+  skipped: string[];
   total: number;
 }
 
@@ -50,7 +70,129 @@ export class IndexerReplayService {
     private readonly positionBurnedQueue: Queue<PositionBurnedJobData>,
     @Inject(QUEUE_FEES_COLLECTED)
     private readonly feesCollectedQueue: Queue<FeesCollectedJobData>,
+    private readonly deadLetterService: IndexerDeadLetterService,
   ) {}
+
+  /**
+   * Re-enqueues dead-lettered jobs onto their original BullMQ queues.
+   *
+   * Handlers upsert on `eventId` (and pool/position natural keys), so replaying
+   * the same DLQ item twice is idempotent: pool balances / TVL / swap rows are
+   * not double-applied. Pass `jobId` to replay one entry (even if previously
+   * marked recovered); omit it to replay all unrecovered entries.
+   */
+  async replayDeadLetters(jobId?: string): Promise<DeadLetterReplaySummary> {
+    const entries = jobId
+      ? await this.loadSingleDeadLetter(jobId)
+      : await this.deadLetterService.getDeadLetters(undefined, 500, true);
+
+    const replayed: string[] = [];
+    const skipped: string[] = [];
+
+    for (const entry of entries) {
+      const ok = await this.enqueueDeadLetter(entry);
+      if (!ok) {
+        skipped.push(entry.jobId);
+        continue;
+      }
+      await this.deadLetterService.clearDeadLetter(entry.jobId);
+      replayed.push(entry.jobId);
+    }
+
+    this.logger.log(
+      `DLQ replay enqueued=${replayed.length} skipped=${skipped.length}` +
+        (jobId ? ` jobId=${jobId}` : ''),
+    );
+
+    return { replayed, skipped, total: replayed.length };
+  }
+
+  private async loadSingleDeadLetter(
+    jobId: string,
+  ): Promise<DeadLetterEntry[]> {
+    const entry = await this.deadLetterService.getDeadLetter(jobId);
+    if (!entry) {
+      throw new NotFoundException(`Dead letter job not found: ${jobId}`);
+    }
+    return [entry];
+  }
+
+  private async enqueueDeadLetter(entry: DeadLetterEntry): Promise<boolean> {
+    const queueName = entry.queueName as QueueName;
+    const eventId =
+      typeof entry.data.eventId === 'string' && entry.data.eventId
+        ? entry.data.eventId
+        : entry.eventId;
+    if (!eventId) {
+      this.logger.warn(
+        `Skipping DLQ job ${entry.jobId} — missing eventId in payload`,
+      );
+      return false;
+    }
+
+    const opts = {
+      ...IndexerReplayService.ENQUEUE_OPTS,
+      // Stable job id so a second replay of the same DLQ item is a no-op in
+      // BullMQ when the prior job is still present; workers remain upsert-safe
+      // even if the job is re-added under a new id.
+      jobId: `dlq-replay:${entry.jobId}`,
+    };
+
+    try {
+      switch (queueName) {
+        case QUEUE_NAMES.POOL_CREATED:
+          await this.poolCreatedQueue.add(
+            eventId,
+            entry.data as unknown as PoolCreatedJobData,
+            opts,
+          );
+          return true;
+        case QUEUE_NAMES.SWAP_PROCESSED:
+          await this.swapProcessedQueue.add(
+            eventId,
+            entry.data as unknown as SwapProcessedJobData,
+            opts,
+          );
+          return true;
+        case QUEUE_NAMES.POSITION_MINTED:
+          await this.positionMintedQueue.add(
+            eventId,
+            entry.data as unknown as PositionMintedJobData,
+            opts,
+          );
+          return true;
+        case QUEUE_NAMES.POSITION_BURNED:
+          await this.positionBurnedQueue.add(
+            eventId,
+            entry.data as unknown as PositionBurnedJobData,
+            opts,
+          );
+          return true;
+        case QUEUE_NAMES.FEES_COLLECTED:
+          await this.feesCollectedQueue.add(
+            eventId,
+            entry.data as unknown as FeesCollectedJobData,
+            opts,
+          );
+          return true;
+        default:
+          throw new BadRequestException(
+            `Unsupported DLQ queueName: ${entry.queueName}`,
+          );
+      }
+    } catch (err) {
+      // BullMQ rejects duplicate jobId — treat as idempotent no-op success.
+      const message = err instanceof Error ? err.message : String(err);
+      if (/already exists|Job with this? id/i.test(message)) {
+        this.logger.debug(
+          `DLQ replay job ${entry.jobId} already queued — treating as no-op`,
+        );
+        return true;
+      }
+      this.logger.error(`Failed to enqueue DLQ job ${entry.jobId}: ${message}`);
+      return false;
+    }
+  }
 
   async replayFromLedger(fromLedger: number): Promise<ReplaySummary> {
     const [

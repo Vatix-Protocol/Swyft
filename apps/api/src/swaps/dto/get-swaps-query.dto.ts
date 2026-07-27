@@ -30,7 +30,11 @@ export class GetSwapsQueryDto {
   })
   wallet?: string;
 
-  @ApiPropertyOptional({ description: 'Page number (1-based)', minimum: 1, default: 1 })
+  @ApiPropertyOptional({
+    description: 'Page number (1-based)',
+    minimum: 1,
+    default: 1,
+  })
   @Type(() => Number)
   @IsOptional()
   @IsInt({ message: 'page must be an integer number' })

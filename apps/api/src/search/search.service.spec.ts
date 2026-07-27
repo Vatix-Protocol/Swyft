@@ -1,3 +1,8 @@
+jest.mock('@prisma/client', () => ({
+  PrismaClient: jest.fn(),
+  Prisma: {},
+}));
+
 import { SearchService } from './search.service';
 
 describe('SearchService', () => {
@@ -81,5 +86,37 @@ describe('SearchService', () => {
       tokens: [],
       pools: [],
     });
+  });
+
+  it('ranks pools by volume descending then pool id for equal-volume ties', async () => {
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const service = new SearchService(prisma as never);
+
+    await service.search('usdc');
+
+    const poolSql = prisma.$queryRawUnsafe.mock.calls[1][0] as string;
+    expect(poolSql).toContain(
+      'LEFT JOIN "pool" pool ON pool."id" = p."poolId"',
+    );
+    expect(poolSql).toContain(
+      'COALESCE(NULLIF(pool."volume24h", \'\')::numeric, 0) DESC',
+    );
+    expect(poolSql).toContain('p."poolId" ASC');
+  });
+
+  it('documents a stable equal-volume fixture order (volume desc, poolId asc)', () => {
+    // Fixture mirrors the SQL ORDER BY contract for tied volumes.
+    const fixtures = [
+      { poolId: 'pool-b', volume24h: '1000' },
+      { poolId: 'pool-a', volume24h: '1000' },
+      { poolId: 'pool-c', volume24h: '5000' },
+    ];
+
+    const ranked = [...fixtures].sort((a, b) => {
+      const volumeDiff = Number(b.volume24h) - Number(a.volume24h);
+      return volumeDiff !== 0 ? volumeDiff : a.poolId.localeCompare(b.poolId);
+    });
+
+    expect(ranked.map((p) => p.poolId)).toEqual(['pool-c', 'pool-a', 'pool-b']);
   });
 });

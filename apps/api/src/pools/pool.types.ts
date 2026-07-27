@@ -20,6 +20,8 @@ export interface PoolListQuery {
   search?: string;
   token0?: string;
   token1?: string;
+  /** When true, return inactive pools as well as active ones. */
+  includeInactive?: boolean;
 }
 
 export interface PoolListResult {

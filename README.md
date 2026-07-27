@@ -80,7 +80,13 @@ docker-compose up -d --wait
 
 # 5. Initialize database (~30 sec)
 pnpm db:generate        # Generate Prisma client
-pnpm db:migrate:deploy  # Run migrations
+pnpm db:migrate:deploy  # Run migrations (same command CI uses for migrate smoke)
+
+# Local equivalent of the CI Prisma migration smoke
+# (.github/workflows/db-migrations.yml — ephemeral Postgres + migrate deploy):
+#   docker-compose up -d postgres   # or any Postgres 16 with DATABASE_URL set
+#   pnpm prisma migrate deploy --schema prisma/schema.prisma
+# This must succeed; a failing migrate fails CI on main/PRs that touch prisma/**.
 
 # 6. Start all dev servers (~2 min)
 pnpm dev
@@ -89,6 +95,8 @@ pnpm dev
 This starts the Next.js dApp, NestJS API, and watches contract changes simultaneously via Turborepo.
 
 **Total time: ~5 minutes** (mostly waiting for pnpm install and Docker)
+
+**wait-for-healthy:** every service in `docker-compose.yml` (`postgres`, `redis`, `api`) declares a `healthcheck`, and dependers use `depends_on: condition: service_healthy` — so `api` won't start until Postgres and Redis report healthy, and `web` won't start until `api` does. `docker-compose up -d --wait` blocks the CLI until that chain is healthy, which is why step 4 above doesn't need a manual retry loop.
 
 ### What each command does
 

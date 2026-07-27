@@ -1,4 +1,10 @@
-export { calculateSwapQuote, EMPTY_QUOTE, isEmptyQuote } from './quote';
+export {
+  calculateSwapQuote,
+  getSwapQuote,
+  EMPTY_QUOTE,
+  isEmptyQuote,
+  QuoteValidationError,
+} from './quote';
 export type {
   SwapQuoteParams,
   SwapQuote,
@@ -32,7 +38,14 @@ export {
   getTick,
   EMPTY_POSITION_MESSAGE,
 } from './queries';
-export type { PoolState, PositionState, TickState } from './types';
+export type {
+  PoolState,
+  PositionState,
+  TickState,
+  GetPoolParams,
+  GetPositionParams,
+  GetTickParams,
+} from './types';
 export { SwyftRpcError } from './types';
 
 export { buildSwapTx, toStellarAddress, toRawAmount, toXdrBase64, SwapValidationError } from './swap';

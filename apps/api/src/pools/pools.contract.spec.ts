@@ -136,16 +136,16 @@ describe('GET /v1/pools — contract schema', () => {
 
     app = module.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
-    app.setGlobalPrefix('v1', { exclude: ['health', 'docs', 'docs-json', '/'] });
+    app.setGlobalPrefix('v1', {
+      exclude: ['health', 'docs', 'docs-json', '/'],
+    });
     await app.init();
   });
 
   afterAll(() => app.close());
 
   it('returns 200 with the documented envelope shape', async () => {
-    const res = await request(app.getHttpServer())
-      .get('/v1/pools')
-      .expect(200);
+    const res = await request(app.getHttpServer()).get('/v1/pools').expect(200);
 
     // Top-level envelope
     expect(res.body).toMatchObject({
@@ -159,9 +159,7 @@ describe('GET /v1/pools — contract schema', () => {
   });
 
   it('each item in items has the required PoolListItem fields', async () => {
-    const res = await request(app.getHttpServer())
-      .get('/v1/pools')
-      .expect(200);
+    const res = await request(app.getHttpServer()).get('/v1/pools').expect(200);
 
     for (const item of res.body.items as unknown[]) {
       expect(item).toMatchObject({
