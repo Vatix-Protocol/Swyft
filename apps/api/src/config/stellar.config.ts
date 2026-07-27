@@ -11,6 +11,12 @@
  *   HORIZON_URL       — Horizon REST API endpoint
  *   STELLAR_NETWORK   — "testnet" | "mainnet"  (default: "testnet")
  *   POOL_CONTRACT_ID  — deployed pool contract address (optional on testnet)
+ *
+ * **Production boot behaviour (`NODE_ENV=production`):** STELLAR_RPC_URL and
+ * HORIZON_URL must be set explicitly — the testnet defaults below are never
+ * applied, so an indexer accidentally deployed without them fails fast at
+ * boot instead of silently talking to testnet. Outside production (local
+ * dev, CI, tests) the testnet defaults still apply for convenience.
  */
 
 import { registerAs } from '@nestjs/config';
@@ -70,6 +76,27 @@ export const STELLAR_CONFIG_KEY = 'stellar';
  * ```
  */
 export const stellarConfig = registerAs(STELLAR_CONFIG_KEY, (): StellarConfig => {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (isProduction) {
+    const missing = [
+      !process.env.STELLAR_RPC_URL && 'STELLAR_RPC_URL',
+      !process.env.HORIZON_URL && 'HORIZON_URL',
+    ].filter((name): name is string => Boolean(name));
+
+    if (missing.length > 0) {
+      throw new Error(
+        `Stellar configuration is invalid:\n` +
+          missing
+            .map(
+              (name) =>
+                `  ${name}: must be set in production — refusing to fall back to the testnet default`,
+            )
+            .join('\n'),
+      );
+    }
+  }
+
   const env = plainToInstance(StellarEnvVars, {
     STELLAR_RPC_URL: process.env.STELLAR_RPC_URL ?? TESTNET_DEFAULTS.rpcUrl,
     HORIZON_URL: process.env.HORIZON_URL ?? TESTNET_DEFAULTS.horizonUrl,

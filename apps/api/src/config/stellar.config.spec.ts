@@ -93,4 +93,53 @@ describe('stellarConfig', () => {
 
     expect(cfg.poolContractId).toBe('');
   });
+
+  it('fails boot when HORIZON_URL is missing in production', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.STELLAR_RPC_URL = 'https://soroban.stellar.org';
+    delete process.env.HORIZON_URL;
+
+    expect(() => stellarConfig()).toThrow(/Stellar configuration is invalid/);
+    expect(() => stellarConfig()).toThrow(/HORIZON_URL: must be set in production/);
+  });
+
+  it('fails boot when STELLAR_RPC_URL is missing in production', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.HORIZON_URL = 'https://horizon.stellar.org';
+    delete process.env.STELLAR_RPC_URL;
+
+    expect(() => stellarConfig()).toThrow(/Stellar configuration is invalid/);
+    expect(() => stellarConfig()).toThrow(/STELLAR_RPC_URL: must be set in production/);
+  });
+
+  it('does not fall back to testnet defaults in production, even when both are missing', () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.STELLAR_RPC_URL;
+    delete process.env.HORIZON_URL;
+
+    expect(() => stellarConfig()).toThrow(/STELLAR_RPC_URL: must be set in production/);
+    expect(() => stellarConfig()).toThrow(/HORIZON_URL: must be set in production/);
+  });
+
+  it('boots successfully in production when both URLs are explicitly set', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.STELLAR_RPC_URL = 'https://soroban.stellar.org';
+    process.env.HORIZON_URL = 'https://horizon.stellar.org';
+
+    const cfg = stellarConfig();
+
+    expect(cfg.rpcUrl).toBe('https://soroban.stellar.org');
+    expect(cfg.horizonUrl).toBe('https://horizon.stellar.org');
+  });
+
+  it('still applies testnet defaults outside production when URLs are missing', () => {
+    process.env.NODE_ENV = 'development';
+    delete process.env.STELLAR_RPC_URL;
+    delete process.env.HORIZON_URL;
+
+    const cfg = stellarConfig();
+
+    expect(cfg.rpcUrl).toBe('https://soroban-testnet.stellar.org');
+    expect(cfg.horizonUrl).toBe('https://horizon-testnet.stellar.org');
+  });
 });
