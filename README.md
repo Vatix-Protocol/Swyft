@@ -151,7 +151,7 @@ Copy `apps/api/.env.example` to `apps/api/.env` and fill in the values below.
 | `SENTRY_DSN` | ❌ | *(empty)* | Sentry DSN for error tracking — leave blank to disable |
 | `SENTRY_TRACES_SAMPLE_RATE` | ❌ | `0.1` | Sentry trace sampling rate (0–1) |
 | `COMPRESSION_LEVEL` | ❌ | `6` | zlib compression level for HTTP responses (1–9) |
-| `WEBHOOK_LARGE_SWAP_USD` | ❌ | `10000` | USD threshold above which a swap triggers a webhook notification |
+| `LARGE_SWAP_THRESHOLD_USD` | ❌ | `10000` | USD threshold above which a swap triggers a webhook notification |
 | `WEBHOOK_MAX_CONSECUTIVE_FAILS` | ❌ | `10` | Number of consecutive delivery failures before disabling a webhook |
 | `WEBHOOK_RETRY_ATTEMPTS` | ❌ | `3` | Number of times to retry webhook delivery before marking as failed |
 
@@ -184,6 +184,7 @@ Full architecture details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **API Changelog** — [`docs/API_CHANGELOG.md`](docs/API_CHANGELOG.md) — Breaking changes and migration guides for the REST API
 - **Architecture** — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Data flow from Horizon to API to frontend
 - **Ops & Deployment** — [`docs/OPS_DEPLOYMENT.md`](docs/OPS_DEPLOYMENT.md) — Deployment strategies, health checks, and rollback procedures
+- **Rate Limiting** — [`docs/RATE_LIMITING.md`](docs/RATE_LIMITING.md) — `X-RateLimit-*` response headers, per-endpoint rules, and configuration
 
 ---
 

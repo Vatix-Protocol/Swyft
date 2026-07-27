@@ -11,6 +11,12 @@
  *   HORIZON_URL       — Horizon REST API endpoint
  *   STELLAR_NETWORK   — "testnet" | "mainnet"  (default: "testnet")
  *   POOL_CONTRACT_ID  — deployed pool contract address (optional on testnet)
+ *
+ * **Production boot behaviour (`NODE_ENV=production`):** STELLAR_RPC_URL and
+ * HORIZON_URL must be set explicitly — the testnet defaults below are never
+ * applied, so an indexer accidentally deployed without them fails fast at
+ * boot instead of silently talking to testnet. Outside production (local
+ * dev, CI, tests) the testnet defaults still apply for convenience.
  */
 
 import { registerAs } from '@nestjs/config';
