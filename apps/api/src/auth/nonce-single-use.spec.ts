@@ -21,7 +21,8 @@ describe('Auth nonce single-use enforcement (#555)', () => {
       // Redis state before: auth:nonce:WALLET = "nonce-value"
       // Redis state after:  auth:nonce:WALLET = (deleted)
 
-      const walletAddress = 'GAI7Z4Z4Z2IXPJ7F2IXPJ7F2IXPJ7F2IXPJ7F2IXPJ7F2IXPJ7F';
+      const walletAddress =
+        'GAI7Z4Z4Z2IXPJ7F2IXPJ7F2IXPJ7F2IXPJ7F2IXPJ7F2IXPJ7F';
       const nonceKey = `auth:nonce:${walletAddress}`;
 
       // Pseudocode of expected behavior:
@@ -158,7 +159,9 @@ describe('Auth nonce single-use enforcement (#555)', () => {
       const lineWhereNonceDeleted = 82;
       const lineWhereSignatureValidated = 79;
 
-      expect(lineWhereNonceDeleted).toBeGreaterThan(lineWhereSignatureValidated);
+      expect(lineWhereNonceDeleted).toBeGreaterThan(
+        lineWhereSignatureValidated,
+      );
     });
   });
 
@@ -180,7 +183,8 @@ describe('Auth nonce single-use enforcement (#555)', () => {
 
       const nonceTtlSeconds = 120;
       const estimatedVerifyTimeMs = 100;
-      const maxAttemptsInWindow = (nonceTtlSeconds * 1000) / estimatedVerifyTimeMs;
+      const maxAttemptsInWindow =
+        (nonceTtlSeconds * 1000) / estimatedVerifyTimeMs;
 
       expect(maxAttemptsInWindow).toBeGreaterThan(0);
       // Attacker limited to ~1200 tries, but each try cryptographically validated

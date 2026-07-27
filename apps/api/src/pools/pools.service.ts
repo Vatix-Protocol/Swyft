@@ -74,6 +74,7 @@ export class PoolsService {
       search: query.search?.trim() || undefined,
       token0: query.token0?.trim() || undefined,
       token1: query.token1?.trim() || undefined,
+      includeInactive: query.includeInactive === true,
     };
 
     const cacheKey = this.getListCacheKey(normalized);
@@ -118,6 +119,7 @@ export class PoolsService {
       `search=${query.search ?? ''}`,
       `token0=${query.token0 ?? ''}`,
       `token1=${query.token1 ?? ''}`,
+      `includeInactive=${query.includeInactive === true}`,
     ].join(':');
   }
 

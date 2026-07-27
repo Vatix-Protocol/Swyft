@@ -58,7 +58,8 @@ describe('getCorsOrigins', () => {
     });
 
     it('rejects localhost in production', () => {
-      process.env.WEB_APP_ORIGIN = 'https://app.example.com,http://localhost:3000';
+      process.env.WEB_APP_ORIGIN =
+        'https://app.example.com,http://localhost:3000';
 
       expect(() => validateCorsConfig()).toThrow(
         'Production CORS validation failed: localhost/127.0.0.1 not allowed in production',
@@ -66,7 +67,8 @@ describe('getCorsOrigins', () => {
     });
 
     it('rejects 127.0.0.1 in production', () => {
-      process.env.WEB_APP_ORIGIN = 'https://app.example.com,http://127.0.0.1:3000';
+      process.env.WEB_APP_ORIGIN =
+        'https://app.example.com,http://127.0.0.1:3000';
 
       expect(() => validateCorsConfig()).toThrow(
         'Production CORS validation failed: localhost/127.0.0.1 not allowed in production',

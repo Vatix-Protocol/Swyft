@@ -6,6 +6,7 @@ const mockPrismaClient = {
   indexerDeadLetter: {
     upsert: jest.fn().mockResolvedValue({}),
     findMany: jest.fn(),
+    findUnique: jest.fn(),
     update: jest.fn().mockResolvedValue({}),
     count: jest.fn().mockResolvedValue(0),
   },
@@ -39,7 +40,10 @@ describe('IndexerCursorService', () => {
     await expect(new IndexerCursorService(cache).getLastLedger()).resolves.toBe(
       42,
     );
-    expect(cache.setMaxNumber).toHaveBeenCalledWith(LAST_INDEXED_LEDGER_KEY, 42);
+    expect(cache.setMaxNumber).toHaveBeenCalledWith(
+      LAST_INDEXED_LEDGER_KEY,
+      42,
+    );
   });
 
   it('rejects stale or invalid cursor writes', async () => {

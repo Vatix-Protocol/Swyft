@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
 import { WebhooksController } from './webhooks.controller';
 import { WebhooksService } from './webhooks.service';
@@ -133,7 +134,6 @@ describe('WebhooksController', () => {
 
   describe('verifySignature', () => {
     it('returns { valid: true } for a correct HMAC signature', () => {
-      const { createHmac } = require('crypto');
       const secret = 'test-secret';
       const payload = '{"event":"swap"}';
       const signature = createHmac('sha256', secret)
@@ -158,7 +158,6 @@ describe('WebhooksController', () => {
     it('uses verifyWebhookSignature from webhook.types', () => {
       const secret = 'test-secret';
       const payload = '{"event":"pool.created"}';
-      const { createHmac } = require('crypto');
       const sig = createHmac('sha256', secret).update(payload).digest('hex');
 
       expect(verifyWebhookSignature(payload, sig, secret)).toBe(true);
@@ -202,7 +201,9 @@ describe('WebhooksController', () => {
       });
       const request = { user: { walletAddress: 'GTEST_WALLET_ADDRESS' } };
 
-      const result = await controller.ping('wh-1', request, { testEventType: 'swap' });
+      const result = await controller.ping('wh-1', request, {
+        testEventType: 'swap',
+      });
 
       expect(mockService.ping).toHaveBeenCalledWith(
         'wh-1',

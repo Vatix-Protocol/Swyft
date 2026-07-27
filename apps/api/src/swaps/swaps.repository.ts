@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Pool, Token } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SwapSnapshot, SwapsListResult, SwapsQuery } from './swap.types';
 
@@ -87,9 +88,32 @@ export class SwapsRepository {
       };
     });
 
-    return {
-      items,
-      total,
-    };
+    return { items, total };
+  }
+
+  async findTokenByAddress(address: string): Promise<Token | null> {
+    return this.prisma.token.findFirst({
+      where: { address: { equals: address, mode: 'insensitive' } },
+    });
+  }
+
+  async findPoolByTokenPair(
+    tokenA: string,
+    tokenB: string,
+  ): Promise<Pool | null> {
+    return this.prisma.pool.findFirst({
+      where: {
+        OR: [
+          {
+            token0Address: { equals: tokenA, mode: 'insensitive' },
+            token1Address: { equals: tokenB, mode: 'insensitive' },
+          },
+          {
+            token0Address: { equals: tokenB, mode: 'insensitive' },
+            token1Address: { equals: tokenA, mode: 'insensitive' },
+          },
+        ],
+      },
+    });
   }
 }

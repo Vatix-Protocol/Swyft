@@ -7,6 +7,14 @@ import { tickToPrice, priceToTick, nearestUsableTick } from '@/hooks/useAddLiqui
 export interface RangeSelectorProps {
   /** Tick data used to render the liquidity depth chart */
   ticks: TickData[];
+  /**
+   * Set when the tick fetch failed and `ticks` is synthetic placeholder
+   * data rather than real liquidity. Shows a warning banner with a retry
+   * action when present.
+   */
+  ticksError?: string | null;
+  /** Re-fetches tick data after a failed load. */
+  onRetryTicks?: () => void;
   /** The pool's current active tick */
   currentTick: number;
   /** Currently selected lower bound tick */
@@ -47,6 +55,8 @@ const CHART_W = 100; // percentage units
 
 export function RangeSelector({
   ticks,
+  ticksError,
+  onRetryTicks,
   currentTick,
   lowerTick,
   upperTick,
@@ -129,6 +139,33 @@ export function RangeSelector({
   const upperX = tickToX(upperTick);
   const currentX = tickToX(currentTick);
 
+  // Guard manual price entry against inverted/out-of-range bounds before
+  // forwarding to the parent, since a bad tick pair here becomes a bad
+  // on-chain call (mint would revert or silently create a degenerate range).
+  const handleLowerPriceChange = useCallback(
+    (value: string) => {
+      const price = parseFloat(value);
+      if (value.trim() !== '' && !isNaN(price) && price > 0) {
+        const proposedTick = nearestUsableTick(priceToTick(price), tickSpacing);
+        if (proposedTick >= upperTick) return;
+      }
+      onLowerPriceChange(value);
+    },
+    [onLowerPriceChange, tickSpacing, upperTick]
+  );
+
+  const handleUpperPriceChange = useCallback(
+    (value: string) => {
+      const price = parseFloat(value);
+      if (value.trim() !== '' && !isNaN(price) && price > 0) {
+        const proposedTick = nearestUsableTick(priceToTick(price), tickSpacing);
+        if (proposedTick <= lowerTick) return;
+      }
+      onUpperPriceChange(value);
+    },
+    [onUpperPriceChange, tickSpacing, lowerTick]
+  );
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -145,6 +182,21 @@ export function RangeSelector({
           Full range
         </button>
       </div>
+
+      {ticksError && (
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+          <span>Showing estimated liquidity — live data failed to load.</span>
+          {onRetryTicks && (
+            <button
+              type="button"
+              onClick={onRetryTicks}
+              className="shrink-0 font-semibold underline hover:no-underline"
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Depth chart */}
       <div className="relative rounded-xl border border-zinc-100 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50 overflow-hidden">
@@ -265,7 +317,7 @@ export function RangeSelector({
             type="text"
             inputMode="decimal"
             value={lowerPrice}
-            onChange={(e) => onLowerPriceChange(e.target.value)}
+            onChange={(e) => handleLowerPriceChange(e.target.value)}
             aria-label="Minimum price"
             placeholder="0.00"
             className="w-full bg-transparent text-sm font-semibold text-zinc-900 placeholder-zinc-300 focus:outline-none dark:text-white dark:placeholder-zinc-600"
@@ -280,7 +332,7 @@ export function RangeSelector({
             type="text"
             inputMode="decimal"
             value={upperPrice}
-            onChange={(e) => onUpperPriceChange(e.target.value)}
+            onChange={(e) => handleUpperPriceChange(e.target.value)}
             aria-label="Maximum price"
             placeholder="0.00"
             className="w-full bg-transparent text-sm font-semibold text-zinc-900 placeholder-zinc-300 focus:outline-none dark:text-white dark:placeholder-zinc-600"

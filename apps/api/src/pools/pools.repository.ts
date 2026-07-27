@@ -21,17 +21,21 @@ export class PoolsRepository {
 
   async listActivePools(query: PoolListQuery): Promise<PoolListResult> {
     const search = query.search?.trim().toLowerCase();
+    const includeInactive = query.includeInactive === true;
 
     const pools = await this.prisma.pool.findMany({
-      where: search
-        ? {
-            OR: [
-              { id: { contains: search, mode: 'insensitive' } },
-              { token0Address: { contains: search, mode: 'insensitive' } },
-              { token1Address: { contains: search, mode: 'insensitive' } },
-            ],
-          }
-        : undefined,
+      where: {
+        ...(!includeInactive ? { active: true } : {}),
+        ...(search
+          ? {
+              OR: [
+                { id: { contains: search, mode: 'insensitive' } },
+                { token0Address: { contains: search, mode: 'insensitive' } },
+                { token1Address: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
     });
     const snapshots = pools.map((pool) => this.toSnapshot(pool));
     const sorted = snapshots.sort((a, b) => {
@@ -93,9 +97,7 @@ export class PoolsRepository {
       volume24h: this.asFiniteNumber(pool.volume24h),
       feeApr: this.asFiniteNumber(pool.feeApr),
       currentPrice: this.asFiniteNumber(pool.currentPrice),
-      // Closed pools are deleted from the current schema, so every row is an
-      // active pool. This preserves the API contract without transient memory.
-      active: true,
+      active: pool.active,
       updatedAt: pool.updatedAt.getTime(),
     };
   }

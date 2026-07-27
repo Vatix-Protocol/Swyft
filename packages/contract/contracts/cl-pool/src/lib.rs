@@ -674,3 +674,28 @@ fn ensure_initialized(env: &Env) {
 fn panic_pool_error(env: &Env, error: PoolError) -> ! {
     env.panic_with_error(soroban_sdk::Error::from_contract_error(error as u32))
 }
+
+#[cfg(test)]
+mod fixture_tests {
+    use super::tick_to_sqrt_price;
+
+    /// Shared vectors from fixtures/cl-math-vectors.json (tick_to_sqrt_price).
+    /// Keep in sync with that file — see packages/sdk/README.md "Math fixture divergence".
+    #[test]
+    fn tick_to_sqrt_price_matches_shared_fixtures() {
+        let vectors: &[(i32, u128)] = &[
+            (0, 79228162514264337593543950336),
+            (100, 79624303326835659281511670087),
+            (-100, 78832021701693015905576230585),
+        ];
+        assert!(vectors.len() >= 3);
+        for &(tick, expected) in vectors {
+            assert_eq!(
+                tick_to_sqrt_price(tick),
+                expected,
+                "tick {tick} diverged from fixture"
+            );
+        }
+    }
+}
+

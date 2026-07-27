@@ -99,6 +99,7 @@ export class SearchService {
         FROM "pool_created" p
         LEFT JOIN "token" token_a ON lower(token_a."address") = lower(p."tokenA")
         LEFT JOIN "token" token_b ON lower(token_b."address") = lower(p."tokenB")
+        LEFT JOIN "pool" pool ON pool."id" = p."poolId"
         WHERE
           lower(p."poolId") = lower($1)
           OR token_a."symbol" ILIKE $2
@@ -106,13 +107,7 @@ export class SearchService {
           OR p."tokenA" ILIKE $2
           OR p."tokenB" ILIKE $2
         ORDER BY
-          CASE
-            WHEN lower(p."poolId") = lower($1) THEN 0
-            WHEN lower(token_a."symbol") = lower($1) THEN 0
-            WHEN lower(token_b."symbol") = lower($1) THEN 0
-            WHEN token_a."symbol" ILIKE $2 OR token_b."symbol" ILIKE $2 THEN 1
-            ELSE 2
-          END,
+          COALESCE(NULLIF(pool."volume24h", '')::numeric, 0) DESC,
           p."poolId" ASC
         LIMIT 10
       `,

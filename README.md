@@ -80,7 +80,13 @@ docker-compose up -d --wait
 
 # 5. Initialize database (~30 sec)
 pnpm db:generate        # Generate Prisma client
-pnpm db:migrate:deploy  # Run migrations
+pnpm db:migrate:deploy  # Run migrations (same command CI uses for migrate smoke)
+
+# Local equivalent of the CI Prisma migration smoke
+# (.github/workflows/db-migrations.yml — ephemeral Postgres + migrate deploy):
+#   docker-compose up -d postgres   # or any Postgres 16 with DATABASE_URL set
+#   pnpm prisma migrate deploy --schema prisma/schema.prisma
+# This must succeed; a failing migrate fails CI on main/PRs that touch prisma/**.
 
 # 6. Start all dev servers (~2 min)
 pnpm dev
@@ -89,6 +95,8 @@ pnpm dev
 This starts the Next.js dApp, NestJS API, and watches contract changes simultaneously via Turborepo.
 
 **Total time: ~5 minutes** (mostly waiting for pnpm install and Docker)
+
+**wait-for-healthy:** every service in `docker-compose.yml` (`postgres`, `redis`, `api`) declares a `healthcheck`, and dependers use `depends_on: condition: service_healthy` — so `api` won't start until Postgres and Redis report healthy, and `web` won't start until `api` does. `docker-compose up -d --wait` blocks the CLI until that chain is healthy, which is why step 4 above doesn't need a manual retry loop.
 
 ### What each command does
 
@@ -143,7 +151,7 @@ Copy `apps/api/.env.example` to `apps/api/.env` and fill in the values below.
 | `SENTRY_DSN` | ❌ | *(empty)* | Sentry DSN for error tracking — leave blank to disable |
 | `SENTRY_TRACES_SAMPLE_RATE` | ❌ | `0.1` | Sentry trace sampling rate (0–1) |
 | `COMPRESSION_LEVEL` | ❌ | `6` | zlib compression level for HTTP responses (1–9) |
-| `WEBHOOK_LARGE_SWAP_USD` | ❌ | `10000` | USD threshold above which a swap triggers a webhook notification |
+| `LARGE_SWAP_THRESHOLD_USD` | ❌ | `10000` | USD threshold above which a swap triggers a webhook notification |
 | `WEBHOOK_MAX_CONSECUTIVE_FAILS` | ❌ | `10` | Number of consecutive delivery failures before disabling a webhook |
 | `WEBHOOK_RETRY_ATTEMPTS` | ❌ | `3` | Number of times to retry webhook delivery before marking as failed |
 
@@ -176,6 +184,7 @@ Full architecture details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **API Changelog** — [`docs/API_CHANGELOG.md`](docs/API_CHANGELOG.md) — Breaking changes and migration guides for the REST API
 - **Architecture** — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Data flow from Horizon to API to frontend
 - **Ops & Deployment** — [`docs/OPS_DEPLOYMENT.md`](docs/OPS_DEPLOYMENT.md) — Deployment strategies, health checks, and rollback procedures
+- **Rate Limiting** — [`docs/RATE_LIMITING.md`](docs/RATE_LIMITING.md) — `X-RateLimit-*` response headers, per-endpoint rules, and configuration
 
 ---
 

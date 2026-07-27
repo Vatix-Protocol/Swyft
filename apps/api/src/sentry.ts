@@ -24,10 +24,7 @@ const SENSITIVE_PATTERNS = {
  * Recursively redacts sensitive values in an object/string.
  * Preserves structure but replaces matched patterns with [REDACTED].
  */
-function redactSensitiveData(
-  value: unknown,
-  depth = 0,
-): unknown {
+function redactSensitiveData(value: unknown, depth = 0): unknown {
   // Prevent infinite recursion on deeply nested objects
   if (depth > 50) return value;
 
@@ -50,9 +47,16 @@ function redactSensitiveData(
       // Redact sensitive keys directly
       if (
         typeof val === 'string' &&
-        ['walletAddress', 'nonce', 'signature', 'token', 'secret', 'password', 'refreshToken', 'accessToken'].some(
-          (k) => key.toLowerCase().includes(k.toLowerCase()),
-        )
+        [
+          'walletAddress',
+          'nonce',
+          'signature',
+          'token',
+          'secret',
+          'password',
+          'refreshToken',
+          'accessToken',
+        ].some((k) => key.toLowerCase().includes(k.toLowerCase()))
       ) {
         redacted[key] = '[REDACTED]';
       } else {
@@ -81,7 +85,10 @@ export function initSentry() {
         if (event.breadcrumbs) {
           event.breadcrumbs = event.breadcrumbs.map((bc: any) => ({
             ...bc,
-            message: typeof bc.message === 'string' ? redactSensitiveData(bc.message) : bc.message,
+            message:
+              typeof bc.message === 'string'
+                ? redactSensitiveData(bc.message)
+                : bc.message,
             data: redactSensitiveData(bc.data),
           }));
         }
@@ -101,7 +108,10 @@ export function initSentry() {
         if (event.exception) {
           event.exception = event.exception.map((ex: any) => ({
             ...ex,
-            value: typeof ex.value === 'string' ? redactSensitiveData(ex.value) : ex.value,
+            value:
+              typeof ex.value === 'string'
+                ? redactSensitiveData(ex.value)
+                : ex.value,
           }));
         }
 

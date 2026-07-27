@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { getNetwork } from '@stellar/freighter-api';
 import type { SwapQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
 import { PriceImpactBadge } from '@swyft/ui';
@@ -32,6 +33,27 @@ export function SwapConfirmModal({
   const { status, error, txHash, execute, reset } = useSwapExecution();
   const { network } = useNetworkContext();
   const overlayRef = useRef<HTMLDivElement>(null);
+
+  // A wallet can be on a different network than the app (e.g. switched in
+  // the extension after connecting). Signing/submitting would then fail, so
+  // re-check right before allowing a confirm.
+  const [networkMismatch, setNetworkMismatch] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await getNetwork();
+        const walletNetwork = 'network' in result ? result.network : result;
+        if (!cancelled) setNetworkMismatch((walletNetwork as string).toUpperCase() !== network);
+      } catch {
+        // If we can't determine the wallet's network, don't block the user —
+        // sign/submit will surface a real error if it's actually mismatched.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [network]);
 
   // Trap focus / close on Escape
   useEffect(() => {
@@ -218,6 +240,19 @@ export function SwapConfirmModal({
             </div>
           )}
 
+          {/* Network mismatch warning */}
+          {networkMismatch && status === 'idle' && (
+            <div
+              role="alert"
+              className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950"
+            >
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                Your wallet is on a different Stellar network than this app ({network}). Switch
+                networks in your wallet to continue.
+              </p>
+            </div>
+          )}
+
           {/* Action buttons */}
           {status === 'success' ? (
             <button
@@ -231,7 +266,7 @@ export function SwapConfirmModal({
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={isBusy || status === 'error'}
+              disabled={isBusy || status === 'error' || networkMismatch}
               className="w-full min-h-[44px] rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 flex items-center justify-center gap-2"
             >
               {status === 'signing' && (

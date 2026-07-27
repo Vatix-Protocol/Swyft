@@ -48,7 +48,16 @@ describe('Sentry scrubber (beforeSend hook)', () => {
     // Simulate the key-based redaction from beforeSend
     const redacted = Object.entries(obj).reduce(
       (acc, [key, val]) => {
-        if (['walletAddress', 'signature', 'token', 'password', 'accessToken', 'refreshToken'].includes(key)) {
+        if (
+          [
+            'walletAddress',
+            'signature',
+            'token',
+            'password',
+            'accessToken',
+            'refreshToken',
+          ].includes(key)
+        ) {
           acc[key] = '[REDACTED]';
         } else {
           acc[key] = val;
@@ -83,7 +92,15 @@ describe('Sentry scrubber (beforeSend hook)', () => {
     // Simulate recursive redaction
     const redacted = JSON.parse(
       JSON.stringify(event, (key, value) => {
-        const sensitiveKeys = ['walletAddress', 'nonce', 'signature', 'token', 'password', 'accessToken', 'refreshToken'];
+        const sensitiveKeys = [
+          'walletAddress',
+          'nonce',
+          'signature',
+          'token',
+          'password',
+          'accessToken',
+          'refreshToken',
+        ];
         if (sensitiveKeys.includes(key)) {
           return '[REDACTED]';
         }
