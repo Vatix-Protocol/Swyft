@@ -81,9 +81,7 @@ export class WebhookWorker implements OnModuleInit, OnModuleDestroy {
    */
   async retryFailedDeliveries(webhookId: string): Promise<number> {
     const failedJobs = await this.queue.getJobs(['failed']);
-    const matching = failedJobs.filter(
-      (j) => j.data.webhookId === webhookId,
-    );
+    const matching = failedJobs.filter((j) => j.data.webhookId === webhookId);
     await Promise.all(matching.map((j) => j.retry()));
     return matching.length;
   }

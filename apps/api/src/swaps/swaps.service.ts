@@ -162,4 +162,4 @@ export class SwapsService {
   }
 }
 
-export type { SwapsListResponse };
+export type { SwapsListResponse, SwapQuoteResult };

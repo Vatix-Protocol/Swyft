@@ -74,6 +74,39 @@ describe('PoolsService', () => {
       );
     });
 
+    it('defaults includeInactive to false and filters inactive pools', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({ page: 1, limit: 10 });
+
+      expect(repo.listActivePools).toHaveBeenCalledWith(
+        expect.objectContaining({ includeInactive: false }),
+      );
+    });
+
+    it('passes includeInactive=true through to the repository', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({ page: 1, limit: 10, includeInactive: true });
+
+      expect(repo.listActivePools).toHaveBeenCalledWith(
+        expect.objectContaining({ includeInactive: true }),
+      );
+    });
+
+    it('includes includeInactive in the cache key', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({ page: 1, limit: 10, includeInactive: true });
+
+      expect(cache.get).toHaveBeenCalledWith(
+        expect.stringContaining('includeInactive=true'),
+      );
+    });
+
     it('returns cached result and skips repository on cache hit', async () => {
       const cached = {
         items: [],

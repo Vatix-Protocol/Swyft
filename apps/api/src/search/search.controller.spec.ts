@@ -27,7 +27,7 @@ describe('SearchController', () => {
       searchService as unknown as SearchService,
     );
 
-    await controller.search(undefined as unknown as string);
+    await controller.search(undefined);
     expect(searchService.search).toHaveBeenCalledWith('');
   });
 });

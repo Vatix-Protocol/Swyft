@@ -54,7 +54,8 @@ describe('TransactionsService', () => {
 
     // 60+ char base64 string — passes XDR pre-validation
     const validXdr = 'A'.repeat(56) + '===='.slice(0, (4 - (56 % 4)) % 4);
-    const paddedXdr = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+    const paddedXdr =
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
     await expect(service.submit(paddedXdr)).resolves.toEqual(result);
   });
 
@@ -68,7 +69,8 @@ describe('TransactionsService', () => {
         }),
     } as Response);
 
-    const paddedXdr = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+    const paddedXdr =
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
     await expect(service.submit(paddedXdr)).rejects.toBeInstanceOf(
       InvalidInputException,
     );
@@ -84,7 +86,8 @@ describe('TransactionsService', () => {
         }),
     } as Response);
 
-    const paddedXdr = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+    const paddedXdr =
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
     await expect(service.submit(paddedXdr)).rejects.toBeInstanceOf(
       BusinessRuleViolationException,
     );
@@ -100,7 +103,8 @@ describe('TransactionsService', () => {
         }),
     } as Response);
 
-    const paddedXdr = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+    const paddedXdr =
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
     await expect(service.submit(paddedXdr)).rejects.toBeInstanceOf(
       BusinessRuleViolationException,
     );
@@ -109,7 +113,8 @@ describe('TransactionsService', () => {
   it('throws BusinessRuleViolationException when fetch fails', async () => {
     jest.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
 
-    const paddedXdr = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+    const paddedXdr =
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
     await expect(service.submit(paddedXdr)).rejects.toBeInstanceOf(
       BusinessRuleViolationException,
     );

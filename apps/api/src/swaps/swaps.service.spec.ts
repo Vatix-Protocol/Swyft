@@ -1,3 +1,4 @@
+import { Pool, Token } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { SwapsService } from './swaps.service';
 import { SwapsRepository } from './swaps.repository';
@@ -51,6 +52,17 @@ const makeSnapshot = (overrides: Partial<SwapSnapshot> = {}): SwapSnapshot => ({
   timestamp: 1_700_000_000_000,
   ...overrides,
 });
+
+const makeToken = (overrides: Partial<Token> = {}): Token =>
+  ({
+    id: 'tok-1',
+    address: 'USDC-addr',
+    symbol: 'USDC',
+    name: 'USD Coin',
+    decimals: 6,
+    logoUri: null,
+    ...overrides,
+  }) as Token;
 
 describe('SwapsService', () => {
   let service: SwapsService;
@@ -238,12 +250,10 @@ describe('SwapsService', () => {
 
       const result = await service.getSwaps({ page: 1, limit: 20 });
 
-      // Remove timestamp-sensitive fields for stable snapshot
       const sanitizedResult = {
         ...result,
         items: result.items.map((item) => ({
           ...item,
-          // Remove any dynamic fields that might change
           id: expect.any(String),
           timestamp: expect.any(Number),
         })),
@@ -285,7 +295,6 @@ describe('SwapsService', () => {
 
       const result = await service.getSwaps({ page: 2, limit: 5 });
 
-      // Test structure without dynamic values
       expect(result).toEqual({
         items: expect.any(Array),
         page: 2,

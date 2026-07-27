@@ -39,7 +39,10 @@ describe('IndexerCursorService', () => {
     await expect(new IndexerCursorService(cache).getLastLedger()).resolves.toBe(
       42,
     );
-    expect(cache.setMaxNumber).toHaveBeenCalledWith(LAST_INDEXED_LEDGER_KEY, 42);
+    expect(cache.setMaxNumber).toHaveBeenCalledWith(
+      LAST_INDEXED_LEDGER_KEY,
+      42,
+    );
   });
 
   it('rejects stale or invalid cursor writes', async () => {

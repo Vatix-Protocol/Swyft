@@ -102,7 +102,13 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
 
         await this.cache.set(
           STATS_CACHE_KEY(pool.id),
-          { tvl, volume24h, volume7d, feeApr, updatedAt: new Date().toISOString() },
+          {
+            tvl,
+            volume24h,
+            volume7d,
+            feeApr,
+            updatedAt: new Date().toISOString(),
+          },
           TTL.STATS,
         );
 

@@ -31,7 +31,6 @@ describe('CacheService - Singleflight lock (stampede protection)', () => {
       // Process A acquires lock for 'pool:123'
       // Process B attempts to acquire lock for same key
       // Expected: returns false (lock already held)
-
       // In reality:
       // const lockA = await cacheService.acquireSingleflightLock('pool:123');
       // expect(lockA).toBe(true);
@@ -44,7 +43,6 @@ describe('CacheService - Singleflight lock (stampede protection)', () => {
       // Process A acquires lock with 1-second TTL
       // After 1 second, Redis auto-deletes the lock key
       // Process B can now acquire the same lock
-
       // In reality (with jest.useFakeTimers()):
       // await cacheService.acquireSingleflightLock('pool:123', 1);
       // jest.advanceTimersByTime(1100);
@@ -58,7 +56,6 @@ describe('CacheService - Singleflight lock (stampede protection)', () => {
       // Process A acquires lock
       // Process A calls releaseSingleflightLock to manually release
       // Expected: lock is deleted from Redis immediately
-
       // In reality:
       // const lockAcquired = await cacheService.acquireSingleflightLock('pool:123');
       // expect(lockAcquired).toBe(true);
@@ -74,7 +71,6 @@ describe('CacheService - Singleflight lock (stampede protection)', () => {
       // Process A holds lock
       // Process B waits for lock to release
       // After lock is released, waitForSingleflightLock returns true
-
       // In reality (with jest.useFakeTimers()):
       // const lockA = await cacheService.acquireSingleflightLock('pool:123', 1);
       // const waitPromise = cacheService.waitForSingleflightLock('pool:123');
@@ -89,7 +85,6 @@ describe('CacheService - Singleflight lock (stampede protection)', () => {
       // Process B waits with short maxWaitMs
       // Lock is not released, so timeout occurs
       // Expected: returns false
-
       // In reality:
       // const lockA = await cacheService.acquireSingleflightLock('pool:123', 60);
       // const result = await cacheService.waitForSingleflightLock('pool:123', 100);
@@ -136,7 +131,6 @@ describe('CacheService - Singleflight lock (stampede protection)', () => {
       // Scenario: Redis is down during peak traffic
       // Expected: acquireSingleflightLock returns true (allows load)
       // Result: Multiple DB queries execute, but app doesn't crash
-
       // In reality, if Redis.set() throws:
       // acquireSingleflightLock catches error and returns true
       // This allows fallback behavior (DB queries, possibly amplified)
