@@ -11,6 +11,8 @@ export interface SwapSnapshot {
   amount0: string;
   amount1: string;
   priceAtSwap: string;
+  /** Ordered pool IDs the swap routed through, when known (e.g. multi-hop). */
+  route?: string[];
   txHash: string;
   walletAddress: string;
   timestamp: number;
