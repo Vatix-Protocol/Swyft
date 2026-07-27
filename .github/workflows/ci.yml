@@ -32,6 +32,34 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+  contracts:
+    name: Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Address drift check — unit tests (fixture-based, no cargo needed)
+        run: pnpm --filter contracts test:drift
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Validate contracts build and check for address drift
+        run: pnpm validate:contracts:drift
+
   test:
     name: Test
     runs-on: ubuntu-latest

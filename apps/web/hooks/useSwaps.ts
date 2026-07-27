@@ -16,6 +16,7 @@ export interface SwapSnapshot {
   txHash: string;
   walletAddress: string;
   timestamp: number;
+  routeLeg?: string[] | null;
 }
 
 export interface SwapsListResponse {

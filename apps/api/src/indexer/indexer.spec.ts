@@ -48,7 +48,7 @@ const mockUpsert = () => jest.fn().mockResolvedValue({});
 
 const mockPrismaClient = {
   token: { upsert: mockUpsert() },
-  pool: { upsert: mockUpsert(), update: mockUpsert() },
+  pool: { upsert: mockUpsert(), update: mockUpsert(), findUnique: jest.fn().mockResolvedValue(null) },
   swap: { upsert: mockUpsert() },
   position: { upsert: mockUpsert() },
   poolCreated: { upsert: mockUpsert() },
@@ -571,6 +571,41 @@ describe('IndexerWorker', () => {
       expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(data.tokenA);
       expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(data.tokenB);
     });
+
+    it('persists pool createdAt from event timestamp', async () => {
+      const timestamp = '2026-07-26T10:30:00Z';
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      await handler(makeJob({ ...data, timestamp }));
+
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            createdAt: new Date(timestamp),
+          }),
+        }),
+      );
+    });
+
+    it('uses current time for createdAt when timestamp is missing', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      const before = new Date();
+      await handler(makeJob(data));
+      const after = new Date();
+
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            createdAt: expect.any(Date),
+          }),
+        }),
+      );
+
+      // Verify the date is between before and after (within 1s tolerance)
+      const callArgs = (mockPrismaClient.pool.upsert as any).mock.calls[0][0];
+      const createdAt = callArgs.create.createdAt;
+      expect(createdAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
+      expect(createdAt.getTime()).toBeLessThanOrEqual(after.getTime() + 1000);
+    });
   });
 
   describe('handleSwapProcessed()', () => {
@@ -689,6 +724,63 @@ describe('IndexerWorker', () => {
       await expect(handler(makeJob(data))).resolves.not.toThrow();
 
       expect(mockPrismaClient.swapProcessed.upsert).toHaveBeenCalled();
+    });
+
+    it('persists feeAmount from the event payload when provided', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await handler(makeJob({ ...data, feeAmount: '42.5' }));
+
+      expect(mockPrismaClient.swap.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            feeAmount: '42.5',
+          }),
+        }),
+      );
+    });
+
+    it('derives feeAmount from pool feeTier when event does not include it', async () => {
+      mockPrismaClient.pool.findUnique.mockResolvedValueOnce({ feeTier: 3000 });
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await handler(makeJob(data));
+
+      // fee = |amount0| * (feeTier / 1_000_000) = 1000000 * 0.003 = 3000
+      expect(mockPrismaClient.swap.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            feeAmount: '3000',
+          }),
+        }),
+      );
+    });
+
+    it('defaults feeAmount to "0" when pool is not found and event has no fee', async () => {
+      mockPrismaClient.pool.findUnique.mockResolvedValueOnce(null);
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await handler(makeJob(data));
+
+      expect(mockPrismaClient.swap.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            feeAmount: '0',
+          }),
+        }),
+      );
+    });
+
+    it('persists feeAmount even when sqrtPriceX96 is invalid', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await handler(
+        makeJob({ ...data, sqrtPriceX96: '0', feeAmount: '100' }),
+      );
+
+      expect(mockPrismaClient.swap.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            feeAmount: '100',
+          }),
+        }),
+      );
     });
   });
 

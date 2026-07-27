@@ -209,20 +209,65 @@ export function sqrtPriceX96ToTick(sqrtPriceX96: bigint): number {
 }
 
 /**
- * Estimates impermanent loss versus a hold-at-deposit baseline, using the
- * standard constant-product approximation (price ratio between deposit and
- * current price). Returned as a negative fraction (e.g. -0.012 = -1.2%).
- *
- * This is an approximation for concentrated-liquidity positions — it does
- * not account for the position's tick range, only the price movement since
- * deposit.
- *
- * @param depositPrice - Pool price (token1/token0) at the time liquidity was deposited
- * @param currentPrice - Current pool price (token1/token0)
- * @returns Impermanent loss as a fraction relative to the hold baseline (<= 0)
+ * Parameters for computing impermanent loss percentage.
  */
-export function estimateImpermanentLoss(depositPrice: number, currentPrice: number): number {
-  if (depositPrice <= 0 || currentPrice <= 0) throw new RangeError('prices must be positive');
-  const priceRatio = currentPrice / depositPrice;
-  return (2 * Math.sqrt(priceRatio)) / (1 + priceRatio) - 1;
+export interface ImpermanentLossParams {
+  /** Current token0 amount (as number, post-decimals) */
+  readonly amount0Current: number;
+  /** Current token1 amount (as number, post-decimals) */
+  readonly amount1Current: number;
+  /** Initial token0 amount when position was created (as number, post-decimals) */
+  readonly amount0Initial: number;
+  /** Initial token1 amount when position was created (as number, post-decimals) */
+  readonly amount1Initial: number;
+  /** Current token0 price in terms of token1 */
+  readonly token0Price: number;
+  /** Current token1 price in terms of token0 (optional, derived from 1/token0Price if not provided) */
+  readonly token1Price?: number;
+}
+
+/**
+ * Calculates impermanent loss percentage for a liquidity position.
+ *
+ * Compares the value of the current position against a hypothetical "hodl" scenario
+ * where the initial amounts were simply held without providing liquidity.
+ *
+ * **Assumptions:**
+ * - Prices are in decimal-adjusted terms (10^decimals already factored in)
+ * - The position value is calculated as: amount0 * token0Price + amount1 * token1Price
+ * - A negative result means impermanent loss (position lost value)
+ * - A positive result means impermanent gain
+ *
+ * @param params.amount0Current - Current token0 balance in the position
+ * @param params.amount1Current - Current token1 balance in the position
+ * @param params.amount0Initial - Initial token0 deposited when position was created
+ * @param params.amount1Initial - Initial token1 deposited when position was created
+ * @param params.token0Price - Current token0 price (token1 per token0)
+ * @param params.token1Price - Current token1 price (token0 per token1), optional
+ * @returns IL percentage, or null if calculation cannot be performed (e.g., zero initial value)
+ */
+export function getImpermanentLossPercentage({
+  amount0Current,
+  amount1Current,
+  amount0Initial,
+  amount1Initial,
+  token0Price,
+  token1Price: providedToken1Price,
+}: ImpermanentLossParams): number | null {
+  // Use provided token1Price or derive from token0Price
+  const token1Price = providedToken1Price ?? (token0Price !== 0 ? 1 / token0Price : 0);
+
+  // Calculate current position value
+  const currentValue = amount0Current * token0Price + amount1Current * token1Price;
+
+  // Calculate hodl value (what you'd have if you just held the initial amounts)
+  const hodlValue = amount0Initial * token0Price + amount1Initial * token1Price;
+
+  // Return null if hodl value is zero or negative (invalid scenario)
+  if (hodlValue <= 0) return null;
+
+  // IL% = (hodlValue / currentValue - 1) * 100
+  const ilPercentage = ((hodlValue / currentValue - 1) * 100);
+
+  return isFinite(ilPercentage) ? ilPercentage : null;
 }
