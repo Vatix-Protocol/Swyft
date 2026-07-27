@@ -15,6 +15,16 @@ export class InvalidInputException extends BadRequestException {
   }
 }
 
+export class UnknownTokenException extends BadRequestException {
+  constructor(address: string) {
+    super({
+      message: `Unknown token address: ${address}`,
+      error: 'Bad Request',
+      code: 'UNKNOWN_TOKEN',
+    });
+  }
+}
+
 // ── 401 ─────────────────────────────────────────────────────────────────────
 
 export class MissingTokenException extends UnauthorizedException {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { API_BASE } from '@/lib/constants';
 
 export interface TickData {
@@ -25,14 +25,27 @@ export interface PoolDetail {
   volume24h: number;
 }
 
+/**
+ * Loads initialized ticks for a pool from the API.
+ *
+ * Partial data policy: if the tick fetch fails (network error, non-2xx
+ * response, or bad JSON), `ticks` falls back to synthetic placeholder
+ * liquidity so range-selector charts always have bars to render instead of
+ * going blank. `error` is set in this case so callers can flag the chart as
+ * showing estimated (not real) liquidity and offer a way to retry via the
+ * returned `retry()` function. A successful retry clears `error` and
+ * replaces the synthetic ticks with real data.
+ */
 export function usePoolTicks(poolId: string | null) {
   const [ticks, setTicks] = useState<TickData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (!poolId) {
       setTicks([]);
+      setError(null);
       return;
     }
     let cancelled = false;
@@ -41,16 +54,16 @@ export function usePoolTicks(poolId: string | null) {
 
     fetch(`${API_BASE}/pools/${poolId}/ticks`)
       .then((r) => {
-        if (!r.ok) throw new Error('Failed to load tick data');
+        if (!r.ok) throw new Error(`Failed to load tick data: HTTP ${r.status}`);
         return r.json() as Promise<TickData[]>;
       })
       .then((data) => {
         if (!cancelled) setTicks(data);
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (!cancelled) {
           setTicks(generateSyntheticTicks());
-          setError(null);
+          setError(err instanceof Error ? err.message : 'Failed to load tick data');
         }
       })
       .finally(() => {
@@ -60,9 +73,11 @@ export function usePoolTicks(poolId: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [poolId]);
+  }, [poolId, retryCount]);
 
-  return { ticks, loading, error };
+  const retry = useCallback(() => setRetryCount((c) => c + 1), []);
+
+  return { ticks, loading, error, retry };
 }
 
 export function usePools() {

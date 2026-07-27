@@ -71,8 +71,13 @@ describe('IndexerMonitorService - Lag Calculation', () => {
       const hasCheckpoint = true;
 
       // Logic: if (lagLedgers < 10) return 'healthy'
-      const status =
-        !hasCheckpoint ? 'healthy' : lagLedgers < 10 ? 'healthy' : lagLedgers <= 50 ? 'degraded' : 'critical';
+      const status = !hasCheckpoint
+        ? 'healthy'
+        : lagLedgers < 10
+          ? 'healthy'
+          : lagLedgers <= 50
+            ? 'degraded'
+            : 'critical';
 
       expect(status).toBe('healthy');
     });
@@ -82,8 +87,13 @@ describe('IndexerMonitorService - Lag Calculation', () => {
       const hasCheckpoint = true;
 
       // Logic: if (lagLedgers <= 50) return 'degraded'
-      const status =
-        !hasCheckpoint ? 'healthy' : lagLedgers < 10 ? 'healthy' : lagLedgers <= 50 ? 'degraded' : 'critical';
+      const status = !hasCheckpoint
+        ? 'healthy'
+        : lagLedgers < 10
+          ? 'healthy'
+          : lagLedgers <= 50
+            ? 'degraded'
+            : 'critical';
 
       expect(status).toBe('degraded');
     });
@@ -93,8 +103,13 @@ describe('IndexerMonitorService - Lag Calculation', () => {
       const hasCheckpoint = true;
 
       // Logic: if (lagLedgers > 50) return 'critical'
-      const status =
-        !hasCheckpoint ? 'healthy' : lagLedgers < 10 ? 'healthy' : lagLedgers <= 50 ? 'degraded' : 'critical';
+      const status = !hasCheckpoint
+        ? 'healthy'
+        : lagLedgers < 10
+          ? 'healthy'
+          : lagLedgers <= 50
+            ? 'degraded'
+            : 'critical';
 
       expect(status).toBe('critical');
     });
@@ -104,8 +119,13 @@ describe('IndexerMonitorService - Lag Calculation', () => {
       const hasCheckpoint = false;
 
       // Logic: if (!hasCheckpoint) return 'healthy'
-      const status =
-        !hasCheckpoint ? 'healthy' : lagLedgers < 10 ? 'healthy' : lagLedgers <= 50 ? 'degraded' : 'critical';
+      const status = !hasCheckpoint
+        ? 'healthy'
+        : lagLedgers < 10
+          ? 'healthy'
+          : lagLedgers <= 50
+            ? 'degraded'
+            : 'critical';
 
       expect(status).toBe('healthy'); // No checkpoint = indexer just starting
     });
@@ -117,10 +137,10 @@ describe('IndexerMonitorService - Lag Calculation', () => {
       // Test various lag amounts
 
       const testCases: Array<[number, number]> = [
-        [1, 5],     // 1 ledger = 5 seconds
-        [2, 10],    // 2 ledgers = 10 seconds
-        [10, 50],   // 10 ledgers = 50 seconds
-        [60, 300],  // 60 ledgers = 300 seconds = 5 minutes
+        [1, 5], // 1 ledger = 5 seconds
+        [2, 10], // 2 ledgers = 10 seconds
+        [10, 50], // 10 ledgers = 50 seconds
+        [60, 300], // 60 ledgers = 300 seconds = 5 minutes
         [720, 3600], // 720 ledgers = 3600 seconds = 1 hour
       ];
 

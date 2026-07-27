@@ -22,7 +22,12 @@ jest.mock('bullmq', () => ({
 }));
 
 const mockPools = [
-  { id: 'pool-1', token0Address: 'TOKENA', token1Address: 'TOKENB', feeTier: 3000 },
+  {
+    id: 'pool-1',
+    token0Address: 'TOKENA',
+    token1Address: 'TOKENB',
+    feeTier: 3000,
+  },
 ];
 
 const mockSwaps24h = [
@@ -177,8 +182,10 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
         const now = Date.now();
         const ms24h = 24 * 60 * 60 * 1000;
         const ms7d = 7 * ms24h;
-        if (Math.abs(cutoff - (now - ms24h)) < 60_000) return Promise.resolve(mockSwaps24h);
-        if (Math.abs(cutoff - (now - ms7d)) < 60_000) return Promise.resolve(mockSwaps7d);
+        if (Math.abs(cutoff - (now - ms24h)) < 60_000)
+          return Promise.resolve(mockSwaps24h);
+        if (Math.abs(cutoff - (now - ms7d)) < 60_000)
+          return Promise.resolve(mockSwaps7d);
         return Promise.resolve([]);
       },
     );
@@ -194,7 +201,9 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
     worker.onModuleInit();
 
     // Extract the process callback registered with the BullMQ Worker constructor
-    const workerCall = MockWorker.mock.calls.find((c) => c[0] === 'stats.aggregate');
+    const workerCall = MockWorker.mock.calls.find(
+      (c) => c[0] === 'stats.aggregate',
+    );
     processJob = workerCall![1] as (job: Job) => Promise<void>;
     await processJob({} as Job);
   });
@@ -216,14 +225,23 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
   it('uses Swap.timestamp (not job-enqueue time) as both the 24h and 7d window cutoffs', () => {
     const now = Date.now();
     const cutoffs = mockFindManySwaps.mock.calls
-      .filter((c: [{ where?: { timestamp?: { gte?: Date } } }]) => c[0]?.where?.timestamp?.gte)
-      .map((c: [{ where: { timestamp: { gte: Date } } }]) => c[0].where.timestamp.gte.getTime());
+      .filter(
+        (c: [{ where?: { timestamp?: { gte?: Date } } }]) =>
+          c[0]?.where?.timestamp?.gte,
+      )
+      .map((c: [{ where: { timestamp: { gte: Date } } }]) =>
+        c[0].where.timestamp.gte.getTime(),
+      );
 
     const ago24h = now - 24 * 60 * 60 * 1000;
     const ago7d = now - 7 * 24 * 60 * 60 * 1000;
 
-    expect(cutoffs.some((t: number) => Math.abs(t - ago24h) < 60_000)).toBe(true);
-    expect(cutoffs.some((t: number) => Math.abs(t - ago7d) < 60_000)).toBe(true);
+    expect(cutoffs.some((t: number) => Math.abs(t - ago24h) < 60_000)).toBe(
+      true,
+    );
+    expect(cutoffs.some((t: number) => Math.abs(t - ago7d) < 60_000)).toBe(
+      true,
+    );
   });
 
   it('computes volume24h as sum of |amount0| + |amount1| across 24h swaps (price=1)', () => {

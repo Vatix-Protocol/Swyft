@@ -206,7 +206,7 @@ describe('WebhookWorker (dispatch integration)', () => {
     });
 
     it('increments consecutiveFails on HTTP 5xx response', async () => {
-      fetchSpy.mockResolvedValue({ status: 500 } as Response);
+      fetchSpy.mockResolvedValue({ status: 500 });
       prisma.webhook.findUnique.mockResolvedValue({
         ...baseWebhook,
         consecutiveFails: 2,
@@ -224,7 +224,7 @@ describe('WebhookWorker (dispatch integration)', () => {
     });
 
     it('disables the webhook after 10 consecutive failures', async () => {
-      fetchSpy.mockResolvedValue({ status: 503 } as Response);
+      fetchSpy.mockResolvedValue({ status: 503 });
       prisma.webhook.findUnique.mockResolvedValue({
         ...baseWebhook,
         consecutiveFails: 9,

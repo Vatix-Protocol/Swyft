@@ -135,6 +135,11 @@ impl Router {
 
     /// Swap an exact amount of `token_in` for at least `amount_out_min` of `token_out`.
     ///
+    /// Slippage boundary: the swap succeeds when `amount_out >= amount_out_min`
+    /// (exact equality is allowed). It reverts with `RouterError::SlippageExceeded`
+    /// when `amount_out < amount_out_min`. The `Swap` event is published only after
+    /// the slippage check passes, so under-minOut reverts emit no swap event.
+    ///
     /// # Arguments
     /// * `env` — Soroban environment context.
     /// * `params` — Exact input swap parameters.
@@ -144,7 +149,7 @@ impl Router {
     ///   * `recipient` — Address receiving the output tokens.
     ///   * `deadline` — Unix timestamp after which the swap reverts.
     ///   * `amount_in` — Exact amount of input tokens to swap.
-    ///   * `amount_out_min` — Minimum acceptable output amount.
+    ///   * `amount_out_min` — Minimum acceptable output amount (inclusive boundary).
     ///   * `sqrt_price_limit_x96` — Price limit for the swap.
     ///
     /// # Returns

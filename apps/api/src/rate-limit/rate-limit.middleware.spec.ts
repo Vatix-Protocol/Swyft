@@ -88,4 +88,40 @@ describe('RateLimitMiddleware', () => {
     expect(res.headers.get('X-RateLimit-Limit')).toBe('300');
     expect(next).toHaveBeenCalled();
   });
+
+  it('returns the standard ErrorResponse body on 429 with Retry-After', async () => {
+    const middleware = new RateLimitMiddleware();
+    (middleware as unknown as { redis: object }).redis = {
+      incr: jest.fn().mockResolvedValue(301),
+      expire: jest.fn(),
+      ttl: jest.fn().mockResolvedValue(42),
+    };
+    const res = response();
+
+    await middleware.use(
+      {
+        path: '/pools',
+        originalUrl: '/v1/pools',
+        method: 'GET',
+        headers: {},
+        ip: '203.0.113.10',
+      } as never,
+      res as never,
+      next,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(res.headers.get('Retry-After')).toBe('42');
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statusCode: 429,
+        message: 'Too many requests',
+        error: 'Too Many Requests',
+        path: '/v1/pools',
+        retryAfter: '42',
+        timestamp: expect.any(String),
+      }),
+    );
+  });
 });

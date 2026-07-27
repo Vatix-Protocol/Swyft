@@ -72,7 +72,18 @@ export class PoolsController {
    * @throws Returns 200 with empty items array if no pools match the query
    */
   @Get()
-  @ApiOperation({ summary: 'List active pools' })
+  @ApiOperation({
+    summary: 'List pools',
+    description:
+      'Returns a paginated list of pools. Inactive pools are excluded by default; pass includeInactive=true to include them.',
+  })
+  @ApiQuery({
+    name: 'includeInactive',
+    required: false,
+    type: Boolean,
+    description:
+      'When true, include inactive pools. Default (false/omitted) returns only active pools.',
+  })
   @ApiResponse({
     status: 200,
     description:

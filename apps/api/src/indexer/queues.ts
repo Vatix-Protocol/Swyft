@@ -10,6 +10,12 @@ export const QUEUE_NAMES = {
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
+// Kept out of QUEUE_NAMES because IndexerWorker iterates
+// `Object.values(QUEUE_NAMES)` to attach its DLQ-logging QueueEvents
+// listeners — the candle queue has its own worker/listeners (see
+// candles.processor.ts) and must not be picked up by that loop.
+export const CANDLES_QUEUE_NAME = 'candle-aggregation' as const;
+
 // DI tokens for each queue's BullMQ Queue provider. Defined here (rather
 // than in indexer.module.ts) so indexer-replay.service.ts can import them
 // without a module -> service -> module circular import.
@@ -50,6 +56,8 @@ export interface SwapProcessedJobData extends IndexerJobData {
   tick: number;
   /** Transaction hash when Horizon exposes one; falls back to eventId. */
   transactionHash?: string;
+  /** Fee amount parsed directly from the on-chain event, when available. */
+  feeAmount?: string;
   /** ISO-8601 timestamp emitted by Horizon. */
   timestamp?: string;
 }

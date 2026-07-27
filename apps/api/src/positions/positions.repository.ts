@@ -224,6 +224,7 @@ export class PositionsRepository {
         id: position.id,
         ownerWallet: position.ownerAddress,
         poolId: position.poolId,
+        tokenId: position.tokenId,
         token0: token0Symbol,
         token1: token1Symbol,
         lowerTick: position.lowerTick,

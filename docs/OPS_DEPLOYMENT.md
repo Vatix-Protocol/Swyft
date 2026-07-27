@@ -194,6 +194,46 @@ curl http://localhost:3001/indexer/status
 
 ---
 
+## Graceful Shutdown (SIGTERM)
+
+BullMQ-backed workers — the candle aggregation worker
+(`CandlesWorker`, `apps/api/src/candles/candles.processor.ts`) and the
+ledger indexer (`IndexerWorker`, `apps/api/src/indexer/indexer.worker.ts`) —
+drain in-flight jobs on SIGTERM/SIGINT instead of dying mid-write. This is
+wired through Nest's `app.enableShutdownHooks()` in `main.ts`, which calls
+each provider's `onModuleDestroy()`.
+
+**What happens on SIGTERM:**
+1. The worker stops accepting new jobs immediately (`Worker#close()`).
+2. Any job already running is allowed to finish rather than being cut off.
+3. The wait is bounded — `CANDLES_SHUTDOWN_TIMEOUT_MS` (default `25000`) for
+   candles, `INDEXER_SHUTDOWN_TIMEOUT_MS` (default `25000`) for the indexer —
+   so a stuck job can't hang the process past the platform's kill timeout
+   (e.g. Kubernetes' `terminationGracePeriodSeconds`, which should be set
+   comfortably above these defaults).
+
+**Why candle jobs can't leave a corrupt candle:** each period's OHLCV row is
+written with a single `priceCandle.upsert()` of the fully-computed values —
+there is no partial/incremental write to a candle row. If the process is
+killed between pools within one aggregation run, the candles already upserted
+are complete and correct; any pools not yet reached simply have a stale (not
+corrupt) candle for that period, which the next scheduled run recomputes from
+source data.
+
+**Verifying a deploy drains cleanly:**
+```bash
+# Tail worker logs around a deploy/restart — expect these two lines with no
+# unhandled rejection or crash in between:
+#   "Received shutdown signal — draining in-flight candle job (timeout ...)"
+#   "Candle aggregation worker shut down gracefully"
+docker logs -f <api-container> 2>&1 | grep -i candle
+```
+If you instead see `"Timed out waiting for candle worker to drain in-flight
+job — forcing shutdown"`, a job ran longer than the timeout; check for a slow
+query or Redis latency before raising the timeout.
+
+---
+
 ## Rollback Procedure
 
 **If deployed API is experiencing errors:**

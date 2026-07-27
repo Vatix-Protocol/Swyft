@@ -4,25 +4,7 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "horizonUrl": "https://horizon-testnet.stellar.org",
   "deployer": "",
-  "contracts": {
-    "mathLib": "",
-    "poolFactory": "",
-    "pool": "",
-    "clPool": "",
-    "router": "",
-    "positionNft": "",
-    "feeCollector": "",
-    "oracleAdapter": ""
-  },
-  "envKeys": {
-    "mathLib": "MATH_LIB_CONTRACT_ID",
-    "poolFactory": "POOL_FACTORY_CONTRACT_ID",
-    "pool": "POOL_CONTRACT_ID",
-    "clPool": "CL_POOL_CONTRACT_ID",
-    "router": "ROUTER_CONTRACT_ID",
-    "positionNft": "POSITION_NFT_CONTRACT_ID",
-    "feeCollector": "FEE_COLLECTOR_CONTRACT_ID",
-    "oracleAdapter": "ORACLE_ADAPTER_CONTRACT_ID"
-  },
-  "deployedAt": {}
+  "contracts": {},
+  "deployedAt": {},
+  "wasmHashes": {}
 }

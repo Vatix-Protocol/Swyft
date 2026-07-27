@@ -12,6 +12,8 @@ interface PositionResponse {
   id: string;
   ownerWallet: string;
   poolId: string;
+  /** NFT token ID for the on-chain position, or null when unavailable */
+  tokenId: string | null;
   tokenPair: {
     token0: string;
     token1: string;
@@ -134,6 +136,7 @@ export class PositionsService {
       id: position.id,
       ownerWallet: position.ownerWallet,
       poolId: position.poolId,
+      tokenId: position.tokenId,
       tokenPair: {
         token0: position.token0,
         token1: position.token1,

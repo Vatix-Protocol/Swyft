@@ -90,6 +90,8 @@ This starts the Next.js dApp, NestJS API, and watches contract changes simultane
 
 **Total time: ~5 minutes** (mostly waiting for pnpm install and Docker)
 
+**wait-for-healthy:** every service in `docker-compose.yml` (`postgres`, `redis`, `api`) declares a `healthcheck`, and dependers use `depends_on: condition: service_healthy` — so `api` won't start until Postgres and Redis report healthy, and `web` won't start until `api` does. `docker-compose up -d --wait` blocks the CLI until that chain is healthy, which is why step 4 above doesn't need a manual retry loop.
+
 ### What each command does
 
 | Step | Command | What it does | Time |

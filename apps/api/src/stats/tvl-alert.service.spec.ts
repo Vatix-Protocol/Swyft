@@ -40,8 +40,12 @@ describe('TvlAlertService', () => {
     }).compile();
 
     service = module.get<TvlAlertService>(TvlAlertService);
-    prisma = module.get<PrismaService>(PrismaService) as jest.Mocked<PrismaService>;
-    webhooks = module.get<WebhooksService>(WebhooksService) as jest.Mocked<WebhooksService>;
+    prisma = module.get<PrismaService>(
+      PrismaService,
+    ) as jest.Mocked<PrismaService>;
+    webhooks = module.get<WebhooksService>(
+      WebhooksService,
+    ) as jest.Mocked<WebhooksService>;
   });
 
   describe('setThreshold', () => {
@@ -144,7 +148,10 @@ describe('TvlAlertService', () => {
         where: { id: 'threshold-1' },
         data: { lastTriggeredAt: expect.any(Date) },
       });
-      expect(webhooks.dispatch).toHaveBeenCalledWith('pool.tvl.milestone', expect.any(Object));
+      expect(webhooks.dispatch).toHaveBeenCalledWith(
+        'pool.tvl.milestone',
+        expect.any(Object),
+      );
     });
 
     it('should not trigger alert when TVL is above threshold', async () => {
