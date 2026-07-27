@@ -52,7 +52,7 @@ export default function PoolDetailError({
             href="/pools"
             className="rounded-lg border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
           >
-            Back to all pools
+            Back to pools
           </Link>
         </div>
         {error.digest && (

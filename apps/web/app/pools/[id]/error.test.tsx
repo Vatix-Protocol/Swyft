@@ -48,7 +48,7 @@ describe('PoolDetailError', () => {
     render(<PoolDetailError error={new Error('test')} unstable_retry={retry} />);
 
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /back to all pools/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /back to pools/i })).toHaveAttribute(
       'href',
       '/pools',
     );
