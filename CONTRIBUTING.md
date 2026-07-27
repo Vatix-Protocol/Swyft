@@ -89,6 +89,12 @@ cargo test --workspace
 pnpm --filter api test
 ```
 
+### Git hooks
+
+- **pre-commit** — runs ESLint on `apps/api`.
+- **pre-push** — runs `turbo run lint` filtered to only the packages affected since `origin/main`, so the hook stays fast on a large monorepo instead of linting everything.
+  - Skip it for a single push with `SWYFT_SKIP_PRE_PUSH_LINT=1 git push`.
+
 ---
 
 ## Finding Work
