@@ -10,6 +10,18 @@ export const WALLET_STORAGE_KEY = 'swyft_wallet_address';
 export const NETWORK_STORAGE_KEY = 'swyft_selected_network';
 export const API_BASE = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/v1`;
 
+/** Per-network API base URLs. The environment variable overrides the default
+ *  for the build-time network; the other network uses its own default. */
+const API_BASE_MAP: Record<StellarNetwork, string> = {
+  TESTNET: `${process.env.NEXT_PUBLIC_API_URL_TESTNET ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/v1`,
+  PUBLIC: `${process.env.NEXT_PUBLIC_API_URL_PUBLIC ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/v1`,
+};
+
+/** Returns the API base URL for the given network. */
+export function getApiBase(network: StellarNetwork): string {
+  return API_BASE_MAP[network];
+}
+
 export function isStellarNetwork(value: unknown): value is StellarNetwork {
   return value === 'TESTNET' || value === 'PUBLIC';
 }
