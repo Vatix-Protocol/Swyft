@@ -11,6 +11,7 @@ Thanks for your interest in contributing. Swyft is built almost entirely by exte
 - [Getting Started](#getting-started)
 - [Development Setup](#development-setup)
 - [Finding Work](#finding-work)
+- [Package Boundaries](#package-boundaries)
 - [Branch and Commit Conventions](#branch-and-commit-conventions)
 - [Pull Request Process](#pull-request-process)
 - [Code Standards](#code-standards)
@@ -96,6 +97,30 @@ pnpm --filter api test
 - Issues labelled [`good first issue`](https://github.com/Valreb001/Swyft/issues?q=label%3A%22good+first+issue%22) are well-scoped and don't require deep protocol knowledge
 - Issues labelled [`bounty`](https://github.com/Valreb001/Swyft/issues?q=label%3Abounty) have a financial reward attached
 - Comment on an issue before starting work to avoid duplication
+
+---
+
+## Package Boundaries
+
+Before opening a PR, know which part of the monorepo your change belongs in. Reviewers will ask you to move code that lands in the wrong place.
+
+| Location | Owns | Examples of what belongs here |
+|---|---|---|
+| `apps/web` | The Next.js dApp — UI, pages, client-side hooks, wallet connection | A new swap form component, a page route, `useWalletBalances` |
+| `apps/api` | The NestJS backend — REST/WebSocket endpoints, the Horizon indexer, database access | A new `/pools/:id/ticks` endpoint, a BullMQ worker, a Prisma query |
+| `packages/contract` | Soroban smart contracts (Rust) | Pool math, tick logic, admin functions |
+| `packages/sdk` | `@swyft/sdk` — the TypeScript client that wraps contract calls and API requests | A typed helper for building a swap transaction, RPC client code shared by web and other consumers |
+| `packages/ui` | `@swyft/ui` — shared, presentation-only React components | A `Button` or `Modal` used by more than one app |
+| `packages/config` | Shared tooling config | ESLint, TypeScript, Tailwind base configs |
+
+Rules of thumb:
+
+- **If it renders something**, it goes in `apps/web` unless it's a generic, reusable component with no app-specific logic — then it belongs in `packages/ui`.
+- **If it talks to Postgres, Redis, or Horizon**, it belongs in `apps/api`, not the SDK or frontend.
+- **If both `apps/web` and an external consumer would need it** (e.g. transaction-building helpers, typed API responses), put it in `packages/sdk` rather than duplicating it.
+- Cross-cutting changes (e.g. a new field that touches a contract, the indexer, the SDK, and the UI) are fine — just split them across the relevant packages rather than reaching into another package's internals directly.
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how these pieces fit together end to end (Horizon → indexer → API → SDK → frontend).
 
 ---
 

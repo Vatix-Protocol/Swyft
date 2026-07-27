@@ -531,8 +531,35 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Resolves the fee amount for a swap. Uses the event-level feeAmount when
+   * the upstream producer provides one; otherwise derives it from the pool's
+   * feeTier (parts-per-million applied to |amount0|).
+   */
+  private async resolveFeeAmount(d: SwapProcessedJobData): Promise<string> {
+    if (d.feeAmount !== undefined && d.feeAmount !== '') {
+      return d.feeAmount;
+    }
+    try {
+      const pool = await this.prisma.pool.findUnique({
+        where: { id: d.poolId },
+        select: { feeTier: true },
+      });
+      if (pool) {
+        const absAmount0 = Math.abs(Number(d.amount0));
+        const fee = absAmount0 * (pool.feeTier / 1_000_000);
+        return Number.isFinite(fee) ? String(fee) : '0';
+      }
+    } catch {
+      // Non-fatal: fee computation failure must not block swap persistence.
+    }
+    return '0';
+  }
+
   private async projectSwapProcessed(d: SwapProcessedJobData) {
     try {
+      const feeAmount = await this.resolveFeeAmount(d);
+
       if (!PoolsRepository.isValidSqrtPrice(d.sqrtPriceX96)) {
         this.logger.warn(
           `Skipping pool state update for swap ${d.eventId} — invalid sqrtPriceX96: "${d.sqrtPriceX96}"`,
@@ -552,6 +579,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
             sqrtPriceAfter: d.sqrtPriceX96,
             tickAfter: d.tick,
             transactionHash: d.transactionHash ?? d.eventId,
+            feeAmount,
             timestamp,
           },
         });
@@ -559,23 +587,6 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       }
 
       const timestamp = d.timestamp ? new Date(d.timestamp) : new Date();
-
-      // Look up the pool's feeTier to compute the fee amount for this swap.
-      // feeTier is stored in parts-per-million (e.g. 3000 = 0.3%).
-      let feeAmount = '0';
-      try {
-        const pool = await this.prisma.pool.findUnique({
-          where: { id: d.poolId },
-          select: { feeTier: true },
-        });
-        if (pool) {
-          const absAmount0 = Math.abs(Number(d.amount0));
-          const fee = absAmount0 * (pool.feeTier / 1_000_000);
-          feeAmount = Number.isFinite(fee) ? String(fee) : '0';
-        }
-      } catch {
-        // Non-fatal: fee computation failure must not block swap persistence.
-      }
 
       await this.prisma.swap.upsert({
         where: { eventId: d.eventId },

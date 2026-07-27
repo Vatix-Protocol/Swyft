@@ -50,6 +50,8 @@ export interface SwapProcessedJobData extends IndexerJobData {
   tick: number;
   /** Transaction hash when Horizon exposes one; falls back to eventId. */
   transactionHash?: string;
+  /** Fee amount parsed directly from the on-chain event, when available. */
+  feeAmount?: string;
   /** ISO-8601 timestamp emitted by Horizon. */
   timestamp?: string;
 }
