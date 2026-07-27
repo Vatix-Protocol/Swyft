@@ -15,6 +15,19 @@ function shortSymbol(id: string) {
   return id.length > 8 ? `${id.slice(0, 4)}…` : id;
 }
 
+/**
+ * Rough impermanent-loss estimate vs a hold-at-deposit baseline, using the
+ * range midpoint price as a proxy for the deposit price (constant-product
+ * approximation). Returned as a fraction (e.g. -0.012 = -1.2%).
+ */
+function estimateImpermanentLoss(p: PositionSnapshot): number {
+  const lower = Math.pow(1.0001, p.lowerTick);
+  const upper = Math.pow(1.0001, p.upperTick);
+  const depositPrice = Math.sqrt(lower * upper);
+  const priceRatio = p.poolCurrentPrice / depositPrice;
+  return (2 * Math.sqrt(priceRatio)) / (1 + priceRatio) - 1;
+}
+
 interface Props {
   position: PositionSnapshot;
   onCollectFees: (id: string) => void;
@@ -31,6 +44,7 @@ export function PositionCard({ position: p, onCollectFees, collecting, loading =
   const fees0 = parseFloat(p.uncollectedFeesToken0);
   const fees1 = parseFloat(p.uncollectedFeesToken1);
   const hasFees = fees0 > 0 || fees1 > 0;
+  const ilEstimate = estimateImpermanentLoss(p);
 
   if (loading) {
     return (
@@ -103,6 +117,18 @@ export function PositionCard({ position: p, onCollectFees, collecting, loading =
           </p>
         </div>
       </div>
+
+      {/* Impermanent loss estimate vs. deposit baseline (range-midpoint proxy) */}
+      <p className="text-xs text-zinc-400 mb-4 -mt-2">
+        Est. impermanent loss:{' '}
+        <span
+          className={
+            ilEstimate < 0 ? 'text-red-500 dark:text-red-400' : 'text-zinc-500 dark:text-zinc-400'
+          }
+        >
+          {(ilEstimate * 100).toFixed(2)}%
+        </span>
+      </p>
 
       {/* Actions */}
       {p.status === 'active' && (

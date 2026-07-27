@@ -1,5 +1,6 @@
 import { Queue } from 'bullmq';
 import {
+  CANDLES_QUEUE_NAME,
   createQueue,
   defaultJobOptions,
   makeQueueOptions,
@@ -47,6 +48,13 @@ describe('QUEUE_NAMES', () => {
       expect(typeof name).toBe('string');
       expect(name.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('CANDLES_QUEUE_NAME', () => {
+  it('is centralized separately from QUEUE_NAMES', () => {
+    expect(CANDLES_QUEUE_NAME).toBe('candle-aggregation');
+    expect(Object.values(QUEUE_NAMES)).not.toContain(CANDLES_QUEUE_NAME);
   });
 });
 

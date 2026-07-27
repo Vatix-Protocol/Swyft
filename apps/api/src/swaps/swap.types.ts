@@ -13,6 +13,8 @@ export interface SwapSnapshot {
   priceAtSwap: string;
   /** Fee charged for this swap (expressed in token0 units). */
   feeAmount: string;
+  /** Ordered pool IDs the swap routed through, when known (e.g. multi-hop). */
+  route?: string[];
   txHash: string;
   walletAddress: string;
   timestamp: number;

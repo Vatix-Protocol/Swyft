@@ -1,16 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { GetSwapsQueryDto } from './dto/get-swaps-query.dto';
-import { GetSwapQuoteQueryDto } from './dto/get-swap-quote-query.dto';
-import {
-  SwapErrorCode,
-  SwapQuoteResult,
-  SwapSnapshot,
-  SwapsQuery,
-} from './swap.types';
+import { SwapQuoteRequestDto } from './dto/swap-quote-request.dto';
+import { SwapQuoteResponseDto } from './dto/swap-quote-response.dto';
+import { SwapErrorCode, SwapSnapshot, SwapsQuery } from './swap.types';
 import { SwapsRepository } from './swaps.repository';
+import { PoolDetail, PoolsService } from '../pools/pools.service';
 import {
+  BusinessRuleViolationException,
+  InvalidInputException,
+  ResourceNotFoundException,
   SlippageExceededException,
-  UnknownTokenException,
 } from '../request-validation/http.exceptions';
 
 interface SwapResponse {
@@ -47,7 +46,10 @@ export class SwapsService {
     return this._isLoading;
   }
 
-  constructor(private readonly swapsRepository: SwapsRepository) {}
+  constructor(
+    private readonly swapsRepository: SwapsRepository,
+    private readonly poolsService: PoolsService,
+  ) {}
 
   async getSwaps(query: GetSwapsQueryDto): Promise<SwapsListResponse> {
     this._isLoading = true;
@@ -83,67 +85,63 @@ export class SwapsService {
   }
 
   /**
-   * Validate both tokens against the registry, then return a quote for the pair.
-   * Unknown addresses yield HTTP 400 with code UNKNOWN_TOKEN.
+   * Estimates a swap quote from the pool's current spot price. This is a
+   * spot-price estimate, not a full tick-crossing simulation — it doesn't
+   * account for liquidity depth, so priceImpact is always reported as 0.
+   * Real depth-aware quoting would walk the pool's tick ladder the same way
+   * the client-side SDK's `getSwapQuote` does.
    */
-  async getQuote(query: GetSwapQuoteQueryDto): Promise<SwapQuoteResult> {
-    const tokenInAddr = query.tokenIn.trim();
-    const tokenOutAddr = query.tokenOut.trim();
-    const amountIn = query.amountIn.trim();
-    const slippageBps = query.slippageBps ?? 50;
-
-    const [tokenIn, tokenOut] = await Promise.all([
-      this.swapsRepository.findTokenByAddress(tokenInAddr),
-      this.swapsRepository.findTokenByAddress(tokenOutAddr),
-    ]);
-
-    if (!tokenIn) {
-      throw new UnknownTokenException(tokenInAddr);
-    }
-    if (!tokenOut) {
-      throw new UnknownTokenException(tokenOutAddr);
+  async getQuote(dto: SwapQuoteRequestDto): Promise<SwapQuoteResponseDto> {
+    const pool = await this.poolsService.findPoolById(dto.poolId);
+    if (!pool) {
+      throw new ResourceNotFoundException('Pool', dto.poolId);
     }
 
-    const pool = await this.swapsRepository.findPoolByTokenPair(
-      tokenIn.address,
-      tokenOut.address,
-    );
-
-    const amountInNum = Number.parseFloat(amountIn);
-    const safeAmountIn =
-      Number.isFinite(amountInNum) && amountInNum > 0 ? amountInNum : 0;
-
-    let executionPrice = 0;
-    if (pool?.currentPrice) {
-      const poolPrice = Number.parseFloat(pool.currentPrice);
-      if (Number.isFinite(poolPrice) && poolPrice > 0) {
-        const tokenInIsToken0 =
-          pool.token0Address.toLowerCase() === tokenIn.address.toLowerCase();
-        executionPrice = tokenInIsToken0 ? poolPrice : 1 / poolPrice;
-      }
+    const zeroForOne = this.resolveDirection(pool, dto.tokenIn, dto.tokenOut);
+    const price = this.spotPrice(pool.currentSqrtPrice);
+    if (!Number.isFinite(price) || price <= 0) {
+      throw new BusinessRuleViolationException(
+        `Pool ${dto.poolId} has no valid price yet`,
+      );
     }
 
-    const amountOutNum = safeAmountIn * executionPrice;
-    const minimumReceivedNum =
-      amountOutNum * (1 - Math.min(slippageBps, 10000) / 10000);
+    const amountIn = Number.parseFloat(dto.amountIn);
+    const lpFeeAmount = amountIn * (pool.feeTier / 1_000_000);
+    const amountInAfterFee = amountIn - lpFeeAmount;
+    const amountOut = zeroForOne
+      ? amountInAfterFee * price
+      : amountInAfterFee / price;
+    const minimumReceived = amountOut * (1 - dto.slippageBps / 10_000);
+    const executionPrice = amountIn > 0 ? amountOut / amountIn : 0;
 
     return {
-      tokenIn: tokenIn.address,
-      tokenOut: tokenOut.address,
-      tokenInSymbol: tokenIn.symbol,
-      tokenOutSymbol: tokenOut.symbol,
-      amountIn,
-      amountOut: Number.isFinite(amountOutNum) ? String(amountOutNum) : '0',
-      executionPrice: Number.isFinite(executionPrice)
-        ? String(executionPrice)
-        : '0',
-      minimumReceived: Number.isFinite(minimumReceivedNum)
-        ? String(minimumReceivedNum)
-        : '0',
+      amountOut: amountOut.toFixed(7),
       priceImpact: 0,
-      poolId: pool?.id ?? null,
-      slippageBps,
+      lpFee: lpFeeAmount.toFixed(7),
+      minimumReceived: minimumReceived.toFixed(7),
+      executionPrice: executionPrice.toFixed(7),
     };
+  }
+
+  /** Returns true for token0->token1, false for token1->token0. */
+  private resolveDirection(
+    pool: PoolDetail,
+    tokenIn: string,
+    tokenOut: string,
+  ): boolean {
+    const token0 = pool.token0.address;
+    const token1 = pool.token1.address;
+    if (tokenIn === token0 && tokenOut === token1) return true;
+    if (tokenIn === token1 && tokenOut === token0) return false;
+    throw new InvalidInputException(
+      `tokenIn/tokenOut must be pool ${pool.id}'s tokens (${token0}, ${token1})`,
+    );
+  }
+
+  /** Spot price of token1 per token0, decoded from the Q64.96 sqrt price. */
+  private spotPrice(currentSqrtPrice: string): number {
+    const sqrtPrice = Number(currentSqrtPrice) / 2 ** 96;
+    return sqrtPrice * sqrtPrice;
   }
 
   private toResponse(swap: SwapSnapshot): SwapResponse {

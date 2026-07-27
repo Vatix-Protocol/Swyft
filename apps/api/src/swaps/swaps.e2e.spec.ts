@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import * as request from 'supertest';
+import request from 'supertest';
 import { SwapsService } from './swaps.service';
 import { SwapsRepository } from './swaps.repository';
 import { SwapsController } from './swaps.controller';
+import { PoolsService } from '../pools/pools.service';
 
 const mockSwap = {
   id: 'swap-e2e-1',
@@ -19,20 +20,49 @@ const mockSwap = {
   timestamp: 1700000000000,
 };
 
+const mockPoolDetail = {
+  id: 'pool-e2e-1',
+  token0: {
+    address: '0xTokenA',
+    symbol: 'XLM',
+    name: 'Stellar Lumens',
+    decimals: 7,
+  },
+  token1: {
+    address: '0xTokenB',
+    symbol: 'USDC',
+    name: 'USD Coin',
+    decimals: 6,
+  },
+  feeTier: 3000,
+  currentSqrtPrice: '79228162514264337593543950336', // price = 1
+  currentTick: 0,
+  totalLiquidity: '1000000000000000000',
+  tvl: '5000000',
+  volume24h: '1200000',
+  volume7d: '0',
+  feeApr: '0.15',
+  creationTimestamp: 1700000000,
+  recentSwaps: [],
+};
+
 describe('Swaps E2E (mocked RPC)', () => {
   let app: INestApplication;
   let mockRepo: jest.Mocked<SwapsRepository>;
+  let mockPools: { findPoolById: jest.Mock };
 
   beforeEach(async () => {
     mockRepo = {
       listSwaps: jest.fn(),
     } as unknown as jest.Mocked<SwapsRepository>;
+    mockPools = { findPoolById: jest.fn().mockResolvedValue(mockPoolDetail) };
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       controllers: [SwapsController],
       providers: [
         SwapsService,
         { provide: SwapsRepository, useValue: mockRepo },
+        { provide: PoolsService, useValue: mockPools },
       ],
     }).compile();
 
@@ -141,6 +171,57 @@ describe('Swaps E2E (mocked RPC)', () => {
         .expect(200);
 
       expect(res.body.totalPages).toBe(3);
+    });
+  });
+
+  describe('POST /swaps/quote', () => {
+    it('returns a quote estimate for a known pool', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/swaps/quote')
+        .send({
+          poolId: 'pool-e2e-1',
+          tokenIn: '0xTokenA',
+          tokenOut: '0xTokenB',
+          amountIn: '100',
+          slippageBps: 50,
+        })
+        .expect(201);
+
+      expect(res.body).toEqual({
+        amountOut: '99.7000000',
+        priceImpact: 0,
+        lpFee: '0.3000000',
+        minimumReceived: '99.2015000',
+        executionPrice: '0.9970000',
+      });
+    });
+
+    it('returns 404 for an unknown pool', async () => {
+      mockPools.findPoolById.mockResolvedValue(null);
+
+      await request(app.getHttpServer())
+        .post('/swaps/quote')
+        .send({
+          poolId: 'unknown-pool',
+          tokenIn: '0xTokenA',
+          tokenOut: '0xTokenB',
+          amountIn: '100',
+          slippageBps: 50,
+        })
+        .expect(404);
+    });
+
+    it('returns 400 for a malformed amountIn', async () => {
+      await request(app.getHttpServer())
+        .post('/swaps/quote')
+        .send({
+          poolId: 'pool-e2e-1',
+          tokenIn: '0xTokenA',
+          tokenOut: '0xTokenB',
+          amountIn: 'not-a-number',
+          slippageBps: 50,
+        })
+        .expect(400);
     });
   });
 });
