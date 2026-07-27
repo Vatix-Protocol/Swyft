@@ -47,41 +47,72 @@ export class IndexerDeadLetterService {
   }
 
   /**
-   * Get all dead letter entries for inspection
+   * Get all dead letter entries for inspection.
+   * When `unrecoveredOnly` is true, skips entries that already have `recoveredAt`.
    */
   async getDeadLetters(
     queueName?: string,
     limit: number = 100,
+    unrecoveredOnly = false,
   ): Promise<DeadLetterEntry[]> {
     try {
       const entries = await this.prisma.indexerDeadLetter.findMany({
-        where: queueName ? { queueName } : undefined,
+        where: {
+          ...(queueName ? { queueName } : {}),
+          ...(unrecoveredOnly ? { recoveredAt: null } : {}),
+        },
         orderBy: { createdAt: 'desc' },
         take: limit,
       });
 
-      return entries.map((entry) => {
-        let data: Record<string, unknown> = {};
-        try {
-          data = JSON.parse(entry.data) as Record<string, unknown>;
-        } catch {
-          this.logger.warn(`Invalid DLQ payload for job ${entry.jobId}`);
-        }
-        return {
-          jobId: entry.jobId,
-          queueName: entry.queueName,
-          eventId: entry.eventId,
-          data,
-          error: entry.error,
-          attemptsMade: entry.attemptsMade,
-        };
-      });
+      return entries.map((entry) => this.toEntry(entry));
     } catch (err) {
       this.logger.error(
         `Failed to retrieve dead letters: ${(err as Error).message}`,
       );
       return [];
     }
+  }
+
+  /**
+   * Look up a single dead-letter row by BullMQ job id (recovered or not).
+   */
+  async getDeadLetter(jobId: string): Promise<DeadLetterEntry | null> {
+    try {
+      const entry = await this.prisma.indexerDeadLetter.findUnique({
+        where: { jobId },
+      });
+      return entry ? this.toEntry(entry) : null;
+    } catch (err) {
+      this.logger.error(
+        `Failed to retrieve dead letter ${jobId}: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  private toEntry(entry: {
+    jobId: string;
+    queueName: string;
+    eventId: string;
+    data: string;
+    error: string;
+    attemptsMade: number;
+  }): DeadLetterEntry {
+    let data: Record<string, unknown> = {};
+    try {
+      data = JSON.parse(entry.data) as Record<string, unknown>;
+    } catch {
+      this.logger.warn(`Invalid DLQ payload for job ${entry.jobId}`);
+    }
+    return {
+      jobId: entry.jobId,
+      queueName: entry.queueName,
+      eventId: entry.eventId,
+      data,
+      error: entry.error,
+      attemptsMade: entry.attemptsMade,
+    };
   }
 
   /**

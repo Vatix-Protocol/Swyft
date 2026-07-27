@@ -6,6 +6,7 @@ const mockPrismaClient = {
   indexerDeadLetter: {
     upsert: jest.fn().mockResolvedValue({}),
     findMany: jest.fn(),
+    findUnique: jest.fn(),
     update: jest.fn().mockResolvedValue({}),
     count: jest.fn().mockResolvedValue(0),
   },

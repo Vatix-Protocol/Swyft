@@ -211,6 +211,8 @@ import { CacheService } from '../cache/cache.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
 import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
+import { IndexerCursorService } from './indexer-cursor.service';
+import { IndexerDeadLetterService } from './indexer-dead-letter.service';
 import { QUEUE_NAMES } from './queues';
 import type {
   PoolCreatedJobData,
@@ -257,6 +259,19 @@ describe('IndexerWorker Integration (test-db)', () => {
         {
           provide: CacheService,
           useValue: { setMaxNumber: mockSetMaxNumber },
+        },
+        {
+          provide: IndexerCursorService,
+          useValue: {
+            advanceLedger: (ledger: number) =>
+              mockSetMaxNumber(LAST_INDEXED_LEDGER_KEY, ledger),
+          },
+        },
+        {
+          provide: IndexerDeadLetterService,
+          useValue: {
+            recordDeadLetter: jest.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: WebhooksService,
@@ -533,6 +548,27 @@ describe('IndexerWorker Integration (test-db)', () => {
       expect(mockSetMaxNumber).not.toHaveBeenCalled();
     });
 
+    it('advances the ledger checkpoint exactly once after a successful write', async () => {
+      const handler = getHandler(QUEUE_NAMES.POOL_CREATED);
+      await handler(
+        makeJob<PoolCreatedJobData>({
+          eventId: 'int-once-1',
+          poolId: 'pool-once',
+          tokenA: 'A',
+          tokenB: 'B',
+          fee: '30',
+          sqrtPriceX96: '1',
+          ledger: 4242,
+        }),
+      );
+
+      expect(mockSetMaxNumber).toHaveBeenCalledTimes(1);
+      expect(mockSetMaxNumber).toHaveBeenCalledWith(
+        LAST_INDEXED_LEDGER_KEY,
+        4242,
+      );
+    });
+
     it('skips write and warns on empty eventId', async () => {
       const handler = getHandler(QUEUE_NAMES.FEES_COLLECTED);
       await handler(
@@ -546,6 +582,52 @@ describe('IndexerWorker Integration (test-db)', () => {
       );
 
       expect(db.feesCollected.size).toBe(0);
+    });
+  });
+
+  describe('dead-letter replay idempotency', () => {
+    it('processing the same swap DLQ payload twice does not change TVL/volume', async () => {
+      db.pools.set('pool-dlq-1', {
+        id: 'pool-dlq-1',
+        token0Address: 'XLM',
+        token1Address: 'USDC',
+        feeTier: 3000,
+        currentSqrtPrice: '1',
+        currentTick: 0,
+        liquidity: '1000',
+        tvl: '50000',
+        volume24h: '12000',
+        feeApr: '0.1',
+      });
+
+      const swapData: SwapProcessedJobData = {
+        eventId: 'dlq-swap-1',
+        poolId: 'pool-dlq-1',
+        sender: '0xSender',
+        recipient: '0xRecipient',
+        amount0: '100',
+        amount1: '-50',
+        sqrtPriceX96: '79228162514264337593543950336',
+        liquidity: '2000',
+        tick: 7,
+        ledger: 5555,
+      };
+
+      const handler = getHandler(QUEUE_NAMES.SWAP_PROCESSED);
+      await handler(makeJob(swapData));
+      const afterFirst = { ...(db.pools.get('pool-dlq-1') as PoolRow) };
+
+      await handler(makeJob(swapData));
+      const afterSecond = db.pools.get('pool-dlq-1') as PoolRow;
+
+      expect(db.swaps.size).toBe(1);
+      expect(afterSecond.tvl).toBe(afterFirst.tvl);
+      expect(afterSecond.volume24h).toBe(afterFirst.volume24h);
+      expect(afterSecond.tvl).toBe('50000');
+      expect(afterSecond.volume24h).toBe('12000');
+      // Absolute pool state fields stay at the same projected values.
+      expect(afterSecond.currentTick).toBe(afterFirst.currentTick);
+      expect(afterSecond.liquidity).toBe(afterFirst.liquidity);
     });
   });
 });

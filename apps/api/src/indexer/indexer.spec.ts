@@ -532,6 +532,7 @@ describe('IndexerWorker', () => {
         12345,
       );
       expect(mockAdvanceLedger).toHaveBeenCalledWith(12345);
+      expect(mockSetMaxNumber).toHaveBeenCalledTimes(1);
     });
 
     it('dispatches a pool.created webhook after successful write', async () => {

@@ -108,14 +108,17 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
           }
         }
 
+        // Enqueue the whole ledger window first. Only then advance the Horizon
+        // paging token for that window. If addBulk fails mid-page, earlier
+        // windows keep their paging progress and later ledgers are retried on
+        // the next poll — we never skip a failed batch.
+        //
+        // The durable indexer ledger checkpoint is advanced by IndexerWorker
+        // only after a successful Postgres write, not here after enqueue.
         await this.batchEnqueueLedgerWindow(records);
-      }
-
-      // Advance cursor and ledger checkpoint after processing all records.
-      for (const record of page.records) {
-        const typedRecord = record as unknown as IndexerEffectRecord;
-        await this.advanceLedger(typedRecord.ledger);
-        this.cursor = record.paging_token;
+        for (const record of records) {
+          this.cursor = record.paging_token;
+        }
       }
     } catch (err) {
       this.logger.warn(`Horizon poll error: ${(err as Error).message}`);
@@ -256,13 +259,6 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
       liquidity: r.liquidity ?? '0',
       timestamp: new Date(r.created_at).getTime(),
     };
-  }
-
-  private async advanceLedger(ledger?: number): Promise<void> {
-    if (!Number.isSafeInteger(ledger) || ledger === undefined || ledger < 0) {
-      return;
-    }
-    await this.cursorService.advanceLedger(ledger);
   }
 }
 
