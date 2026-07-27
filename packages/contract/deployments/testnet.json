@@ -1,5 +1,8 @@
 {
   "network": "testnet",
+  "networkPassphrase": "Test SDF Network ; September 2015",
+  "rpcUrl": "https://soroban-testnet.stellar.org",
+  "horizonUrl": "https://horizon-testnet.stellar.org",
   "deployer": "",
   "contracts": {},
   "deployedAt": {},

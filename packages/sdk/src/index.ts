@@ -1,4 +1,10 @@
-export { calculateSwapQuote, EMPTY_QUOTE, isEmptyQuote } from './quote';
+export {
+  calculateSwapQuote,
+  getSwapQuote,
+  EMPTY_QUOTE,
+  isEmptyQuote,
+  QuoteValidationError,
+} from './quote';
 export type {
   SwapQuoteParams,
   SwapQuote,
