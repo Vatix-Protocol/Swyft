@@ -1,11 +1,12 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { SWAGGER_TAGS } from '../swagger.constants';
 import { GetSwapsQueryDto } from './dto/get-swaps-query.dto';
 import { SwapQuoteRequestDto } from './dto/swap-quote-request.dto';
 import { SwapQuoteResponseDto } from './dto/swap-quote-response.dto';
 import { SwapsListResponse, SwapsService } from './swaps.service';
 
-@ApiTags('Swaps')
+@ApiTags(SWAGGER_TAGS.SWAPS)
 @Controller('swaps')
 export class SwapsController {
   constructor(private readonly swapsService: SwapsService) {}
