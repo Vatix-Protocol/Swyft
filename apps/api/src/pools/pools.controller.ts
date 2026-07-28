@@ -2,9 +2,11 @@ import {
   BadRequestException,
   Controller,
   Get,
+  Headers,
   NotFoundException,
   Param,
   Query,
+  Res,
 } from '@nestjs/common';
 import {
   ApiOperation,
@@ -13,6 +15,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { createHash } from 'crypto';
+import { Response } from 'express';
 import { CacheService } from '../cache/cache.service';
 import { GetPoolsQueryDto } from './dto/get-pools-query.dto';
 import { GetTicksQueryDto } from './dto/get-ticks-query.dto';
@@ -68,34 +72,68 @@ export class PoolsController {
    * @throws Returns 200 with empty items array if no pools match the query
    */
   @Get()
-  @ApiOperation({ summary: 'List active pools' })
+  @ApiOperation({
+    summary: 'List pools',
+    description:
+      'Returns a paginated list of pools. Inactive pools are excluded by default; pass includeInactive=true to include them.',
+  })
+  @ApiQuery({
+    name: 'includeInactive',
+    required: false,
+    type: Boolean,
+    description:
+      'When true, include inactive pools. Default (false/omitted) returns only active pools.',
+  })
   @ApiResponse({
     status: 200,
     description:
       'Returns a paginated list of pools. Items array is empty when no pools match.',
   })
+  @ApiResponse({
+    status: 304,
+    description:
+      'Not Modified — returned when the If-None-Match request header matches the current ETag.',
+  })
   /**
    * Returns a paginated list of active pools.
    *
+   * Supports conditional GET via ETag: the response body is hashed into an
+   * ETag header, and a matching If-None-Match request short-circuits to a
+   * bodyless 304 so clients with a fresh cache skip re-downloading the list.
+   *
    * @param query - Pagination and filter options (page, limit, feeTier, token).
-   * @returns A paginated response containing pool summaries and total count.
+   * @param ifNoneMatch - Value of the incoming If-None-Match request header, if any.
+   * @param res - Express response, used to set the ETag header and short-circuit to 304.
    */
-  async getPools(@Query() query: GetPoolsQueryDto): Promise<PoolsListResponse> {
+  async getPools(
+    @Query() query: GetPoolsQueryDto,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
     const result = await this.poolsService.getPools(query);
 
-    if (!result || !Array.isArray(result.items)) {
-      return {
-        items: [],
-        page: query.page ?? 1,
-        limit: query.limit ?? 20,
-        total: 0,
-        totalPages: 0,
-        orderBy: query.orderBy ?? 'tvl',
-        search: query.search?.trim() || undefined,
-      };
+    const body: PoolsListResponse =
+      !result || !Array.isArray(result.items)
+        ? {
+            items: [],
+            page: query.page ?? 1,
+            limit: query.limit ?? 20,
+            total: 0,
+            totalPages: 0,
+            orderBy: query.orderBy ?? 'tvl',
+            search: query.search?.trim() || undefined,
+          }
+        : result;
+
+    const etag = `"${createHash('sha1').update(JSON.stringify(body)).digest('hex')}"`;
+    res.setHeader('ETag', etag);
+
+    if (ifNoneMatch === etag || ifNoneMatch === '*') {
+      res.status(304).end();
+      return;
     }
 
-    return result;
+    res.status(200).json(body);
   }
 
   /**
@@ -147,7 +185,10 @@ export class PoolsController {
   @ApiResponse({ status: 404, description: 'Pool not found' })
   /**
    * Returns full details for a single pool, including token pair, fee tier, and current price.
-   * Results are cached for 15 seconds.
+   * Results are cached for 15 seconds with cache stampede protection.
+   *
+   * Uses singleflight locking to prevent multiple concurrent database queries
+   * when the cache expires (thundering herd problem).
    *
    * @param id - Pool ID (cuid) or Soroban contract address.
    * @returns Pool detail object.
@@ -156,19 +197,58 @@ export class PoolsController {
   async getPoolById(@Param('id') id: string): Promise<PoolDetailDto> {
     const cacheKey = `pool:${id}`;
 
+    // Check cache first
     const cached = await this.cacheService.get<PoolDetailDto>(cacheKey);
     if (cached) {
       return cached;
     }
 
-    const pool = await this.poolsService.findPoolById(id);
+    // Try to acquire singleflight lock (prevents cache stampede)
+    const lockAcquired = await this.cacheService.acquireSingleflightLock(
+      cacheKey,
+      5,
+    );
+
+    let pool: PoolDetailDto | null = null;
+
+    try {
+      if (lockAcquired) {
+        // This process won the lock — fetch from database
+        pool = await this.poolsService.findPoolById(id);
+        if (pool) {
+          // Cache the result for other waiting processes
+          await this.cacheService.set(cacheKey, pool, 15);
+        }
+      } else {
+        // Another process is loading — wait for lock to release, then retry cache
+        const lockReleased = await this.cacheService.waitForSingleflightLock(
+          cacheKey,
+          1000,
+        );
+        if (lockReleased) {
+          const cached2 = await this.cacheService.get<PoolDetailDto>(cacheKey);
+          if (cached2) {
+            pool = cached2;
+          }
+        }
+        // If lock wasn't released or cache still miss, fetch directly (fallback)
+        if (!pool) {
+          pool = await this.poolsService.findPoolById(id);
+        }
+      }
+    } finally {
+      // Always release the lock if we held it
+      if (lockAcquired) {
+        await this.cacheService.releaseSingleflightLock(cacheKey);
+      }
+    }
+
     if (!pool) {
       throw new NotFoundException(
         `Pool with ID "${id}" not found. Check the ID and try again.`,
       );
     }
 
-    await this.cacheService.set(cacheKey, pool, 15);
     return pool;
   }
 

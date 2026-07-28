@@ -6,7 +6,15 @@ import {
   Transaction,
   FeeBumpTransaction,
 } from '@stellar/stellar-sdk';
-import { PoolState, PositionState, TickState, SwyftRpcError } from './types';
+import {
+  PoolState,
+  PositionState,
+  TickState,
+  SwyftRpcError,
+  GetPoolParams,
+  GetPositionParams,
+  GetTickParams,
+} from './types';
 
 /**
  * Explanatory copy for empty position state.
@@ -120,14 +128,8 @@ function extractNumber(
  * @returns Promise resolving to the pool's current state
  * @throws {SwyftRpcError} If the RPC call fails or returns an unexpected shape
  */
-export async function getPool({
-  rpcUrl,
-  poolAddress,
-}: {
-  rpcUrl: string;
-  poolAddress: string;
-}): Promise<PoolState> {
-  const retval = await callContract(rpcUrl, poolAddress, 'get_pool_state');
+export async function getPool({ rpcUrl, poolAddress }: GetPoolParams): Promise<PoolState> {
+  const retval = await callContract(rpcUrl, poolAddress, 'get_state');
   const raw = assertRawObject(scValToNative(retval), poolAddress);
 
   return {
@@ -154,10 +156,7 @@ export async function getPool({
 export async function getPosition({
   rpcUrl,
   positionNftId,
-}: {
-  rpcUrl: string;
-  positionNftId: string;
-}): Promise<PositionState | null> {
+}: GetPositionParams): Promise<PositionState | null> {
   // positionNftId is the NFT contract address that holds the position
   const retval = await callContract(rpcUrl, positionNftId, 'get_position');
   if (retval.switch().name === 'scvVoid') return null;
@@ -207,10 +206,7 @@ export async function getPosition({
 export async function getPositionWithLoading({
   rpcUrl,
   positionNftId,
-}: {
-  rpcUrl: string;
-  positionNftId: string;
-}): Promise<PositionState | null> {
+}: GetPositionParams): Promise<PositionState | null> {
   await Promise.resolve();
   return getPosition({ rpcUrl, positionNftId });
 }
@@ -225,15 +221,7 @@ export async function getPositionWithLoading({
  * @returns Promise resolving to the tick's current state
  * @throws {SwyftRpcError} If the RPC call fails or returns an unexpected shape
  */
-export async function getTick({
-  rpcUrl,
-  poolAddress,
-  tick,
-}: {
-  rpcUrl: string;
-  poolAddress: string;
-  tick: number;
-}): Promise<TickState> {
+export async function getTick({ rpcUrl, poolAddress, tick }: GetTickParams): Promise<TickState> {
   const tickArg = xdr.ScVal.scvI32(tick);
   const retval = await callContract(rpcUrl, poolAddress, 'get_tick', [tickArg]);
   const raw = assertRawObject(scValToNative(retval), `tick ${tick} on ${poolAddress}`);

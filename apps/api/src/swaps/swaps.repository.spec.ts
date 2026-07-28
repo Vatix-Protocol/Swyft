@@ -18,34 +18,33 @@ const makeSwap = (overrides: Partial<Swap> = {}): Swap =>
     ...overrides,
   }) as Swap;
 
-const makePool = (overrides: Partial<Pool> = {}): Pool =>
-  ({
-    id: 'pool-1',
-    token0Address: 'USDC-addr',
-    token1Address: 'XLM-addr',
-    feeTier: 30,
-    currentSqrtPrice: '1',
-    currentTick: 0,
-    liquidity: '0',
-    tvl: '100',
-    volume24h: '50',
-    feeApr: '2.5',
-    currentPrice: '1.25',
-    createdAt: new Date('2026-01-01T00:00:00.000Z'),
-    updatedAt: new Date('2026-01-02T00:00:00.000Z'),
-    ...overrides,
-  }) as Pool;
+const makePool = (overrides: Partial<Pool> = {}): Pool => ({
+  id: 'pool-1',
+  token0Address: 'USDC-addr',
+  token1Address: 'XLM-addr',
+  feeTier: 30,
+  currentSqrtPrice: '1',
+  currentTick: 0,
+  liquidity: '0',
+  tvl: '100',
+  volume24h: '50',
+  feeApr: '2.5',
+  currentPrice: '1.25',
+  active: true,
+  createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+  ...overrides,
+});
 
-const makeToken = (overrides: Partial<Token> = {}): Token =>
-  ({
-    id: 'tok-1',
-    address: 'USDC-addr',
-    symbol: 'USDC',
-    name: 'USD Coin',
-    decimals: 6,
-    logoUri: null,
-    ...overrides,
-  }) as Token;
+const makeToken = (overrides: Partial<Token> = {}): Token => ({
+  id: 'tok-1',
+  address: 'USDC-addr',
+  symbol: 'USDC',
+  name: 'USD Coin',
+  decimals: 6,
+  logoUri: null,
+  ...overrides,
+});
 
 describe('SwapsRepository', () => {
   const prisma = {
@@ -79,7 +78,7 @@ describe('SwapsRepository', () => {
     const result = await repository.listSwaps({
       page: 1,
       limit: 10,
-      pool: 'pool-1',
+      poolId: 'pool-1',
       wallet: 'wallet-sender',
     });
 

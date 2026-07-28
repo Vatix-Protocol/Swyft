@@ -1,3 +1,10 @@
+// ── Primitives ────────────────────────────────────────────────────────────────
+export { Button } from './Button';
+export type { ButtonProps, ButtonVariant, ButtonSize } from './Button';
+export { Input } from './Input';
+export type { InputProps, InputSize } from './Input';
+
+// ── Domain components ─────────────────────────────────────────────────────────
 export { TokenLogo } from './TokenLogo';
 export { PositionRangeBadge } from './PositionRangeBadge';
 export { PriceImpactBadge } from './PriceImpactBadge';

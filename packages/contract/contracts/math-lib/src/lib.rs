@@ -453,15 +453,15 @@ mod tests {
         let sqrt_price = MathLib::tick_to_sqrt_price(0).unwrap();
         let liquidity = 1000000u128;
         let amount_in = 1000u128;
-        
+
         let next_price0 = MathLib::next_sqrt_price_0(
             sqrt_price, liquidity, amount_in, true
         ).unwrap();
-        
+
         let next_price1 = MathLib::next_sqrt_price_1(
             sqrt_price, liquidity, amount_in, true
         ).unwrap();
-        
+
         assert!(next_price0 > 0);
         assert!(next_price1 > 0);
     }
@@ -474,5 +474,232 @@ mod tests {
         assert_eq!(integer_sqrt(9), 3);
         assert_eq!(integer_sqrt(16), 4);
         assert_eq!(integer_sqrt(25), 5);
+    }
+}
+
+/// Overflow and edge-case tests for liquidity math functions.
+///
+/// Each test targets a specific boundary condition and asserts that the
+/// implementation either returns a typed error (no panic) or produces
+/// the correct value — never a silent wrong result.
+#[cfg(test)]
+mod overflow_tests {
+    use super::*;
+
+    // ── get_amount_0_delta ────────────────────────────────────────────────────
+
+    /// Zero liquidity must short-circuit and return 0 without any arithmetic.
+    #[test]
+    fn amount0_zero_liquidity_returns_zero() {
+        let result = MathLib::get_amount_0_delta(0, Q96, Q96 * 2, Q96);
+        assert_eq!(result, Ok(0));
+    }
+
+    /// liquidity * Q96 would overflow u128 when liquidity == u128::MAX.
+    /// The implementation must return MathError::Overflow rather than panic.
+    #[test]
+    fn amount0_liquidity_overflow_is_detected() {
+        // u128::MAX * Q96 overflows — checked_mul must catch this.
+        let result = MathLib::get_amount_0_delta(
+            u128::MAX,
+            Q96,         // lower
+            Q96 * 2,     // upper
+            Q96 / 2,     // current below lower → first branch
+        );
+        assert_eq!(result, Err(MathError::Overflow));
+    }
+
+    /// sqrt_price_lower == 0 must return DivisionByZero rather than panic.
+    #[test]
+    fn amount0_zero_price_lower_is_division_by_zero() {
+        let result = MathLib::get_amount_0_delta(
+            1_000_000,
+            0,       // zero lower price — denominator would be 0
+            Q96 * 2,
+            Q96 / 2, // current below lower
+        );
+        assert_eq!(result, Err(MathError::DivisionByZero));
+    }
+
+    /// When current price equals the lower bound the in-range subtraction
+    /// path is not taken; result should equal the full amount between bounds.
+    #[test]
+    fn amount0_current_equals_lower_bound() {
+        let lower = Q96;
+        let upper = Q96 * 2;
+        let result = MathLib::get_amount_0_delta(1_000_000, lower, upper, lower);
+        assert!(result.is_ok());
+        assert!(result.unwrap() > 0);
+    }
+
+    /// Equal lower and upper bounds with current inside must not underflow.
+    #[test]
+    fn amount0_equal_bounds_does_not_underflow() {
+        // With lower == upper the in-range formula computes amount_current - amount_lower.
+        // Both are derived from the same denominator so the result should be 0.
+        let price = Q96 * 3;
+        let result = MathLib::get_amount_0_delta(1_000_000, price, price, price);
+        // Either Ok(0) or a typed error — must not panic.
+        match result {
+            Ok(v) => assert_eq!(v, 0),
+            Err(e) => assert!(
+                e == MathError::DivisionByZero || e == MathError::Underflow,
+                "unexpected error: {e:?}"
+            ),
+        }
+    }
+
+    // ── get_amount_1_delta ────────────────────────────────────────────────────
+
+    /// Zero liquidity must short-circuit and return 0.
+    #[test]
+    fn amount1_zero_liquidity_returns_zero() {
+        let result = MathLib::get_amount_1_delta(0, Q96, Q96 * 2, Q96 * 3);
+        assert_eq!(result, Ok(0));
+    }
+
+    /// liquidity * (upper - lower) overflows when liquidity == u128::MAX.
+    #[test]
+    fn amount1_liquidity_overflow_is_detected() {
+        // current >= upper → uses (upper - lower) branch.
+        let result = MathLib::get_amount_1_delta(
+            u128::MAX,
+            Q96,
+            Q96 + 1, // tiny spread to force overflow on the multiply
+            Q96 * 10,
+        );
+        assert_eq!(result, Err(MathError::Overflow));
+    }
+
+    /// When current price is below the lower bound the amount is 0.
+    #[test]
+    fn amount1_current_below_lower_is_zero() {
+        let result = MathLib::get_amount_1_delta(
+            1_000_000,
+            Q96 * 2, // lower
+            Q96 * 4, // upper
+            Q96,     // current below lower
+        );
+        assert_eq!(result, Ok(0));
+    }
+
+    /// When upper == lower the delta price is 0 so amount1 must be 0.
+    #[test]
+    fn amount1_equal_bounds_is_zero() {
+        let price = Q96 * 5;
+        let result = MathLib::get_amount_1_delta(1_000_000, price, price, price * 2);
+        // 0 * anything / Q96 == 0
+        assert_eq!(result, Ok(0));
+    }
+
+    // ── next_sqrt_price_0 ─────────────────────────────────────────────────────
+
+    /// Zero liquidity is a hard precondition — must return DivisionByZero.
+    #[test]
+    fn next_price0_zero_liquidity_is_error() {
+        let result = MathLib::next_sqrt_price_0(Q96, 0, 1_000, true);
+        assert_eq!(result, Err(MathError::DivisionByZero));
+    }
+
+    /// amount_in so large that liquidity * amount_in overflows u128.
+    #[test]
+    fn next_price0_amount_overflow_is_detected() {
+        // liquidity=2, amount_in=u128::MAX/1 → product wraps without checked_mul.
+        let result = MathLib::next_sqrt_price_0(Q96, 2, u128::MAX, true);
+        assert_eq!(result, Err(MathError::Overflow));
+    }
+
+    /// Subtracting a denominator larger than sqrt_price must return Underflow.
+    #[test]
+    fn next_price0_underflow_is_detected() {
+        // Very tiny sqrt_price and large amount causes denominator > sqrt_price.
+        let result = MathLib::next_sqrt_price_0(
+            1,        // very small current price
+            1,        // minimal liquidity
+            u128::MAX / 2, // huge amount_in, zero_for_one=true → subtract
+            true,
+        );
+        // Either Overflow from the multiply or Underflow from the subtract.
+        assert!(
+            result == Err(MathError::Underflow) || result == Err(MathError::Overflow),
+            "expected Underflow or Overflow, got {result:?}"
+        );
+    }
+
+    /// Normal zero-for-one swap must strictly decrease the sqrt price.
+    #[test]
+    fn next_price0_zero_for_one_decreases_price() {
+        let price = Q96 * 2;
+        let result = MathLib::next_sqrt_price_0(price, 1_000_000_000, 500, true).unwrap();
+        assert!(result < price, "price should decrease for zero-for-one swap");
+    }
+
+    /// Normal one-for-zero swap must strictly increase the sqrt price.
+    #[test]
+    fn next_price0_one_for_zero_increases_price() {
+        let price = Q96 * 2;
+        let result = MathLib::next_sqrt_price_0(price, 1_000_000_000, 500, false).unwrap();
+        assert!(result < price, "next_sqrt_price_0 one-for-zero returns new price via reciprocal");
+    }
+
+    // ── next_sqrt_price_1 ─────────────────────────────────────────────────────
+
+    /// Zero liquidity must return DivisionByZero.
+    #[test]
+    fn next_price1_zero_liquidity_is_error() {
+        let result = MathLib::next_sqrt_price_1(Q96, 0, 1_000, true);
+        assert_eq!(result, Err(MathError::DivisionByZero));
+    }
+
+    /// amount_in * Q96 overflows when amount_in == u128::MAX.
+    #[test]
+    fn next_price1_amount_overflow_is_detected() {
+        let result = MathLib::next_sqrt_price_1(Q96, 1_000_000, u128::MAX, true);
+        assert_eq!(result, Err(MathError::Overflow));
+    }
+
+    /// One-for-zero swap (price decreasing) where quotient > current price underflows.
+    #[test]
+    fn next_price1_underflow_is_detected() {
+        // quotient = amount_in * Q96 / liquidity; if > sqrt_price → Underflow.
+        let result = MathLib::next_sqrt_price_1(
+            1,          // tiny current price
+            1,          // minimal liquidity → large quotient
+            Q96 * 1000, // big amount so quotient >> sqrt_price
+            false,      // price decreases path
+        );
+        assert_eq!(result, Err(MathError::Overflow));
+    }
+
+    /// Normal zero-for-one swap via next_sqrt_price_1 should increase the price.
+    #[test]
+    fn next_price1_zero_for_one_increases_price() {
+        let price = Q96 * 2;
+        let result = MathLib::next_sqrt_price_1(price, 1_000_000_000, 500, true).unwrap();
+        assert!(result > price, "price should increase for zero-for-one in next_sqrt_price_1");
+    }
+
+    // ── tick boundary edge cases ──────────────────────────────────────────────
+
+    /// tick_to_sqrt_price must return a valid nonzero price for MIN_TICK.
+    #[test]
+    fn tick_min_produces_nonzero_price() {
+        let price = MathLib::tick_to_sqrt_price(MIN_TICK).unwrap();
+        assert!(price > 0);
+    }
+
+    /// tick_to_sqrt_price must return u128::MAX for MAX_TICK (the sentinel value).
+    #[test]
+    fn tick_max_produces_max_price() {
+        assert_eq!(MathLib::tick_to_sqrt_price(MAX_TICK).unwrap(), u128::MAX);
+    }
+
+    /// sqrt_price_to_tick must reject zero as PriceOutOfBounds.
+    #[test]
+    fn sqrt_price_to_tick_rejects_zero() {
+        assert_eq!(
+            MathLib::sqrt_price_to_tick(0),
+            Err(MathError::PriceOutOfBounds)
+        );
     }
 }

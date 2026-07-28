@@ -19,6 +19,9 @@ model Pool {
   volume24h         String
   feeApr            String
   currentPrice      String?
+  /// Soft activity flag. Inactive pools are hidden from the default list
+  /// unless `includeInactive=true` is passed to GET /pools.
+  active            Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -26,10 +29,13 @@ model Pool {
   swaps             Swap[]
   positions         Position[]
   priceCandles      PriceCandle[]
+  tvlAlertThresholds TvlAlertThreshold[]
+  tvlSnapshots      TvlSnapshot[]
 
   @@map("pool")
   @@index([token0Address, token1Address])
   @@index([createdAt])
+  @@index([active])
 }
 
 model Swap {
@@ -44,6 +50,8 @@ model Swap {
   sqrtPriceAfter    String
   tickAfter         Int
   transactionHash   String
+  /// Fee amount charged for this swap, derived from amount0 * (feeTier / 1_000_000).
+  feeAmount         String   @default("0")
   timestamp         DateTime @default(now())
 
   // Relations
@@ -175,9 +183,11 @@ model PoolCreated {
   tokenB       String
   fee          String
   sqrtPriceX96 String
+  ledger       Int?
   createdAt    DateTime @default(now())
 
   @@index([poolId])
+  @@index([ledger])
   @@map("pool_created")
 }
 
@@ -191,39 +201,51 @@ model SwapProcessed {
   sqrtPriceX96 String
   liquidity    String
   tick         Int
+  ledger       Int?
   createdAt    DateTime @default(now())
 
   @@index([poolId, createdAt])
+  @@index([ledger])
   @@map("swap_processed")
 }
 
 model PositionMinted {
   eventId    String   @id
   poolId     String
+  /// Pool-local NFT/position identifier; nullable for events emitted before
+  /// this field was tracked.
+  tokenId    String?
   owner      String
   tickLower  Int
   tickUpper  Int
   liquidity  String
   amount0    String
   amount1    String
+  ledger     Int?
   createdAt  DateTime @default(now())
 
   @@index([poolId])
+  @@index([ledger])
   @@map("position_minted")
 }
 
 model PositionBurned {
   eventId    String   @id
   poolId     String
+  /// Pool-local NFT/position identifier; nullable for events emitted before
+  /// this field was tracked.
+  tokenId    String?
   owner      String
   tickLower  Int
   tickUpper  Int
   liquidity  String
   amount0    String
   amount1    String
+  ledger     Int?
   createdAt  DateTime @default(now())
 
   @@index([poolId])
+  @@index([ledger])
   @@map("position_burned")
 }
 
@@ -233,9 +255,11 @@ model FeesCollected {
   recipient String
   amount0   String
   amount1   String
+  ledger    Int?
   createdAt DateTime @default(now())
 
   @@index([poolId])
+  @@index([ledger])
   @@map("fees_collected")
 }
 
@@ -248,4 +272,96 @@ model IndexerCursor {
   updatedAt DateTime @updatedAt
 
   @@map("indexer_cursor")
+}
+
+/// Immutable record of webhook lifecycle + delivery attempts.
+/// Actions: 'created' | 'updated' | 'deleted' | 'delivery_attempt'
+model WebhookAuditLog {
+  id          String   @id @default(cuid())
+  webhookId   String
+  action      String
+  ownerWallet String
+  /// JSON snapshot (url/eventTypes for CRUD; attempt/maxAttempts for deliveries)
+  meta        String   @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@index([webhookId])
+  @@index([ownerWallet])
+  @@map("webhook_audit_log")
+}
+
+// #497 — Audit log for admin API actions
+/// Immutable record of every action performed via the /admin/* endpoints.
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  /// Identifier of the caller — the value of the x-internal-key header (hashed) or 'system'.
+  actor      String
+  /// HTTP method + route, e.g. "GET /admin/analytics/overview".
+  action     String
+  /// High-level resource label, e.g. "analytics", "pools".
+  resource   String
+  /// JSON snapshot of relevant request context (query params, body summary).
+  meta       String   @default("{}")
+  ip         String?
+  statusCode Int?
+  createdAt  DateTime @default(now())
+
+  @@index([actor])
+  @@index([action])
+  @@index([createdAt])
+  @@map("admin_audit_log")
+}
+
+/// Dead letter queue for failed indexer events that exceeded max retries
+model IndexerDeadLetter {
+  id           String   @id @default(cuid())
+  jobId        String   @unique
+  queueName    String
+  eventId      String
+  data         String   // JSON stringified job data
+  error        String   // Last error message
+  attemptsMade Int      @default(0)
+  createdAt    DateTime @default(now())
+  recoveredAt  DateTime?
+
+  @@index([queueName])
+  @@index([createdAt])
+  @@map("indexer_dead_letter")
+}
+
+/// #488 — TVL alert thresholds
+/// User-defined thresholds for TVL alerts (e.g., alert when TVL drops below $X)
+model TvlAlertThreshold {
+  id               String   @id @default(cuid())
+  poolId           String
+  ownerWallet      String
+  thresholdUsd     Float
+  direction        String   // 'below' or 'above'
+  enabled          Boolean  @default(true)
+  lastTriggeredAt  DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  pool             Pool     @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@unique([poolId, ownerWallet])
+  @@index([poolId])
+  @@index([ownerWallet])
+  @@map("tvl_alert_threshold")
+}
+
+/// #489 — Historical TVL time series
+/// Daily TVL snapshots for time series export
+model TvlSnapshot {
+  id               String   @id @default(cuid())
+  poolId           String
+  tvlUsd           Float
+  date             DateTime
+  createdAt        DateTime @default(now())
+
+  pool             Pool     @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@unique([poolId, date])
+  @@index([poolId, date])
+  @@map("tvl_snapshot")
 }

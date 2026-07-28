@@ -1,4 +1,5 @@
 import {
+  Account,
   Contract,
   Keypair,
   TransactionBuilder,
@@ -6,6 +7,8 @@ import {
   xdr,
   nativeToScVal,
 } from '@stellar/stellar-sdk';
+
+import { config } from "./config";
 
 // ── Branded primitives ────────────────────────────────────────────────────────
 
@@ -47,6 +50,13 @@ export interface PoolId {
 }
 
 /**
+ * Default swap deadline window, in seconds, applied when {@link SwapTxParams.deadline}
+ * is not provided. Chosen to give a wallet enough time to prompt/sign while still
+ * bounding how stale a swap can execute.
+ */
+export const DEFAULT_SWAP_DEADLINE_SECONDS = 600;
+
+/**
  * Parameters for building an exact-input single-hop swap transaction.
  *
  * @remarks
@@ -66,6 +76,20 @@ export interface SwapTxParams {
   readonly minimumReceived: RawAmount;
   /** Stellar account address of the transaction submitter / recipient. */
   readonly ownerAddress: StellarAddress;
+  /** Slippage tolerance in basis points (e.g., 50 = 0.5%). Defaults to 50. */
+  readonly slippageBps?: number;
+  /**
+   * Unix timestamp (seconds) after which the swap must no longer execute.
+   * Defaults to `now + {@link DEFAULT_SWAP_DEADLINE_SECONDS}`.
+   *
+   * The deadline is enforced two ways:
+   * - It is passed as an explicit `deadline` argument to the pool contract's
+   *   `swap` invocation, so the contract can reject stale calls itself.
+   * - It is also set as the transaction's `maxTime` precondition, so Stellar
+   *   Core rejects submission of an expired envelope outright (`txTOO_LATE`)
+   *   even before the contract call is evaluated.
+   */
+  readonly deadline?: number;
 }
 
 /**
@@ -113,9 +137,14 @@ export class SwapValidationError extends Error {
  * contract. The transaction is built with a placeholder source account and must be
  * properly signed before submission.
  *
+ * The swap carries a deadline (see {@link SwapTxParams.deadline}) to prevent stale
+ * execution: it is forwarded as a contract call argument and also encoded as the
+ * transaction's `maxTime` precondition, so an expired swap is rejected at the
+ * Stellar protocol level (`txTOO_LATE`) in addition to any contract-side check.
+ *
  * @param params - Swap parameters including pool ID, token IDs, amounts, and owner.
  * @returns An unsigned swap transaction envelope in base-64 XDR format.
- * @throws {SwapValidationError} If parameters are invalid (invalid addresses or amounts).
+ * @throws {SwapValidationError} If parameters are invalid (invalid addresses, amounts, or an already-expired deadline).
  */
 export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
   if (!isValidStellarAddress(params.poolId)) {
@@ -148,6 +177,23 @@ export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
       `Invalid minimumReceived: must be a positive number. Got: ${params.minimumReceived}`
     );
   }
+  if (params.slippageBps !== undefined) {
+    const slippage = params.slippageBps;
+    if (typeof slippage !== 'number' || slippage < 0 || slippage > 10000) {
+      throw new SwapValidationError(
+        `Invalid slippageBps: must be between 0 and 10000. Got: ${slippage}`
+      );
+    }
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const deadline = params.deadline ?? nowSeconds + DEFAULT_SWAP_DEADLINE_SECONDS;
+
+  if (!Number.isInteger(deadline) || deadline <= nowSeconds) {
+    throw new SwapValidationError(
+      `Invalid deadline: must be a future unix timestamp (seconds). Got: ${params.deadline}`
+    );
+  }
 
   try {
     const contract = new Contract(params.poolId);
@@ -164,22 +210,28 @@ export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
     const tokenOutScVal = nativeToScVal(params.tokenOutId, {
       type: 'address',
     });
+    const deadlineScVal = nativeToScVal(deadline, { type: 'u64' });
 
-    const swapOp = contract.call('swap', tokenInScVal, tokenOutScVal, amountInScVal, minOutScVal);
+    const swapOp = contract.call(
+      'swap',
+      tokenInScVal,
+      tokenOutScVal,
+      amountInScVal,
+      minOutScVal,
+      deadlineScVal
+    );
 
     const sourceKeypair = Keypair.random();
-    const sourceAccount = {
-      accountId: sourceKeypair.publicKey(),
-      sequence: '0',
-    };
+    const sourceAccount = new Account(sourceKeypair.publicKey(), "0");
 
     const txBuilder = new TransactionBuilder(sourceAccount, {
-      fee: '100000',
-      networkPassphrase: Networks.TESTNET_NETWORK_PASSPHRASE,
+      fee: "100000",
+      networkPassphrase: config.networkPassphrase,
+      timebounds: { minTime: 0, maxTime: deadline },
     });
 
     txBuilder.addOperation(swapOp);
-    const tx = txBuilder.setTimeout(30).build();
+    const tx = txBuilder.build();
 
     const xdrString = tx.toEnvelope().toXDR('base64');
     return { xdr: xdrString as XdrBase64, type: 'swap' };

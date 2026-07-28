@@ -14,6 +14,37 @@ export interface Candle {
   volume: number;
 }
 
+interface ApiCandle {
+  timestamp: number;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  volume: string;
+}
+
+interface CandlesApiResponse {
+  poolId?: string;
+  candles: ApiCandle[];
+}
+
+function isApiCandle(v: unknown): v is ApiCandle {
+  if (!v || typeof v !== 'object') return false;
+  const c = v as Record<string, unknown>;
+  return typeof c.timestamp === 'number';
+}
+
+function mapApiCandleToCandle(c: ApiCandle): Candle {
+  return {
+    time: c.timestamp,
+    open: Number(c.open),
+    high: Number(c.high),
+    low: Number(c.low),
+    close: Number(c.close),
+    volume: Number(c.volume),
+  };
+}
+
 function getWsBase(): string {
   if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_WS_URL) {
     return process.env.NEXT_PUBLIC_WS_URL;
@@ -42,9 +73,13 @@ export function usePriceCandles(tokenA: string | null, tokenB: string | null, in
         setCandles([]);
         return;
       }
-      const data = (await res.json()) as CandlesResponse;
-      const validCandles = (data.data ?? []).filter(isValidCandle).map(mapPriceCandleToCandle);
+      const data = (await res.json()) as CandlesApiResponse;
+      const rawCandles = Array.isArray(data.candles) ? data.candles : [];
+      const validCandles = rawCandles.filter(isApiCandle).map(mapApiCandleToCandle);
       setCandles(validCandles);
+      if (data.poolId) {
+        setPoolId(data.poolId);
+      }
     } catch {
       setCandles([]);
       setPoolId(null);
@@ -60,9 +95,10 @@ export function usePriceCandles(tokenA: string | null, tokenB: string | null, in
     fetch168();
   }, [fetch168]);
 
-  // WebSocket for live candle updates
+  // WebSocket for live candle updates — connect whenever we have a valid token pair
   useEffect(() => {
-    if (!poolId) return;
+    if (!tokenA || !tokenB) return;
+
     wsRef.current?.close();
 
     let ws: WebSocket;
@@ -75,7 +111,9 @@ export function usePriceCandles(tokenA: string | null, tokenB: string | null, in
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ action: 'subscribe', poolId }));
+      if (poolId) {
+        ws.send(JSON.stringify({ action: 'subscribe', poolId }));
+      }
     };
 
     ws.onmessage = (e) => {
@@ -92,17 +130,17 @@ export function usePriceCandles(tokenA: string | null, tokenB: string | null, in
           });
         }
       } catch {
-        // ignore
+        // ignore malformed messages
       }
     };
 
     return () => {
-      if (reconnectTimer) clearTimeout(reconnectTimer);
+      clearTimeout(reconnectTimer ?? undefined);
       ws.close();
     };
-  }, [tokenA, tokenB, interval]);
+  }, [tokenA, tokenB, interval, poolId]);
 
   const currentPrice = candles.length > 0 ? candles[candles.length - 1].close : null;
 
-  return { candles, loading, currentPrice };
+  return { candles, loading, currentPrice, poolId };
 }

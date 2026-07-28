@@ -21,22 +21,32 @@ export class PoolsRepository {
 
   async listActivePools(query: PoolListQuery): Promise<PoolListResult> {
     const search = query.search?.trim().toLowerCase();
+    const includeInactive = query.includeInactive === true;
 
     const pools = await this.prisma.pool.findMany({
-      where: search
-        ? {
-            OR: [
-              { token0Address: { contains: search, mode: 'insensitive' } },
-              { token1Address: { contains: search, mode: 'insensitive' } },
-            ],
-          }
-        : undefined,
+      where: {
+        ...(!includeInactive ? { active: true } : {}),
+        ...(search
+          ? {
+              OR: [
+                { id: { contains: search, mode: 'insensitive' } },
+                { token0Address: { contains: search, mode: 'insensitive' } },
+                { token1Address: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
     });
     const snapshots = pools.map((pool) => this.toSnapshot(pool));
     const sorted = snapshots.sort((a, b) => {
-      if (query.orderBy === 'volume') return b.volume24h - a.volume24h;
-      if (query.orderBy === 'apr') return b.feeApr - a.feeApr;
-      return b.tvl - a.tvl;
+      const primary =
+        query.orderBy === 'volume'
+          ? b.volume24h - a.volume24h
+          : query.orderBy === 'apr'
+            ? b.feeApr - a.feeApr
+            : b.tvl - a.tvl;
+      // Tie-break deterministically so pagination is stable across requests.
+      return primary !== 0 ? primary : a.id.localeCompare(b.id);
     });
 
     const offset = (query.page - 1) * query.limit;
@@ -46,6 +56,17 @@ export class PoolsRepository {
       items,
       total: snapshots.length,
     };
+  }
+
+  /**
+   * Validates a raw sqrtPriceX96 string.
+   * A valid sqrt price must be a finite positive integer (Q64.96 fixed-point).
+   * Zero is rejected because it encodes an undefined price.
+   */
+  static isValidSqrtPrice(value: string | undefined | null): boolean {
+    if (!value || value.trim() === '') return false;
+    const n = BigInt(value.trim());
+    return n > 0n;
   }
 
   async upsertPoolState(poolId: string, patch: PoolStatePatch): Promise<void> {
@@ -76,9 +97,7 @@ export class PoolsRepository {
       volume24h: this.asFiniteNumber(pool.volume24h),
       feeApr: this.asFiniteNumber(pool.feeApr),
       currentPrice: this.asFiniteNumber(pool.currentPrice),
-      // Closed pools are deleted from the current schema, so every row is an
-      // active pool. This preserves the API contract without transient memory.
-      active: true,
+      active: pool.active,
       updatedAt: pool.updatedAt.getTime(),
     };
   }

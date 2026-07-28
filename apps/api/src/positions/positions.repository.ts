@@ -5,7 +5,11 @@ import {
   PositionsQuery,
   PositionSnapshot,
   PositionStatus,
+  PositionStatusFilter,
 } from './position.types';
+
+/** Cap on rows fetched per bulk-by-wallet lookup — a portfolio overview, not a paginated feed. */
+const BULK_POSITIONS_LIMIT = 500;
 
 @Injectable()
 export class PositionsRepository {
@@ -47,9 +51,76 @@ export class PositionsRepository {
       take: query.limit,
     });
 
-    if (positions.length === 0) {
-      return { items: [], total };
+    const items = await this.toSnapshots(positions);
+    return { items, total };
+  }
+
+  /**
+   * Fetches positions for many wallets in one round trip. Returns a snapshot
+   * list per wallet (lowercased address) plus each wallet's total matching
+   * count, capped at BULK_POSITIONS_LIMIT rows overall since this is a
+   * portfolio-overview lookup rather than a paginated feed.
+   */
+  async listPositionsByWallets(
+    walletAddresses: string[],
+    status: PositionStatusFilter,
+  ): Promise<Map<string, { items: PositionSnapshot[]; total: number }>> {
+    const wallets = [...new Set(walletAddresses.map((w) => w.toLowerCase()))];
+    const result = new Map<
+      string,
+      { items: PositionSnapshot[]; total: number }
+    >();
+    for (const wallet of wallets) {
+      result.set(wallet, { items: [], total: 0 });
     }
+
+    if (wallets.length === 0) return result;
+
+    const where: any = {
+      ownerAddress: { in: wallets, mode: 'insensitive' },
+    };
+    if (status === 'active') {
+      where.closedAt = null;
+    } else if (status === 'closed') {
+      where.closedAt = { not: null };
+    }
+
+    const [counts, positions] = await Promise.all([
+      this.prisma.position.groupBy({
+        by: ['ownerAddress'],
+        where,
+        _count: { _all: true },
+      }),
+      this.prisma.position.findMany({
+        where,
+        include: { pool: true },
+        orderBy: { createdAt: 'desc' },
+        take: BULK_POSITIONS_LIMIT,
+      }),
+    ]);
+
+    for (const c of counts) {
+      const wallet = c.ownerAddress.toLowerCase();
+      const entry = result.get(wallet);
+      if (entry) entry.total = c._count._all;
+    }
+
+    const snapshots = await this.toSnapshots(positions);
+    for (const snapshot of snapshots) {
+      const entry = result.get(snapshot.ownerWallet.toLowerCase());
+      entry?.items.push(snapshot);
+    }
+
+    return result;
+  }
+
+  /**
+   * Maps raw position rows (with their pool relation) into PositionSnapshot
+   * objects, resolving token symbols and unclaimed fees without N+1 queries.
+   * Shared by both the single-wallet and bulk-by-wallet lookups above.
+   */
+  private async toSnapshots(positions: any[]): Promise<PositionSnapshot[]> {
+    if (positions.length === 0) return [];
 
     // Resolve token symbols
     const tokenAddresses = new Set<string>();
@@ -70,7 +141,47 @@ export class PositionsRepository {
       tokens.map((t) => [t.address.toLowerCase(), t.symbol]),
     );
 
-    const items: PositionSnapshot[] = positions.map((position) => {
+    // Pre-fetch swaps and fees-collected for every distinct pool referenced
+    // by these positions so we can compute unclaimed fees per position
+    // without N+1 queries.
+    const poolIds = [...new Set(positions.map((p) => p.poolId))];
+
+    const [swapsByPool, feesCollectedByPool] = await Promise.all([
+      this.prisma.swap.findMany({
+        where: { poolId: { in: poolIds } },
+        select: { poolId: true, amount0: true },
+      }),
+      this.prisma.feesCollected.findMany({
+        where: { poolId: { in: poolIds } },
+        select: { poolId: true, amount0: true, amount1: true },
+      }),
+    ]);
+
+    // Aggregate total |amount0| swapped per pool (proxy for fee base).
+    const poolSwapVolume = new Map<string, number>();
+    for (const s of swapsByPool) {
+      poolSwapVolume.set(
+        s.poolId,
+        (poolSwapVolume.get(s.poolId) ?? 0) + Math.abs(Number(s.amount0)),
+      );
+    }
+
+    // Aggregate total fees collected per pool (already-claimed portion).
+    const poolFeesCollected = new Map<
+      string,
+      { amount0: number; amount1: number }
+    >();
+    for (const f of feesCollectedByPool) {
+      const cur = poolFeesCollected.get(f.poolId) ?? {
+        amount0: 0,
+        amount1: 0,
+      };
+      cur.amount0 += Math.abs(Number(f.amount0));
+      cur.amount1 += Math.abs(Number(f.amount1));
+      poolFeesCollected.set(f.poolId, cur);
+    }
+
+    return positions.map((position) => {
       const token0Symbol =
         tokenSymbolMap.get(position.pool.token0Address.toLowerCase()) ??
         'UNKNOWN';
@@ -87,28 +198,46 @@ export class PositionsRepository {
       const currentValueUsd =
         poolLiquidity > 0 ? (posLiquidity / poolLiquidity) * poolTvl : 0;
 
+      // Compute unclaimed fees for this position.
+      // The position's liquidity share determines its proportion of total pool
+      // fees. We estimate total pool fees from swap volume × feeTier (ppm) and
+      // subtract already-collected amounts.
+      const liquidityShare =
+        poolLiquidity > 0 ? posLiquidity / poolLiquidity : 0;
+      const feeTierPpm = position.pool.feeTier / 1_000_000;
+      const poolVolume = poolSwapVolume.get(position.poolId) ?? 0;
+      const totalPoolFees0 = poolVolume * feeTierPpm;
+
+      const collected = poolFeesCollected.get(position.poolId) ?? {
+        amount0: 0,
+        amount1: 0,
+      };
+
+      const rawUnclaimed0 =
+        totalPoolFees0 * liquidityShare - collected.amount0 * liquidityShare;
+      const rawUnclaimed1 = collected.amount1 * liquidityShare;
+
+      const uncollectedFeesToken0 = String(Math.max(0, rawUnclaimed0));
+      const uncollectedFeesToken1 = String(Math.max(0, rawUnclaimed1));
+
       return {
         id: position.id,
         ownerWallet: position.ownerAddress,
         poolId: position.poolId,
+        tokenId: position.tokenId,
         token0: token0Symbol,
         token1: token1Symbol,
         lowerTick: position.lowerTick,
         upperTick: position.upperTick,
         liquidity: position.liquidity,
         currentValueUsd,
-        uncollectedFeesToken0: position.feesCollected0,
-        uncollectedFeesToken1: position.feesCollected1,
+        uncollectedFeesToken0,
+        uncollectedFeesToken1,
         createdAt: position.createdAt.getTime(),
         closedAt: position.closedAt ? position.closedAt.getTime() : null,
         status,
         poolCurrentPrice: poolPrice,
       };
     });
-
-    return {
-      items,
-      total,
-    };
   }
 }

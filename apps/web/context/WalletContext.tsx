@@ -2,11 +2,13 @@
 
 import { createContext, useContext, ReactNode } from 'react';
 import { useWallet, WalletState } from '@/hooks/useWallet';
+import { useNetworkContext } from '@/context/NetworkContext';
 
 const WalletContext = createContext<WalletState | undefined>(undefined);
 
 export function WalletProvider({ children }: { children: ReactNode }) {
-  const wallet = useWallet();
+  const { network } = useNetworkContext();
+  const wallet = useWallet(network);
   return <WalletContext.Provider value={wallet}>{children}</WalletContext.Provider>;
 }
 

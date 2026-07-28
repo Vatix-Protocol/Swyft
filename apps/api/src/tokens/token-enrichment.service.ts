@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@prisma/client';
 import { Contract, rpc, scValToNative } from '@stellar/stellar-sdk';
+import { STELLAR_CONFIG_KEY, StellarConfig } from '../config/stellar.config';
 
 interface TokenListEntry {
   address: string;
@@ -21,10 +23,10 @@ export class TokenEnrichmentService implements OnModuleInit {
   private readonly rpcUrl: string;
   private readonly tokenListUrl: string | undefined;
 
-  constructor() {
-    this.rpcUrl =
-      process.env.STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org';
-    this.tokenListUrl = process.env.TOKEN_LIST_URL;
+  constructor(private readonly config: ConfigService) {
+    const stellarCfg = this.config.get<StellarConfig>(STELLAR_CONFIG_KEY)!;
+    this.rpcUrl = stellarCfg.rpcUrl;
+    this.tokenListUrl = this.config.get<string>('TOKEN_LIST_URL');
   }
 
   onModuleInit() {

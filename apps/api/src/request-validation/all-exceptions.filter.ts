@@ -9,6 +9,7 @@ import {
 import { HttpAdapterHost } from '@nestjs/core';
 import { Request } from 'express';
 import { captureException } from '../sentry';
+import { RequestContext } from '../logging/request-context';
 import {
   ErrorResponse,
   ValidationErrorResponse,
@@ -29,6 +30,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const path = httpAdapter.getRequestUrl(ctx.getRequest<Request>()) as string;
     const timestamp = new Date().toISOString();
     const isProd = process.env.NODE_ENV === 'production';
+    const requestId = RequestContext.requestId;
+    const requestIdSuffix = requestId ? ` requestId=${requestId}` : '';
 
     // ── HttpException (covers all NestJS built-ins + class-validator 400s) ──
     if (exception instanceof HttpException) {
@@ -53,11 +56,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
             error: 'Bad Request',
             timestamp,
             path,
+            requestId,
             validationErrors,
           };
 
           this.logger.warn(
-            `[400] Validation error at ${request.method} ${path}`,
+            `[400] Validation error at ${request.method} ${path}${requestIdSuffix}`,
             {
               validationErrors,
             },
@@ -88,16 +92,28 @@ export class AllExceptionsFilter implements ExceptionFilter {
         error,
         timestamp,
         path,
+        requestId,
       };
+
+      if (
+        typeof exceptionResponse === 'object' &&
+        exceptionResponse !== null &&
+        typeof (exceptionResponse as Record<string, unknown>)['code'] ===
+          'string'
+      ) {
+        body.code = (exceptionResponse as Record<string, unknown>)[
+          'code'
+        ] as string;
+      }
 
       if (statusCode >= 500) {
         this.logger.error(
-          `[${statusCode}] ${request.method} ${path} — ${exception instanceof Error ? exception.message : 'HttpException'}`,
+          `[${statusCode}] ${request.method} ${path} — ${exception instanceof Error ? exception.message : 'HttpException'}${requestIdSuffix}`,
           exception instanceof Error ? exception.stack : undefined,
         );
       } else {
         this.logger.warn(
-          `[${statusCode}] ${request.method} ${path} — ${message}`,
+          `[${statusCode}] ${request.method} ${path} — ${message}${requestIdSuffix}`,
         );
       }
 
@@ -108,10 +124,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // ── Unhandled / unexpected exceptions ──
     const statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
 
-    captureException(exception, { path, method: request.method });
+    captureException(exception, { path, method: request.method, requestId });
 
     this.logger.error(
-      `[500] Unhandled exception at ${request.method} ${path}`,
+      `[500] Unhandled exception at ${request.method} ${path}${requestIdSuffix}`,
       exception instanceof Error ? exception.stack : String(exception),
     );
 
@@ -123,6 +139,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       error: 'Internal Server Error',
       timestamp,
       path,
+      requestId,
     };
 
     httpAdapter.reply(ctx.getResponse(), body, statusCode);

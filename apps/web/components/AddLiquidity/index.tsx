@@ -35,7 +35,7 @@ export function AddLiquidity() {
     reset,
   } = useAddLiquidity();
 
-  const { ticks } = usePoolTicks(pool?.id ?? null);
+  const { ticks, error: ticksError, retry: retryTicks } = usePoolTicks(pool?.id ?? null);
   const { address, signTransaction } = useWalletContext();
 
   const token0Symbol = pool?.token0Symbol ?? pool?.token0 ?? 'Token A';
@@ -70,6 +70,8 @@ export function AddLiquidity() {
             {/* Step 2: Range */}
             <RangeSelector
               ticks={ticks}
+              ticksError={ticksError}
+              onRetryTicks={retryTicks}
               currentTick={pool.currentTick}
               lowerTick={lowerTick}
               upperTick={upperTick}

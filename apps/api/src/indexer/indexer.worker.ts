@@ -6,21 +6,32 @@ import {
 } from '@nestjs/common';
 import { Worker, Job, QueueEvents } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
-import { CacheService } from '../cache/cache.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
-import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
+import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
+import { IndexerCursorService } from './indexer-cursor.service';
+import { IndexerDeadLetterService } from './indexer-dead-letter.service';
 import {
   QUEUE_NAMES,
   makeQueueOptions,
+  getWorkerConcurrency,
   PoolCreatedJobData,
   SwapProcessedJobData,
   PositionMintedJobData,
   PositionBurnedJobData,
   FeesCollectedJobData,
+  QueueName,
 } from './queues';
+import { PoolsRepository } from '../pools/pools.repository';
 
 @Injectable()
 export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
+  /**
+   * Placeholder token address used when a pool is created from a state
+   * update (e.g. a swap) that arrives before the pool.created event. The
+   * real token addresses are backfilled by projectPoolCreated once that
+   * authoritative event is processed.
+   */
+  private static readonly UNKNOWN_TOKEN_ADDRESS = 'unknown';
   private readonly logger = new Logger(IndexerWorker.name);
   private readonly prisma = new PrismaClient();
   private readonly workers: Worker[] = [];
@@ -28,14 +39,26 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
   private queueDepthTimer: NodeJS.Timeout | null = null;
   private _isLoading = false;
   private _isReady = false;
+  private _isShuttingDown = false;
+  /** Bounds how long a SIGTERM/SIGINT shutdown waits for in-flight jobs before giving up. */
+  private static readonly SHUTDOWN_TIMEOUT_MS = Number(
+    process.env.INDEXER_SHUTDOWN_TIMEOUT_MS ?? 25_000,
+  );
 
   constructor(
-    private readonly cache: CacheService,
     private readonly webhooks: WebhooksService,
+    private readonly tokenEnrichment: TokenEnrichmentService,
+    private readonly cursorService: IndexerCursorService,
+    private readonly deadLetterService: IndexerDeadLetterService,
   ) {}
 
   get isLoading(): boolean {
     return this._isLoading;
+  }
+
+  /** True from the moment a shutdown signal is received until cleanup finishes. */
+  get isShuttingDown(): boolean {
+    return this._isShuttingDown;
   }
 
   async onModuleInit() {
@@ -73,7 +96,6 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       });
       this.queueEvents.push(qe);
     }
-
     this._isReady = true;
     this.logger.log('Indexer workers ready');
     void this.logQueueDepths();
@@ -84,16 +106,52 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /**
+   * Invoked by Nest's shutdown hooks on SIGTERM/SIGINT (see main.ts's
+   * `enableShutdownHooks()`). Stops routing new jobs immediately, then lets
+   * BullMQ drain in-flight jobs — bounded by SHUTDOWN_TIMEOUT_MS so a stuck
+   * job cannot hang the process past its deploy platform's kill timeout.
+   */
   async onModuleDestroy() {
+    this._isShuttingDown = true;
     this._isReady = false;
+    this.logger.log(
+      `Received shutdown signal — draining in-flight jobs (timeout ${IndexerWorker.SHUTDOWN_TIMEOUT_MS}ms)`,
+    );
     if (this.queueDepthTimer) clearInterval(this.queueDepthTimer);
-    await Promise.all([
+
+    const closeAll = Promise.all([
       ...this.workers.map((w) => w.close()),
       ...this.queueEvents.map((qe) => qe.close()),
     ]);
+    await this.withTimeout(
+      closeAll,
+      IndexerWorker.SHUTDOWN_TIMEOUT_MS,
+      'Timed out waiting for indexer workers to drain in-flight jobs — forcing shutdown',
+    );
+
     await this.prisma.$disconnect();
     this._isLoading = false;
+    this._isShuttingDown = false;
     this.logger.log('Indexer workers shut down gracefully');
+  }
+
+  /** Races `promise` against a timeout, logging (but not throwing) if the timeout wins. */
+  private async withTimeout(
+    promise: Promise<unknown>,
+    timeoutMs: number,
+    timeoutMessage: string,
+  ): Promise<void> {
+    let timer: NodeJS.Timeout;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        this.logger.warn(timeoutMessage);
+        resolve();
+      }, timeoutMs);
+    });
+
+    await Promise.race([promise.then(() => undefined), timeout]);
+    clearTimeout(timer!);
   }
 
   private makeWorker<T>(
@@ -117,6 +175,9 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       lockDuration: 60_000,
       stalledInterval: 30_000,
       maxStalledCount: 2,
+      // Each event type is an independent, idempotent projection, so jobs of
+      // the same type can safely run in parallel within this worker process.
+      concurrency: getWorkerConcurrency(queueName as QueueName),
     });
 
     worker.on('completed', (job) => {
@@ -124,9 +185,35 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
     });
     worker.on('failed', (job, err) => {
       const attempts = job?.attemptsMade ?? 0;
+      const defaultRetries = 3; // From defaultJobOptions
+      const isDeadLettered = attempts >= defaultRetries;
+
       this.logger.warn(
         `failed queue=${queueName} jobId=${job?.id} attempt=${attempts} err=${err.message}`,
       );
+
+      // Record to DLQ if max retries exceeded
+      if (isDeadLettered && job) {
+        const rawEventId = (job.data as Record<string, unknown>)?.eventId;
+        const eventId =
+          typeof rawEventId === 'string' || typeof rawEventId === 'number'
+            ? String(rawEventId)
+            : 'unknown';
+        this.deadLetterService
+          .recordDeadLetter({
+            jobId: job.id || 'unknown',
+            queueName,
+            eventId,
+            data: job.data as Record<string, unknown>,
+            error: err.message,
+            attemptsMade: attempts,
+          })
+          .catch((dlErr) => {
+            this.logger.error(
+              `Failed to record DLQ entry: ${(dlErr as Error).message}`,
+            );
+          });
+      }
     });
 
     return worker;
@@ -193,6 +280,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         tokenB: d.tokenB,
         fee: d.fee,
         sqrtPriceX96: d.sqrtPriceX96,
+        ledger: d.ledger ?? null,
       },
     });
 
@@ -233,6 +321,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         sqrtPriceX96: d.sqrtPriceX96,
         liquidity: d.liquidity,
         tick: d.tick,
+        ledger: d.ledger ?? null,
       },
     });
 
@@ -269,12 +358,14 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       create: {
         eventId: d.eventId,
         poolId: d.poolId,
+        tokenId: d.tokenId || null,
         owner: d.owner,
         tickLower: d.tickLower,
         tickUpper: d.tickUpper,
         liquidity: d.liquidity,
         amount0: d.amount0,
         amount1: d.amount1,
+        ledger: d.ledger ?? null,
       },
     });
     // Project into relational Position table when the event includes a tokenId.
@@ -305,12 +396,14 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       create: {
         eventId: d.eventId,
         poolId: d.poolId,
+        tokenId: d.tokenId || null,
         owner: d.owner,
         tickLower: d.tickLower,
         tickUpper: d.tickUpper,
         liquidity: d.liquidity,
         amount0: d.amount0,
         amount1: d.amount1,
+        ledger: d.ledger ?? null,
       },
     });
     // Project into relational Position table when the event includes a tokenId.
@@ -349,6 +442,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         recipient: d.recipient,
         amount0: d.amount0,
         amount1: d.amount1,
+        ledger: d.ledger ?? null,
       },
     });
     await this.advanceLedger(job.id, d.ledger);
@@ -365,10 +459,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const advanced = await this.cache.setMaxNumber(
-      LAST_INDEXED_LEDGER_KEY,
-      ledger,
-    );
+    const advanced = await this.cursorService.advanceLedger(ledger);
     if (!advanced) {
       this.logger.debug(
         `Ledger checkpoint unchanged or unavailable for job ${jobId ?? 'unknown'} ledger=${ledger}`,
@@ -401,9 +492,21 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         }),
       ]);
 
+      const createdAt = d.timestamp ? new Date(d.timestamp) : new Date();
+
       await this.prisma.pool.upsert({
         where: { id: d.poolId },
-        update: { currentSqrtPrice: d.sqrtPriceX96, updatedAt: new Date() },
+        // A swap/position event may have created a placeholder pool (see
+        // projectSwapProcessed below) before this authoritative pool.created
+        // event arrived. Overwrite the placeholder token/fee fields with the
+        // real values in that case.
+        update: {
+          token0Address: d.tokenA,
+          token1Address: d.tokenB,
+          feeTier: parseInt(d.fee, 10),
+          currentSqrtPrice: d.sqrtPriceX96,
+          updatedAt: new Date(),
+        },
         create: {
           id: d.poolId,
           token0Address: d.tokenA,
@@ -415,8 +518,15 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
           tvl: '0',
           volume24h: '0',
           feeApr: '0',
+          createdAt,
         },
       });
+
+      // Enrich both tokens with on-chain metadata after the pool is persisted.
+      await Promise.allSettled([
+        this.tokenEnrichment.enrichToken(d.tokenA),
+        this.tokenEnrichment.enrichToken(d.tokenB),
+      ]);
     } catch (err) {
       this.logger.error(
         `Failed to project pool ${d.poolId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -424,9 +534,63 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Resolves the fee amount for a swap. Uses the event-level feeAmount when
+   * the upstream producer provides one; otherwise derives it from the pool's
+   * feeTier (parts-per-million applied to |amount0|).
+   */
+  private async resolveFeeAmount(d: SwapProcessedJobData): Promise<string> {
+    if (d.feeAmount !== undefined && d.feeAmount !== '') {
+      return d.feeAmount;
+    }
+    try {
+      const pool = await this.prisma.pool.findUnique({
+        where: { id: d.poolId },
+        select: { feeTier: true },
+      });
+      if (pool) {
+        const absAmount0 = Math.abs(Number(d.amount0));
+        const fee = absAmount0 * (pool.feeTier / 1_000_000);
+        return Number.isFinite(fee) ? String(fee) : '0';
+      }
+    } catch {
+      // Non-fatal: fee computation failure must not block swap persistence.
+    }
+    return '0';
+  }
+
   private async projectSwapProcessed(d: SwapProcessedJobData) {
     try {
+      const feeAmount = await this.resolveFeeAmount(d);
+
+      if (!PoolsRepository.isValidSqrtPrice(d.sqrtPriceX96)) {
+        this.logger.warn(
+          `Skipping pool state update for swap ${d.eventId} — invalid sqrtPriceX96: "${d.sqrtPriceX96}"`,
+        );
+        // Still persist the swap row; only skip the pool sqrt-price update.
+        const timestamp = d.timestamp ? new Date(d.timestamp) : new Date();
+        await this.prisma.swap.upsert({
+          where: { eventId: d.eventId },
+          update: {},
+          create: {
+            eventId: d.eventId,
+            poolId: d.poolId,
+            senderAddress: d.sender,
+            recipientAddress: d.recipient,
+            amount0: d.amount0,
+            amount1: d.amount1,
+            sqrtPriceAfter: d.sqrtPriceX96,
+            tickAfter: d.tick,
+            transactionHash: d.transactionHash ?? d.eventId,
+            feeAmount,
+            timestamp,
+          },
+        });
+        return;
+      }
+
       const timestamp = d.timestamp ? new Date(d.timestamp) : new Date();
+
       await this.prisma.swap.upsert({
         where: { eventId: d.eventId },
         update: {},
@@ -440,17 +604,36 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
           sqrtPriceAfter: d.sqrtPriceX96,
           tickAfter: d.tick,
           transactionHash: d.transactionHash ?? d.eventId,
+          feeAmount,
           timestamp,
         },
       });
 
-      await this.prisma.pool.update({
+      // A swap can arrive before (or without) its pool's pool.created event,
+      // e.g. when events are processed out of order or the creation event was
+      // missed. Upsert instead of update so the pool is created on its first
+      // state update rather than silently dropping the swap. The token/fee
+      // fields are unknown at this point; projectPoolCreated backfills them
+      // with the authoritative values if/when that event arrives.
+      await this.prisma.pool.upsert({
         where: { id: d.poolId },
-        data: {
+        update: {
           currentSqrtPrice: d.sqrtPriceX96,
           currentTick: d.tick,
           liquidity: d.liquidity,
           updatedAt: new Date(),
+        },
+        create: {
+          id: d.poolId,
+          token0Address: IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
+          token1Address: IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
+          feeTier: 0,
+          currentSqrtPrice: d.sqrtPriceX96,
+          currentTick: d.tick,
+          liquidity: d.liquidity,
+          tvl: '0',
+          volume24h: '0',
+          feeApr: '0',
         },
       });
     } catch (err) {

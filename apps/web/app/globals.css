@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* Enable class-based dark mode so the `dark:` variant responds to the
+   `dark` class on <html> (set by the layout.tsx inline script) rather than
+   only the OS media query. The media-query fallback remains for browsers
+   where JS is unavailable. */
+@variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -17,6 +23,11 @@
     --background: #0a0a0a;
     --foreground: #ededed;
   }
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
 }
 
 body {

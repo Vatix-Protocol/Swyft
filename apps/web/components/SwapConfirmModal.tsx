@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { getNetwork } from '@stellar/freighter-api';
 import type { SwapQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
 import { PriceImpactBadge } from '@swyft/ui';
 import { useSwapExecution } from '@/hooks/useSwapExecution';
-import { explorerTxUrl } from '@/lib/constants';
+import { useNetworkContext } from '@/context/NetworkContext';
+import { getExplorerTxUrl } from '@/lib/constants';
 
 interface Props {
   poolId: string;
@@ -29,7 +31,29 @@ export function SwapConfirmModal({
   onSuccess,
 }: Props) {
   const { status, error, txHash, execute, reset } = useSwapExecution();
+  const { network } = useNetworkContext();
   const overlayRef = useRef<HTMLDivElement>(null);
+
+  // A wallet can be on a different network than the app (e.g. switched in
+  // the extension after connecting). Signing/submitting would then fail, so
+  // re-check right before allowing a confirm.
+  const [networkMismatch, setNetworkMismatch] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await getNetwork();
+        const walletNetwork = 'network' in result ? result.network : result;
+        if (!cancelled) setNetworkMismatch((walletNetwork as string).toUpperCase() !== network);
+      } catch {
+        // If we can't determine the wallet's network, don't block the user —
+        // sign/submit will surface a real error if it's actually mismatched.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [network]);
 
   // Trap focus / close on Escape
   useEffect(() => {
@@ -64,12 +88,12 @@ export function SwapConfirmModal({
     <div
       ref={overlayRef}
       onClick={handleOverlayClick}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm px-4 pb-4 sm:pb-0"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm px-4 pb-[env(safe-area-inset-bottom,1rem)] sm:pb-0"
       role="dialog"
       aria-modal="true"
       aria-label="Confirm swap"
     >
-      <div className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900 sm:mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
           <h2 className="text-base font-semibold text-zinc-900 dark:text-white">
@@ -154,7 +178,7 @@ export function SwapConfirmModal({
                 Transaction submitted successfully
               </p>
               <a
-                href={explorerTxUrl(txHash)}
+                href={getExplorerTxUrl(txHash, network)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-green-600 underline hover:text-green-800 dark:text-green-400 dark:hover:text-green-300 font-mono"
@@ -216,6 +240,19 @@ export function SwapConfirmModal({
             </div>
           )}
 
+          {/* Network mismatch warning */}
+          {networkMismatch && status === 'idle' && (
+            <div
+              role="alert"
+              className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950"
+            >
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                Your wallet is on a different Stellar network than this app ({network}). Switch
+                networks in your wallet to continue.
+              </p>
+            </div>
+          )}
+
           {/* Action buttons */}
           {status === 'success' ? (
             <button
@@ -229,7 +266,7 @@ export function SwapConfirmModal({
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={isBusy || status === 'error'}
+              disabled={isBusy || status === 'error' || networkMismatch}
               className="w-full min-h-[44px] rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 flex items-center justify-center gap-2"
             >
               {status === 'signing' && (

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -7,8 +7,13 @@ import {
 } from '@nestjs/swagger';
 import { CurrentWallet } from '../auth/current-wallet.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { BulkPositionsDto } from './dto/bulk-positions.dto';
 import { GetPositionsQueryDto } from './dto/get-positions-query.dto';
-import { PositionsListResponse, PositionsService } from './positions.service';
+import {
+  PositionsListResponse,
+  PositionsService,
+  WalletPositions,
+} from './positions.service';
 import { SWAGGER_TAGS } from '../swagger.constants';
 
 @ApiTags(SWAGGER_TAGS.POSITIONS)
@@ -30,5 +35,22 @@ export class PositionsController {
     @Query() query: GetPositionsQueryDto,
   ): Promise<PositionsListResponse> {
     return this.positionsService.getPositions(walletAddress, query);
+  }
+
+  @Post('bulk')
+  @ApiOperation({ summary: 'Fetch positions for multiple wallets at once' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Positions keyed by the requested wallet address. Wallets with no positions still appear with an empty items array.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized — valid JWT required',
+  })
+  getBulkPositions(
+    @Body() body: BulkPositionsDto,
+  ): Promise<Record<string, WalletPositions>> {
+    return this.positionsService.getBulkPositions(body.wallets, body.status);
   }
 }

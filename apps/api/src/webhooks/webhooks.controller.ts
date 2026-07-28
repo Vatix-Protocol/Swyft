@@ -8,18 +8,20 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WebhooksService } from './webhooks.service';
-import { WebhookEventType } from './webhook.types';
+import {
+  WebhookEventType,
+  WEBHOOK_PAYLOAD_EXAMPLES,
+  verifyWebhookSignature,
+} from './webhook.types';
 import { SWAGGER_TAGS } from '../swagger.constants';
 
 interface AuthRequest {
   user: { walletAddress: string };
 }
 
-/** Shape returned by GET /webhooks — includes a loading flag so clients can
- *  show a spinner and disable mutating actions while the list is being fetched. */
 interface WebhookListResponse {
   loading: boolean;
   items: Awaited<ReturnType<WebhooksService['list']>>;
@@ -32,15 +34,34 @@ interface WebhookListResponse {
 export class WebhooksController {
   constructor(private readonly service: WebhooksService) {}
 
-  /**
-   * Register a new webhook for the authenticated wallet.
-   *
-   * @param req - Authenticated request containing the wallet address.
-   * @param body - Webhook configuration: target URL, event types, optional signing secret, and large-swap USD threshold.
-   * @returns The created webhook record (id, url, eventTypes, createdAt).
-   */
   @Post()
   @ApiOperation({ summary: 'Register a webhook' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['url', 'eventTypes'],
+      properties: {
+        url: { type: 'string', example: 'https://example.com/webhook' },
+        eventTypes: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: [
+              'pool.created',
+              'swap',
+              'swap.large',
+              'pool.tvl.milestone',
+              'position.minted',
+              'position.burned',
+            ],
+          },
+          example: ['swap', 'swap.large'],
+        },
+        secret: { type: 'string', example: 'my-hmac-secret' },
+        largeSwapUsd: { type: 'number', example: 10000 },
+      },
+    },
+  })
   create(
     @Request() req: AuthRequest,
     @Body()
@@ -60,12 +81,6 @@ export class WebhooksController {
     );
   }
 
-  /**
-   * List all webhooks belonging to the authenticated wallet.
-   *
-   * @param req - Authenticated request containing the wallet address.
-   * @returns Array of webhook records (id, url, eventTypes, disabled, createdAt).
-   */
   @Get()
   @ApiOperation({
     summary:
@@ -77,12 +92,113 @@ export class WebhooksController {
   }
 
   /**
+   * Return example payloads for all webhook event types.
+   * Useful for documentation and client integration.
+   *
+   * @returns Map of event type → example payload.
+   */
+  @Get('event-examples')
+  @ApiOperation({
+    summary: 'Return example payloads for all webhook event types',
+  })
+  eventExamples() {
+    return WEBHOOK_PAYLOAD_EXAMPLES;
+  }
+
+  /**
    * Delete a webhook owned by the authenticated wallet.
    *
    * @param id - UUID of the webhook to delete.
    * @param req - Authenticated request containing the wallet address.
    * @returns Resolves when the record has been removed (no-op if not found or not owned).
    */
+  @Get('audit')
+  @ApiOperation({
+    summary: 'Webhook CRUD audit log for the authenticated wallet',
+  })
+  auditLog(@Request() req: AuthRequest) {
+    return this.service.auditLog(req.user.walletAddress);
+  }
+
+  /**
+   * Re-queue all BullMQ-failed delivery jobs for the given webhook.
+   * Only re-queues jobs owned by the authenticated wallet.
+   *
+   * @param id - UUID of the webhook whose failed deliveries to retry.
+   * @returns Count of jobs that were re-queued.
+   */
+  @Post(':id/retry')
+  @ApiOperation({ summary: 'Retry failed deliveries for a webhook' })
+  retryDeliveries(@Param('id') id: string, @Request() req: AuthRequest) {
+    return this.service.retryDeliveries(id, req.user.walletAddress);
+  }
+
+  /**
+   * Send a test ping webhook to verify connectivity.
+   * This endpoint sends a test event to the specified webhook URL
+   * to verify that webhook delivery is working correctly.
+   *
+   * @param id - UUID of the webhook to test
+   * @param req - Authenticated request containing the wallet address
+   * @returns Information about the test ping attempt
+   */
+  @Post(':id/ping')
+  @ApiOperation({ summary: 'Send a test ping webhook to verify connectivity' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        testEventType: {
+          type: 'string',
+          enum: [
+            'pool.created',
+            'swap',
+            'swap.large',
+            'pool.tvl.milestone',
+            'position.minted',
+            'position.burned',
+          ],
+          example: 'swap',
+        },
+      },
+    },
+  })
+  ping(
+    @Param('id') id: string,
+    @Request() req: AuthRequest,
+    @Body() body?: { testEventType?: string },
+  ) {
+    const eventType = body?.testEventType || 'swap';
+    return this.service.ping(id, req.user.walletAddress, eventType);
+  }
+
+  /**
+   * Verify a webhook payload signature without persisting state.
+   * Clients can use this to confirm the `X-Swyft-Signature` header is valid.
+   *
+   * @returns `{ valid: true }` when the signature matches, `{ valid: false }` otherwise.
+   */
+  @Post('verify-signature')
+  @ApiOperation({ summary: 'Verify an HMAC-SHA256 webhook signature' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['payload', 'signature', 'secret'],
+      properties: {
+        payload: { type: 'string' },
+        signature: { type: 'string' },
+        secret: { type: 'string' },
+      },
+    },
+  })
+  verifySignature(
+    @Body() body: { payload: string; signature: string; secret: string },
+  ) {
+    return {
+      valid: verifyWebhookSignature(body.payload, body.signature, body.secret),
+    };
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Remove a webhook — disabled while loading:true' })
   remove(@Param('id') id: string, @Request() req: AuthRequest) {

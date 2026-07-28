@@ -1,21 +1,38 @@
 import { Module } from '@nestjs/common';
 import { IndexerWorker } from './indexer.worker';
 import { IndexerController } from './indexer.controller';
-import { createQueue, QUEUE_NAMES } from './queues';
+import {
+  createQueue,
+  QUEUE_NAMES,
+  QUEUE_POOL_CREATED,
+  QUEUE_SWAP_PROCESSED,
+  QUEUE_POSITION_MINTED,
+  QUEUE_POSITION_BURNED,
+  QUEUE_FEES_COLLECTED,
+} from './queues';
 import { CacheModule } from '../cache/cache.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
+import { TokensModule } from '../tokens/tokens.module';
+import { IndexerCursorService } from './indexer-cursor.service';
+import { IndexerDeadLetterService } from './indexer-dead-letter.service';
+import { IndexerReplayService } from './indexer-replay.service';
 
-export const QUEUE_POOL_CREATED = 'QUEUE_POOL_CREATED';
-export const QUEUE_SWAP_PROCESSED = 'QUEUE_SWAP_PROCESSED';
-export const QUEUE_POSITION_MINTED = 'QUEUE_POSITION_MINTED';
-export const QUEUE_POSITION_BURNED = 'QUEUE_POSITION_BURNED';
-export const QUEUE_FEES_COLLECTED = 'QUEUE_FEES_COLLECTED';
+export {
+  QUEUE_POOL_CREATED,
+  QUEUE_SWAP_PROCESSED,
+  QUEUE_POSITION_MINTED,
+  QUEUE_POSITION_BURNED,
+  QUEUE_FEES_COLLECTED,
+};
 
 @Module({
-  imports: [CacheModule, WebhooksModule],
+  imports: [CacheModule, WebhooksModule, TokensModule],
   controllers: [IndexerController],
   providers: [
     IndexerWorker,
+    IndexerCursorService,
+    IndexerDeadLetterService,
+    IndexerReplayService,
     {
       provide: QUEUE_POOL_CREATED,
       useFactory: () => createQueue(QUEUE_NAMES.POOL_CREATED),
@@ -39,6 +56,7 @@ export const QUEUE_FEES_COLLECTED = 'QUEUE_FEES_COLLECTED';
   ],
   exports: [
     IndexerWorker,
+    IndexerCursorService,
     QUEUE_POOL_CREATED,
     QUEUE_SWAP_PROCESSED,
     QUEUE_POSITION_MINTED,

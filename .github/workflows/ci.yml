@@ -32,6 +32,34 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+  contracts:
+    name: Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Address drift check — unit tests (fixture-based, no cargo needed)
+        run: pnpm --filter contracts test:drift
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Validate contracts build and check for address drift
+        run: pnpm validate:contracts:drift
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -94,6 +122,75 @@ jobs:
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: ci-test-secret
           NODE_ENV: test
+          # Stellar RPC — use public testnet endpoints in CI.
+          # For production test runs that require a private RPC, override via
+          # repository secrets: STELLAR_RPC_URL and HORIZON_URL.
+          STELLAR_RPC_URL: ${{ secrets.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org' }}
+          HORIZON_URL: ${{ secrets.HORIZON_URL || 'https://horizon-testnet.stellar.org' }}
+          STELLAR_NETWORK: testnet
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: swyft_e2e
+        options: >-
+          --health-cmd "pg_isready -U postgres -d swyft_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft_e2e
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Apply database migrations
+        run: pnpm db:migrate:deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft_e2e
+
+      - name: Run E2E tests
+        run: pnpm --filter api test:e2e
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft_e2e
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: ci-e2e-test-secret
+          NODE_ENV: test
 
   build:
     name: Build
@@ -129,3 +226,7 @@ jobs:
         run: pnpm build
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft
+          # Stellar RPC — required by the API build (stellarConfig validates at startup).
+          STELLAR_RPC_URL: ${{ secrets.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org' }}
+          HORIZON_URL: ${{ secrets.HORIZON_URL || 'https://horizon-testnet.stellar.org' }}
+          STELLAR_NETWORK: testnet

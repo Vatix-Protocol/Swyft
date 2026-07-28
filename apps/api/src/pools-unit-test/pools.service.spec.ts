@@ -6,6 +6,8 @@ import { CacheService } from '../cache/cache.service';
 import {
   createMockCacheService,
   createMockPoolsRepository,
+  mockPoolDetailData,
+  mockSwap,
   mockTick,
 } from './mock-factories';
 
@@ -45,6 +47,66 @@ describe('PoolsService', () => {
       expect(cache.set).toHaveBeenCalledTimes(1);
     });
 
+    it('passes token0 and token1 filter params to repository', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({
+        page: 1,
+        limit: 10,
+        token0: 'USDC-addr',
+        token1: 'XLM-addr',
+      });
+
+      expect(repo.listActivePools).toHaveBeenCalledWith(
+        expect.objectContaining({ token0: 'USDC-addr', token1: 'XLM-addr' }),
+      );
+    });
+
+    it('includes token0/token1 in cache key to isolate pair results', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({ page: 1, limit: 10, token0: 'USDC-addr' });
+
+      expect(cache.get).toHaveBeenCalledWith(
+        expect.stringContaining('token0=USDC-addr'),
+      );
+    });
+
+    it('defaults includeInactive to false and filters inactive pools', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({ page: 1, limit: 10 });
+
+      expect(repo.listActivePools).toHaveBeenCalledWith(
+        expect.objectContaining({ includeInactive: false }),
+      );
+    });
+
+    it('passes includeInactive=true through to the repository', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({ page: 1, limit: 10, includeInactive: true });
+
+      expect(repo.listActivePools).toHaveBeenCalledWith(
+        expect.objectContaining({ includeInactive: true }),
+      );
+    });
+
+    it('includes includeInactive in the cache key', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({ page: 1, limit: 10, includeInactive: true });
+
+      expect(cache.get).toHaveBeenCalledWith(
+        expect.stringContaining('includeInactive=true'),
+      );
+    });
+
     it('returns cached result and skips repository on cache hit', async () => {
       const cached = {
         items: [],
@@ -71,21 +133,7 @@ describe('PoolsService', () => {
     beforeEach(() => {
       cache.get.mockResolvedValue(null);
       repo.getPoolDetailById.mockResolvedValue({
-        pool: {
-          id: poolId,
-          token0Address: '0xToken0',
-          token1Address: '0xToken1',
-          feeTier: 3000,
-          currentSqrtPrice: '79228162514264337593543950336',
-          currentTick: 0,
-          liquidity: '1000000000000000000',
-          tvl: '5000000',
-          volume24h: '1200000',
-          feeApr: '0.15',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          swaps: [],
-        },
+        ...mockPoolDetailData({ pool: { id: poolId } }),
         token0: null,
         token1: null,
       });
@@ -169,52 +217,10 @@ describe('PoolsService', () => {
     const now = new Date('2024-06-01T12:00:00Z');
 
     it('returns full PoolDetail shape for a known pool', async () => {
-      const poolData = {
-        pool: {
-          id: poolId,
-          token0Address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-          token1Address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-          feeTier: 3000,
-          currentSqrtPrice: '79228162514264337593543950336',
-          currentTick: 0,
-          liquidity: '1000000000000000000',
-          tvl: '5000000',
-          volume24h: '1200000',
-          feeApr: '0.15',
-          createdAt: now,
-          updatedAt: now,
-          swaps: [
-            {
-              id: 'swap_1',
-              poolId,
-              senderAddress: '0xSender1',
-              recipientAddress: '0xRecipient1',
-              amount0: '1000000',
-              amount1: '500000000000000000',
-              sqrtPriceAfter: '79228162514264337593543950336',
-              tickAfter: 0,
-              transactionHash: '0xTxHash1',
-              timestamp: now,
-            },
-          ],
-        },
-        token0: {
-          id: 'tok_usdc_1',
-          address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-          symbol: 'USDC',
-          name: 'USD Coin',
-          decimals: 6,
-          logoUri: null,
-        },
-        token1: {
-          id: 'tok_eth_1',
-          address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-          symbol: 'WETH',
-          name: 'Wrapped Ether',
-          decimals: 18,
-          logoUri: null,
-        },
-      };
+      const poolData = mockPoolDetailData({
+        pool: { id: poolId, createdAt: now, updatedAt: now },
+        swaps: [mockSwap({ id: 'swap_1', poolId, timestamp: now })],
+      });
 
       repo.getPoolDetailById = jest.fn().mockResolvedValue(poolData);
 
@@ -242,21 +248,9 @@ describe('PoolsService', () => {
 
     it('handles missing token data with defaults', async () => {
       const poolData = {
-        pool: {
-          id: poolId,
-          token0Address: '0xToken0',
-          token1Address: '0xToken1',
-          feeTier: 3000,
-          currentSqrtPrice: '79228162514264337593543950336',
-          currentTick: 0,
-          liquidity: '1000000000000000000',
-          tvl: '5000000',
-          volume24h: '1200000',
-          feeApr: '0.15',
-          createdAt: now,
-          updatedAt: now,
-          swaps: [],
-        },
+        ...mockPoolDetailData({
+          pool: { id: poolId, createdAt: now, updatedAt: now },
+        }),
         token0: null,
         token1: null,
       };

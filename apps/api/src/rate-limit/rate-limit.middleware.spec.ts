@@ -47,4 +47,81 @@ describe('RateLimitMiddleware', () => {
     expect(res.headers.has('X-RateLimit-Reset')).toBe(true);
     expect(next).toHaveBeenCalled();
   });
+
+  it('applies transaction rate limit headers for POST /transactions when Redis is unavailable', async () => {
+    const middleware = new RateLimitMiddleware();
+    const res = response();
+
+    await middleware.use(
+      {
+        path: '/transactions',
+        method: 'POST',
+        headers: {},
+        ip: '127.0.0.1',
+      } as never,
+      res as never,
+      next,
+    );
+
+    expect(res.headers.get('X-RateLimit-Limit')).toBe('20');
+    expect(res.headers.get('X-RateLimit-Remaining')).toBe('0');
+    expect(res.headers.has('X-RateLimit-Reset')).toBe(true);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('does not apply transaction rule for GET /transactions', async () => {
+    const middleware = new RateLimitMiddleware();
+    const res = response();
+
+    await middleware.use(
+      {
+        path: '/transactions',
+        method: 'GET',
+        headers: {},
+        ip: '127.0.0.1',
+      } as never,
+      res as never,
+      next,
+    );
+
+    // Falls through to global limit (300), not transactions limit (20)
+    expect(res.headers.get('X-RateLimit-Limit')).toBe('300');
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('returns the standard ErrorResponse body on 429 with Retry-After', async () => {
+    const middleware = new RateLimitMiddleware();
+    (middleware as unknown as { redis: object }).redis = {
+      incr: jest.fn().mockResolvedValue(301),
+      expire: jest.fn(),
+      ttl: jest.fn().mockResolvedValue(42),
+    };
+    const res = response();
+
+    await middleware.use(
+      {
+        path: '/pools',
+        originalUrl: '/v1/pools',
+        method: 'GET',
+        headers: {},
+        ip: '203.0.113.10',
+      } as never,
+      res as never,
+      next,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(res.headers.get('Retry-After')).toBe('42');
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statusCode: 429,
+        message: 'Too many requests',
+        error: 'Too Many Requests',
+        path: '/v1/pools',
+        retryAfter: '42',
+        timestamp: expect.any(String),
+      }),
+    );
+  });
 });

@@ -48,13 +48,34 @@ The `-v` flag removes the named `postgres_data` volume, giving you a clean datab
 | PostgreSQL | `postgresql://postgres:postgres@localhost:5432/swyft` |
 | Redis      | `redis://localhost:6379`                              |
 
+## Health and CORS
+
+`GET /health` returns `{ status, checks: { postgres, redis } }`; status is
+`ok` only when both dependency probes pass. CORS allows `WEB_APP_ORIGIN` (or
+`CORS_ORIGIN`) as a comma-separated origin list and defaults to
+`http://localhost:3000`.
+
 ## Indexer recovery
 
 Each successfully persisted indexer event with a valid `ledger` field advances
-the durable Redis high-water mark `indexer:last_ledger`. The update is monotonic,
-so retried or out-of-order jobs cannot move the checkpoint backwards. BullMQ
-retries stalled jobs, while Prisma upserts keyed by `eventId` make the replay
-safe after a worker restart.
+the monotonic `indexer:last_ledger` high-water mark in Redis and Postgres.
+Horizon only advances its in-memory paging token after a ledger window is
+successfully enqueued — it does **not** advance the durable checkpoint. The
+Postgres `indexer_cursor` row remains the durable recovery source when Redis is
+cold or unavailable. BullMQ retries stalled jobs, Prisma upserts keyed by
+`eventId` make the replay safe after a worker restart, and jobs that exhaust
+their retries are recorded in `indexer_dead_letter` for operator recovery.
+
+### Replay APIs (internal — `x-internal-key`)
+
+| Endpoint | Body | Behaviour |
+|---|---|---|
+| `POST /indexer/replay` | `{ "fromLedger": N }` | Re-enqueue canonical rows with `ledger >= N` |
+| `POST /indexer/dead-letters/replay` | `{ "jobId": "…" }` (optional) | Re-enqueue one DLQ job, or all unrecovered when omitted |
+
+Dead-letter replay is idempotent: workers upsert on `eventId` (and pool /
+position natural keys), and replayed BullMQ jobs use a stable
+`dlq-replay:<jobId>` id so a second call is a no-op or upsert-safe.
 
 ## Running tests
 

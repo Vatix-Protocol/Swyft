@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 import Redis from 'ioredis';
+import { RequestContext } from '../logging/request-context';
+import { ErrorResponse } from '../request-validation/error-response.interface';
 
 /** A named rate-limit rule that defines a sliding-window counter. */
 interface RateLimitRule {
@@ -47,6 +49,8 @@ interface RateLimitHit extends RateLimitRule {
  * | `INTERNAL_CANDLE_RATE_LIMIT_PER_MINUTE` | `240` | Per-minute limit for candle endpoints (internal) |
  * | `AUTH_RATE_LIMIT_PER_MINUTE` | `10` | Per-minute limit for auth endpoints (public) |
  * | `INTERNAL_AUTH_RATE_LIMIT_PER_MINUTE` | `60` | Per-minute limit for auth endpoints (internal) |
+ * | `TRANSACTION_RATE_LIMIT_PER_MINUTE` | `20` | Per-minute limit for POST /transactions (public) |
+ * | `INTERNAL_TRANSACTION_RATE_LIMIT_PER_MINUTE` | `120` | Per-minute limit for POST /transactions (internal) |
  * | `INTERNAL_API_KEY` | _(unset)_ | Shared secret sent via `x-internal-key` header |
  */
 @Injectable()
@@ -83,7 +87,9 @@ export class RateLimitMiddleware
    *
    * Evaluates all applicable rate-limit rules for the incoming request and
    * either calls `next()` (request allowed) or responds with HTTP 429
-   * (request blocked).
+   * (request blocked) using the shared {@link ErrorResponse} body shape
+   * (`statusCode`, `message`, `error`, `timestamp`, `path`, optional
+   * `requestId`) plus `retryAfter` and the `Retry-After` response header.
    *
    * Response headers set on every non-health request:
    * - `X-RateLimit-Limit` — the effective window limit
@@ -130,12 +136,18 @@ export class RateLimitMiddleware
     );
 
     if (effective.exceeded) {
-      res.setHeader('Retry-After', effective.resetSeconds.toString());
-      res.status(429).json({
+      const retryAfter = effective.resetSeconds.toString();
+      res.setHeader('Retry-After', retryAfter);
+      const body: ErrorResponse & { retryAfter?: string } = {
         statusCode: 429,
         message: 'Too many requests',
         error: 'Too Many Requests',
-      });
+        timestamp: new Date().toISOString(),
+        path: req.originalUrl || req.path,
+        requestId: RequestContext.requestId,
+        retryAfter,
+      };
+      res.status(429).json(body);
       return;
     }
 
@@ -196,6 +208,16 @@ export class RateLimitMiddleware
         limit: internal
           ? this.envInt('INTERNAL_AUTH_RATE_LIMIT_PER_MINUTE', 60)
           : this.envInt('AUTH_RATE_LIMIT_PER_MINUTE', 10),
+        windowSeconds: 60,
+      };
+    }
+
+    if (req.path === '/transactions' && req.method === 'POST') {
+      return {
+        name: internal ? 'internal-transactions' : 'transactions',
+        limit: internal
+          ? this.envInt('INTERNAL_TRANSACTION_RATE_LIMIT_PER_MINUTE', 120)
+          : this.envInt('TRANSACTION_RATE_LIMIT_PER_MINUTE', 20),
         windowSeconds: 60,
       };
     }
@@ -304,6 +326,7 @@ export class RateLimitMiddleware
       return 'prices-candles';
     }
     if (req.path.startsWith('/auth')) return 'auth';
+    if (req.path === '/transactions') return 'transactions';
     return 'global';
   }
 

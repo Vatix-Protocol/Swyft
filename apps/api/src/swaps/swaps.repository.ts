@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Pool, Token } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SwapSnapshot, SwapsListResult, SwapsQuery } from './swap.types';
 
@@ -7,13 +8,13 @@ export class SwapsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async listSwaps(query: SwapsQuery): Promise<SwapsListResult> {
-    const pool = query.pool?.trim();
+    const poolId = query.poolId?.trim();
     const wallet = query.wallet?.trim();
 
     const where: any = {};
 
-    if (pool) {
-      where.poolId = { equals: pool, mode: 'insensitive' };
+    if (poolId) {
+      where.poolId = { equals: poolId, mode: 'insensitive' };
     }
 
     if (wallet) {
@@ -80,15 +81,39 @@ export class SwapsRepository {
         amount0: swap.amount0,
         amount1: swap.amount1,
         priceAtSwap,
+        feeAmount: swap.feeAmount,
         txHash: swap.transactionHash,
         walletAddress: swap.senderAddress,
         timestamp: swap.timestamp.getTime(),
       };
     });
 
-    return {
-      items,
-      total,
-    };
+    return { items, total };
+  }
+
+  async findTokenByAddress(address: string): Promise<Token | null> {
+    return this.prisma.token.findFirst({
+      where: { address: { equals: address, mode: 'insensitive' } },
+    });
+  }
+
+  async findPoolByTokenPair(
+    tokenA: string,
+    tokenB: string,
+  ): Promise<Pool | null> {
+    return this.prisma.pool.findFirst({
+      where: {
+        OR: [
+          {
+            token0Address: { equals: tokenA, mode: 'insensitive' },
+            token1Address: { equals: tokenB, mode: 'insensitive' },
+          },
+          {
+            token0Address: { equals: tokenB, mode: 'insensitive' },
+            token1Address: { equals: tokenA, mode: 'insensitive' },
+          },
+        ],
+      },
+    });
   }
 }

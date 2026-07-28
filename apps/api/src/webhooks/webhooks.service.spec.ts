@@ -15,7 +15,12 @@ function buildMockPrisma() {
     webhook: {
       create: jest.fn(),
       findMany: jest.fn(),
+      findFirst: jest.fn(),
       deleteMany: jest.fn(),
+    },
+    webhookAuditLog: {
+      create: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
     },
   };
 }
@@ -23,6 +28,7 @@ function buildMockPrisma() {
 function buildMockWorker() {
   return {
     dispatch: jest.fn().mockResolvedValue(undefined),
+    retryFailedDeliveries: jest.fn().mockResolvedValue(0),
   };
 }
 
@@ -152,6 +158,20 @@ describe('WebhooksService', () => {
 
       expect(result).toEqual(mockWebhookRecord);
     });
+
+    it('writes a created audit log entry after persisting the webhook', async () => {
+      prisma.webhook.create.mockResolvedValue(mockWebhookRecord);
+
+      await service.create(OWNER, URL, EVENT_TYPES);
+
+      expect(prisma.webhookAuditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          webhookId: mockWebhookRecord.id,
+          action: 'created',
+          ownerWallet: OWNER,
+        }),
+      });
+    });
   });
 
   // ── list ──────────────────────────────────────────────────────────────────
@@ -221,6 +241,76 @@ describe('WebhooksService', () => {
         where: { id: 'wh-uuid-1', ownerWallet: 'GDIFFERENT_WALLET' },
       });
     });
+
+    it('writes a deleted audit log entry when the webhook was found and removed', async () => {
+      prisma.webhook.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.remove('wh-uuid-1', OWNER);
+
+      expect(prisma.webhookAuditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          webhookId: 'wh-uuid-1',
+          action: 'deleted',
+          ownerWallet: OWNER,
+        }),
+      });
+    });
+
+    it('does not write an audit log entry when the webhook was not found', async () => {
+      prisma.webhook.deleteMany.mockResolvedValue({ count: 0 });
+
+      await service.remove('nonexistent-id', OWNER);
+
+      expect(prisma.webhookAuditLog.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── auditLog ──────────────────────────────────────────────────────────────
+
+  describe('auditLog', () => {
+    const mockAuditEntries = [
+      {
+        id: 'log-1',
+        webhookId: 'wh-uuid-1',
+        action: 'created',
+        meta: '{"url":"https://example.com"}',
+        createdAt: new Date(),
+      },
+    ];
+
+    it('queries audit log entries for the given wallet in descending order', async () => {
+      prisma.webhookAuditLog.findMany.mockResolvedValue(mockAuditEntries);
+
+      await service.auditLog(OWNER);
+
+      expect(prisma.webhookAuditLog.findMany).toHaveBeenCalledWith({
+        where: { ownerWallet: OWNER },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          webhookId: true,
+          action: true,
+          meta: true,
+          createdAt: true,
+        },
+      });
+    });
+
+    it('returns the entries from prisma', async () => {
+      prisma.webhookAuditLog.findMany.mockResolvedValue(mockAuditEntries);
+
+      const result = await service.auditLog(OWNER);
+
+      expect(result).toEqual(mockAuditEntries);
+    });
+
+    it('returns an empty array when no audit entries exist', async () => {
+      prisma.webhookAuditLog.findMany.mockResolvedValue([]);
+
+      const result = await service.auditLog(OWNER);
+
+      expect(result).toEqual([]);
+    });
   });
 
   // ── dispatch ──────────────────────────────────────────────────────────────
@@ -286,6 +376,72 @@ describe('WebhooksService', () => {
       worker.dispatch.mockResolvedValue(undefined);
 
       await expect(service.dispatch(event, data)).resolves.toBeUndefined();
+    });
+  });
+
+  // ── retryDeliveries ────────────────────────────────────────────────────────
+
+  describe('retryDeliveries', () => {
+    it('returns { retried: 0 } when the webhook does not belong to the wallet', async () => {
+      prisma.webhook.findFirst.mockResolvedValue(null);
+
+      const result = await service.retryDeliveries('wh-uuid-1', 'GDIFFERENT');
+
+      expect(result).toEqual({ retried: 0 });
+      expect(worker.retryFailedDeliveries).not.toHaveBeenCalled();
+    });
+
+    it('delegates to worker.retryFailedDeliveries when webhook is owned by the wallet', async () => {
+      prisma.webhook.findFirst.mockResolvedValue({ id: 'wh-uuid-1' });
+      worker.retryFailedDeliveries.mockResolvedValue(2);
+
+      const result = await service.retryDeliveries('wh-uuid-1', OWNER);
+
+      expect(worker.retryFailedDeliveries).toHaveBeenCalledWith('wh-uuid-1');
+      expect(result).toEqual({ retried: 2 });
+    });
+
+    it('returns { retried: 0 } when there are no failed jobs', async () => {
+      prisma.webhook.findFirst.mockResolvedValue({ id: 'wh-uuid-1' });
+      worker.retryFailedDeliveries.mockResolvedValue(0);
+
+      const result = await service.retryDeliveries('wh-uuid-1', OWNER);
+
+      expect(result).toEqual({ retried: 0 });
+    });
+  });
+
+  // ── largeSwapUsd env default ───────────────────────────────────────────────
+
+  describe('create — largeSwapUsd env default', () => {
+    afterEach(() => {
+      delete process.env.LARGE_SWAP_THRESHOLD_USD;
+    });
+
+    it('uses LARGE_SWAP_THRESHOLD_USD env var when largeSwapUsd is not provided', async () => {
+      process.env.LARGE_SWAP_THRESHOLD_USD = '25000';
+      prisma.webhook.create.mockResolvedValue(mockWebhookRecord);
+
+      await service.create(OWNER, URL, EVENT_TYPES);
+
+      expect(prisma.webhook.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ largeSwapUsd: 25000 }),
+        }),
+      );
+    });
+
+    it('explicit largeSwapUsd overrides env var', async () => {
+      process.env.LARGE_SWAP_THRESHOLD_USD = '25000';
+      prisma.webhook.create.mockResolvedValue(mockWebhookRecord);
+
+      await service.create(OWNER, URL, EVENT_TYPES, undefined, 5000);
+
+      expect(prisma.webhook.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ largeSwapUsd: 5000 }),
+        }),
+      );
     });
   });
 });

@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { TokenLogo } from '@swyft/ui';
 import { usePools, PoolOrderBy, PoolListItem } from '@/hooks/usePools';
+import { useSearchDebounce } from '@/hooks/useSearchDebounce';
 import type { Token } from '@swyft/ui';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -167,17 +168,13 @@ function PoolRow({ pool, onNavigate }: { pool: PoolListItem; onNavigate: (path: 
 export default function PoolsPage() {
   const router = useRouter();
   const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debouncedSearch = useSearchDebounce(search);
   const [sortKey, setSortKey] = useState<SortKey>('tvl');
   const [page, setPage] = useState(1);
-
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleSearch = useCallback((value: string) => {
     setSearch(value);
     setPage(1);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedSearch(value), 300);
   }, []);
 
   const { data, isLoading, isError } = usePools({

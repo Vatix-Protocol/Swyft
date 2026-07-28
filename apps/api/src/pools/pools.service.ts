@@ -72,6 +72,9 @@ export class PoolsService {
       limit: query.limit ?? 20,
       orderBy: query.orderBy ?? 'tvl',
       search: query.search?.trim() || undefined,
+      token0: query.token0?.trim() || undefined,
+      token1: query.token1?.trim() || undefined,
+      includeInactive: query.includeInactive === true,
     };
 
     const cacheKey = this.getListCacheKey(normalized);
@@ -114,6 +117,9 @@ export class PoolsService {
       `limit=${query.limit}`,
       `orderBy=${query.orderBy}`,
       `search=${query.search ?? ''}`,
+      `token0=${query.token0 ?? ''}`,
+      `token1=${query.token1 ?? ''}`,
+      `includeInactive=${query.includeInactive === true}`,
     ].join(':');
   }
 

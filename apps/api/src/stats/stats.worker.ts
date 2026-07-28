@@ -5,10 +5,14 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Worker, Job } from 'bullmq';
-import { Position, PrismaClient, Swap } from '@prisma/client';
-import { CacheService } from '../cache/cache.service';
+import { PrismaClient, Swap } from '@prisma/client';
+import { CacheService, TTL } from '../cache/cache.service';
 import { makeQueueOptions } from '../indexer/queues';
 import { STATS_QUEUE_NAME } from './stats.queue';
+import { TvlAlertService } from './tvl-alert.service';
+
+/** Cache key prefix for per-pool stats written by StatsWorker. */
+export const STATS_CACHE_KEY = (poolId: string) => `stats:pool:${poolId}`;
 
 @Injectable()
 export class StatsWorker implements OnModuleInit, OnModuleDestroy {
@@ -16,7 +20,10 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
   private readonly prisma = new PrismaClient();
   private worker!: Worker;
 
-  constructor(private readonly cache: CacheService) {}
+  constructor(
+    private readonly cache: CacheService,
+    private readonly tvlAlertService: TvlAlertService,
+  ) {}
 
   onModuleInit() {
     const { connection } = makeQueueOptions();
@@ -49,24 +56,19 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
 
     for (const pool of pools) {
       try {
-        const [swaps24h, swaps7d, positions] = await Promise.all([
+        const [swaps24h, swaps7d] = await Promise.all([
           this.prisma.swap.findMany({
             where: { poolId: pool.id, timestamp: { gte: ago24h } },
           }),
           this.prisma.swap.findMany({
             where: { poolId: pool.id, timestamp: { gte: ago7d } },
           }),
-          this.prisma.position.findMany({
-            where: { poolId: pool.id, closedAt: null },
-          }),
         ]);
 
         const priceA = await this.getUsdPrice(pool.token0Address);
         const priceB = await this.getUsdPrice(pool.token1Address);
 
-        const tvl = positions.reduce((sum: number, p: Position) => {
-          return sum + Number(p.liquidity) * ((priceA + priceB) / 2);
-        }, 0);
+        const tvl = Number(pool.liquidity) * ((priceA + priceB) / 2);
 
         const volume24h = swaps24h.reduce(
           (sum: number, s: Swap) =>
@@ -83,10 +85,11 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
           0,
         );
 
-        const feeApr =
-          tvl > 0
-            ? ((volume24h * (pool.feeTier / 1_000_000)) / tvl) * 365 * 100
-            : 0;
+        const fees24h = swaps24h.reduce(
+          (sum: number, s: Swap) => sum + Number(s.feeAmount) * priceA,
+          0,
+        );
+        const feeApr = tvl > 0 ? (fees24h / tvl) * 365 * 100 : 0;
 
         await this.prisma.pool.update({
           where: { id: pool.id },
@@ -96,6 +99,24 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
             feeApr: String(feeApr),
           },
         });
+
+        await this.cache.set(
+          STATS_CACHE_KEY(pool.id),
+          {
+            tvl,
+            volume24h,
+            volume7d,
+            feeApr,
+            updatedAt: new Date().toISOString(),
+          },
+          TTL.STATS,
+        );
+
+        // Record TVL snapshot for historical time series
+        await this.tvlAlertService.recordTvlSnapshot(pool.id, tvl);
+
+        // Check and trigger TVL alerts
+        await this.tvlAlertService.checkAndTriggerAlerts(pool, tvl);
 
         updated++;
       } catch (err: unknown) {

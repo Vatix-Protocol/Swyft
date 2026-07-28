@@ -4,13 +4,15 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { verify } from 'jsonwebtoken';
+import { verify, VerifyOptions } from 'jsonwebtoken';
 
 interface JwtPayload {
   sub?: string;
   walletAddress?: string;
   wallet?: string;
   address?: string;
+  iss?: string;
+  aud?: string | string[];
 }
 
 interface RequestWithUser {
@@ -39,8 +41,16 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('JWT secret not configured');
     }
 
+    const options: VerifyOptions = {};
+    if (process.env.JWT_ISSUER) {
+      options.issuer = process.env.JWT_ISSUER;
+    }
+    if (process.env.JWT_AUDIENCE) {
+      options.audience = process.env.JWT_AUDIENCE;
+    }
+
     try {
-      const payload = verify(token, secret) as JwtPayload;
+      const payload = verify(token, secret, options) as JwtPayload;
       const walletAddress =
         payload.walletAddress ??
         payload.wallet ??

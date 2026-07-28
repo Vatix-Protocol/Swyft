@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# Run ESLint on apps/api before every commit.
+# Fails the commit if lint errors are found.
+pnpm --filter api lint

@@ -4,6 +4,14 @@ const Q96 = 79228162514264337593543950336n; // 2^96
 const MAX_TICK = 887272;
 const MIN_TICK = -887272;
 
+/** Thrown when a quote helper receives a zero or negative amount. */
+export class QuoteValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'QuoteValidationError';
+  }
+}
+
 /**
  * Parameters for calculating a simple swap quote without pool state.
  * Used for quick estimates before fetching full pool data.
@@ -99,8 +107,8 @@ export function calculateSwapQuote(params: SwapQuoteParams): SwapQuote {
 
   const amountIn = parseFloat(params.amountIn);
 
-  if (!amountIn || amountIn <= 0) {
-    return EMPTY_QUOTE;
+  if (!Number.isFinite(amountIn) || amountIn <= 0) {
+    throw new QuoteValidationError('amountIn must be greater than zero');
   }
   const reserveIn = 1_000_000;
   const reserveOut = 1_000_000;
@@ -125,7 +133,7 @@ export function calculateSwapQuote(params: SwapQuoteParams): SwapQuote {
 export function getSwapQuote(params: LocalSwapQuoteParams): LocalSwapQuote {
   const amountIn = toBigIntAmount(params.amountIn);
   if (amountIn <= 0n) {
-    throw new Error('amountIn must be greater than zero');
+    throw new QuoteValidationError('amountIn must be greater than zero');
   }
 
   const zeroForOne = direction(params.poolState, params.tokenIn);
