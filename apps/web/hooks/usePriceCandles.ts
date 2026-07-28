@@ -101,42 +101,63 @@ export function usePriceCandles(tokenA: string | null, tokenB: string | null, in
 
     wsRef.current?.close();
 
-    let ws: WebSocket;
+    let ws: WebSocket | null = null;
     let reconnectTimer: NodeJS.Timeout | null = null;
-    try {
-      ws = new WebSocket(`${getWsBase()}/price`);
-    } catch {
-      return;
+    let attempts = 0;
+    let disposed = false;
+
+    function scheduleReconnect() {
+      if (disposed || reconnectTimer) return;
+      const delay = Math.min(30_000, 1_000 * 2 ** attempts++);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
     }
-    wsRef.current = ws;
 
-    ws.onopen = () => {
-      if (poolId) {
-        ws.send(JSON.stringify({ action: 'subscribe', poolId }));
-      }
-    };
-
-    ws.onmessage = (e) => {
+    function connect() {
+      if (disposed) return;
       try {
-        const msg = JSON.parse(e.data as string);
-        if (msg.event === 'price' && msg.data?.poolId === poolId) {
-          setCandles((prev) => {
-            if (prev.length === 0) return [msg.data as Candle];
-            const last = prev[prev.length - 1];
-            if (last.time === (msg.data as Candle).time) {
-              return [...prev.slice(0, -1), msg.data as Candle];
-            }
-            return [...prev.slice(-167), msg.data as Candle];
-          });
-        }
+        ws = new WebSocket(`${getWsBase()}/price`);
       } catch {
-        // ignore malformed messages
+        scheduleReconnect();
+        return;
       }
-    };
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        attempts = 0;
+        if (poolId) {
+          ws?.send(JSON.stringify({ action: 'subscribe', poolId }));
+        }
+      };
+      ws.onclose = scheduleReconnect;
+      ws.onerror = () => ws?.close();
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data as string);
+          if (msg.event === 'price' && msg.data?.poolId === poolId) {
+            setCandles((prev) => {
+              if (prev.length === 0) return [msg.data as Candle];
+              const last = prev[prev.length - 1];
+              if (last.time === (msg.data as Candle).time) {
+                return [...prev.slice(0, -1), msg.data as Candle];
+              }
+              return [...prev.slice(-167), msg.data as Candle];
+            });
+          }
+        } catch {
+          // ignore malformed messages
+        }
+      };
+    }
+
+    connect();
 
     return () => {
+      disposed = true;
       clearTimeout(reconnectTimer ?? undefined);
-      ws.close();
+      ws?.close();
     };
   }, [tokenA, tokenB, interval, poolId]);
 

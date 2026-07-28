@@ -138,7 +138,11 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
         (id) => `prices:${id}`,
       );
       if (channels.length) {
-        void this.subscriber.subscribe(...channels);
+        void this.subscriber
+          .subscribe(...channels)
+          .catch((error: unknown) =>
+            this.logger.warn(`Price re-subscription failed: ${String(error)}`),
+          );
         this.logger.log(`Re-subscribed to ${channels.length} channel(s)`);
       }
     });
@@ -156,7 +160,13 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
     if (!this.clientPools.has(client)) this.clientPools.set(client, new Set());
     this.clientPools.get(client)!.add(poolId);
 
-    if (isNew) void this.subscriber.subscribe(`prices:${poolId}`);
+    if (isNew) {
+      void this.subscriber
+        .subscribe(`prices:${poolId}`)
+        .catch((error: unknown) =>
+          this.logger.warn(`Price subscription failed: ${String(error)}`),
+        );
+    }
   }
 
   unsubscribe(client: WebSocket, poolId: string): void {
@@ -165,7 +175,11 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
       pool.delete(client);
       if (pool.size === 0) {
         this.subscriptions.delete(poolId);
-        void this.subscriber.unsubscribe(`prices:${poolId}`);
+        void this.subscriber
+          .unsubscribe(`prices:${poolId}`)
+          .catch((error: unknown) =>
+            this.logger.warn(`Price unsubscribe failed: ${String(error)}`),
+          );
       }
     }
     this.clientPools.get(client)?.delete(poolId);
@@ -227,7 +241,13 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
 
     const payload = JSON.stringify({ event: 'price', data: event });
     for (const client of clients) {
-      if (client.readyState === WebSocket.OPEN) client.send(payload);
+      if (client.readyState !== WebSocket.OPEN) continue;
+      try {
+        client.send(payload);
+      } catch (error) {
+        this.removeClient(client);
+        this.logger.warn(`Price broadcast failed: ${String(error)}`);
+      }
     }
   }
 
