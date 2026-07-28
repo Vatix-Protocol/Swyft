@@ -343,11 +343,30 @@ model TvlAlertThreshold {
   updatedAt        DateTime @updatedAt
 
   pool             Pool     @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  history          TvlAlertHistory[]
 
   @@unique([poolId, ownerWallet])
   @@index([poolId])
   @@index([ownerWallet])
   @@map("tvl_alert_threshold")
+}
+
+/// Immutable history of threshold breaches, retained independently of delivery.
+model TvlAlertHistory {
+  id             String   @id @default(cuid())
+  thresholdId    String
+  poolId         String
+  ownerWallet    String
+  thresholdUsd   Float
+  observedTvlUsd Float
+  direction      String
+  breachedAt     DateTime @default(now())
+
+  threshold TvlAlertThreshold @relation(fields: [thresholdId], references: [id], onDelete: Cascade)
+
+  @@index([thresholdId, breachedAt])
+  @@index([poolId, breachedAt])
+  @@map("tvl_alert_history")
 }
 
 /// #489 — Historical TVL time series

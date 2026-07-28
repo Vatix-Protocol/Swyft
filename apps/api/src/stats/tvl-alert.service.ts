@@ -134,10 +134,23 @@ export class TvlAlertService {
 
     for (const threshold of thresholds) {
       try {
+        const breachedAt = new Date();
+        await this.prisma.tvlAlertHistory.create({
+          data: {
+            thresholdId: threshold.id,
+            poolId: pool.id,
+            ownerWallet: threshold.ownerWallet,
+            thresholdUsd: threshold.thresholdUsd,
+            observedTvlUsd: currentTvlUsd,
+            direction: threshold.direction,
+            breachedAt,
+          },
+        });
+
         // Update last triggered time
         await this.prisma.tvlAlertThreshold.update({
           where: { id: threshold.id },
-          data: { lastTriggeredAt: new Date() },
+          data: { lastTriggeredAt: breachedAt },
         });
 
         // Trigger webhook if user has webhooks set up for pool.tvl.milestone
@@ -148,7 +161,7 @@ export class TvlAlertService {
           tvlUsd: currentTvlUsd,
           threshold: threshold.thresholdUsd,
           direction: threshold.direction,
-          crossedAt: new Date().toISOString(),
+          crossedAt: breachedAt.toISOString(),
         });
 
         this.logger.log(

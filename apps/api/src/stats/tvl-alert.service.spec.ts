@@ -28,6 +28,9 @@ describe('TvlAlertService', () => {
               upsert: jest.fn(),
               findMany: jest.fn(),
             },
+            tvlAlertHistory: {
+              create: jest.fn(),
+            },
           },
         },
         {
@@ -144,6 +147,17 @@ describe('TvlAlertService', () => {
 
       await service.checkAndTriggerAlerts(mockPool, 900000);
 
+      expect(prisma.tvlAlertHistory.create).toHaveBeenCalledWith({
+        data: {
+          thresholdId: 'threshold-1',
+          poolId: 'pool-1',
+          ownerWallet: 'owner-1',
+          thresholdUsd: 1000000,
+          observedTvlUsd: 900000,
+          direction: 'below',
+          breachedAt: expect.any(Date),
+        },
+      });
       expect(prisma.tvlAlertThreshold.update).toHaveBeenCalledWith({
         where: { id: 'threshold-1' },
         data: { lastTriggeredAt: expect.any(Date) },
