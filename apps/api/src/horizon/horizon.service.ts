@@ -26,6 +26,13 @@ import {
 } from '../indexer/queues';
 import { STELLAR_CONFIG_KEY, StellarConfig } from '../config/stellar.config';
 
+export class HorizonTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Horizon request timed out after ${timeoutMs}ms`);
+    this.name = 'HorizonTimeoutError';
+  }
+}
+
 @Injectable()
 export class HorizonService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(HorizonService.name);
@@ -35,6 +42,9 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private polling = false;
   private stopped = false;
+  private readonly timeoutMs: number;
+  private consecutiveFailures = 0;
+  private nextAttemptAt = 0;
 
   constructor(
     private readonly config: ConfigService,
@@ -54,6 +64,13 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
     const stellarCfg = this.config.get<StellarConfig>(STELLAR_CONFIG_KEY)!;
     this.server = new Horizon.Server(stellarCfg.horizonUrl);
     this.contractId = stellarCfg.poolContractId;
+    const configuredTimeout = Number(
+      this.config.get<string>('HORIZON_TIMEOUT_MS') ?? 10_000,
+    );
+    this.timeoutMs =
+      Number.isFinite(configuredTimeout) && configuredTimeout > 0
+        ? configuredTimeout
+        : 10_000;
   }
 
   async onModuleInit() {
@@ -73,16 +90,20 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async poll(): Promise<void> {
-    if (this.polling || this.stopped) return;
+    if (this.polling || this.stopped || Date.now() < this.nextAttemptAt) return;
     this.polling = true;
     try {
-      const page = await this.server
-        .effects()
-        .forAccount(this.contractId)
-        .cursor(this.cursor)
-        .order('asc')
-        .limit(50)
-        .call();
+      const page = await this.withTimeout(
+        this.server
+          .effects()
+          .forAccount(this.contractId)
+          .cursor(this.cursor)
+          .order('asc')
+          .limit(50)
+          .call(),
+      );
+      this.consecutiveFailures = 0;
+      this.nextAttemptAt = 0;
 
       // Group records by ledger so we can batch-enqueue within each window.
       const byLedger = new Map<number | 'unknown', IndexerEffectRecord[]>();
@@ -121,10 +142,35 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
         }
       }
     } catch (err) {
+      this.consecutiveFailures += 1;
+      const backoffMs = Math.min(
+        30_000,
+        1_000 * 2 ** (this.consecutiveFailures - 1),
+      );
+      this.nextAttemptAt = Date.now() + backoffMs;
       this.logger.warn(`Horizon poll error: ${(err as Error).message}`);
     } finally {
       this.polling = false;
     }
+  }
+
+  private withTimeout<T>(request: Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new HorizonTimeoutError(this.timeoutMs)),
+        this.timeoutMs,
+      );
+      request.then(
+        (value) => {
+          clearTimeout(timeout);
+          resolve(value);
+        },
+        (error: unknown) => {
+          clearTimeout(timeout);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        },
+      );
+    });
   }
 
   /**
