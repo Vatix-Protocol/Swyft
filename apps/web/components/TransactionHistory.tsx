@@ -32,6 +32,8 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
   const [page, setPage] = useState(1);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  const [poolFilter, setPoolFilter] = useState<string>('');
+  const [poolOptions, setPoolOptions] = useState<{ id: string; label: string }[]>([]);
 
   const {
     data: swapsData,
@@ -118,7 +120,38 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
       </div>
 
       {/* Date Filter */}
-      <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-700 flex gap-4 items-center">
+      <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-700 flex flex-wrap gap-4 items-center">
+        {activeTab === 'lp' && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-zinc-600 dark:text-zinc-400" htmlFor="lp-pool-filter">
+              Pool:
+            </label>
+            <select
+              id="lp-pool-filter"
+              value={poolFilter}
+              onChange={(e) => {
+                setPoolFilter(e.target.value);
+                setPage(1);
+              }}
+              className="rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-1.5 text-sm text-zinc-900 dark:text-zinc-100"
+            >
+              <option value="">All pools</option>
+              {poolOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {poolFilter && (
+              <button
+                onClick={() => setPoolFilter('')}
+                className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <label className="text-sm text-zinc-600 dark:text-zinc-400">From:</label>
           <input
@@ -399,6 +432,23 @@ function LpTable({
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           Connect your wallet to view LP activity
         </p>
+      </div>
+    );
+  }
+
+  if (!loading && activities.length === 0 && poolFilterActive) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-zinc-500 dark:text-zinc-400 mb-2">No LP activity for this pool</p>
+        <p className="text-sm text-zinc-400 dark:text-zinc-500 mb-3">
+          Try a different pool or clear the filter to see all activity.
+        </p>
+        <button
+          onClick={onClearPoolFilter}
+          className="text-sm text-indigo-600 underline hover:text-indigo-500 transition-colors"
+        >
+          Clear filter
+        </button>
       </div>
     );
   }
