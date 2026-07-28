@@ -124,6 +124,18 @@ describe('PriceService', () => {
     expect(client.send as jest.Mock).not.toHaveBeenCalled();
   });
 
+  it('contains send failures from disconnected clients', () => {
+    const client = mockClient();
+    (client.send as jest.Mock).mockImplementation(() => {
+      throw new Error('socket closed');
+    });
+    service.subscribe(client, 'pool-1');
+
+    expect(() => service.broadcastPrice(event)).not.toThrow();
+    service.broadcastPrice(event);
+    expect(client.send as jest.Mock).toHaveBeenCalledTimes(1);
+  });
+
   describe('normalizePair', () => {
     it('returns tokens in lexicographic order', () => {
       expect(normalizePair('XLM', 'USDC')).toEqual(['usdc', 'xlm']);

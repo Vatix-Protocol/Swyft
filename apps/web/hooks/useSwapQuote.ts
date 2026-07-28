@@ -63,34 +63,62 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
   useEffect(() => {
     if (!poolId || !tokenInId || !tokenOutId) return;
 
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(`${getWsBase()}/price`);
-    } catch {
-      return;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: NodeJS.Timeout | null = null;
+    let attempts = 0;
+    let disposed = false;
+
+    function scheduleReconnect() {
+      if (disposed || reconnectTimer) return;
+      const delay = Math.min(30_000, 1_000 * 2 ** attempts++);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
     }
 
-    let reconnectTimer: NodeJS.Timeout | null = null;
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ event: 'subscribe', poolId }));
-    };
-
-    ws.onmessage = (e) => {
+    function connect() {
+      if (disposed) return;
       try {
-        const msg = JSON.parse(e.data as string) as { poolId?: string };
-        if (msg.poolId !== poolId) return;
-        if (!amountIn || parseFloat(amountIn) <= 0) return;
-        const result = calculateSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippageBps });
-        setQuote(result);
+        ws = new WebSocket(`${getWsBase()}/price`);
       } catch {
-        // ignore malformed messages
+        scheduleReconnect();
+        return;
       }
-    };
+      ws.onopen = () => {
+        attempts = 0;
+        ws?.send(JSON.stringify({ action: 'subscribe', poolId }));
+      };
+      ws.onclose = scheduleReconnect;
+      ws.onerror = () => ws?.close();
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data as string) as {
+            event?: string;
+            data?: { poolId?: string };
+          };
+          if (msg.event !== 'price' || msg.data?.poolId !== poolId) return;
+          if (!amountIn || parseFloat(amountIn) <= 0) return;
+          const result = calculateSwapQuote({
+            poolId,
+            tokenInId,
+            tokenOutId,
+            amountIn,
+            slippageBps,
+          });
+          setQuote(result);
+        } catch {
+          // ignore malformed messages
+        }
+      };
+    }
+
+    connect();
 
     return () => {
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      ws.close();
+      disposed = true;
+      clearTimeout(reconnectTimer ?? undefined);
+      ws?.close();
     };
   }, [poolId, tokenInId, tokenOutId, amountIn, slippageBps]);
 
