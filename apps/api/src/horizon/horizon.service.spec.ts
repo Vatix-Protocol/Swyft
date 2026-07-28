@@ -16,7 +16,7 @@ import { CacheService } from '../cache/cache.service';
 import { IndexerCursorService } from '../indexer/indexer-cursor.service';
 import { PoolsService } from '../pools/pools.service';
 import { PriceService } from '../price/price.service';
-import { HorizonService } from './horizon.service';
+import { HorizonService, HorizonTimeoutError } from './horizon.service';
 
 // ── Stub factories ────────────────────────────────────────────────────────────
 
@@ -43,10 +43,14 @@ function buildEffectsChain(records: object[]) {
 
 function buildService(horizonServer: object) {
   const config = {
-    get: jest.fn().mockReturnValue({
-      horizonUrl: 'https://horizon.test',
-      poolContractId: 'GPOOL_CONTRACT',
-    }),
+    get: jest.fn((key: string) =>
+      key === 'stellar'
+        ? {
+            horizonUrl: 'https://horizon.test',
+            poolContractId: 'GPOOL_CONTRACT',
+          }
+        : undefined,
+    ),
   } as unknown as ConfigService;
   const priceService = { broadcastPrice: jest.fn() } as unknown as PriceService;
   const poolsService = {
@@ -356,6 +360,44 @@ describe('HorizonService — poller (Horizon mocked)', () => {
   });
 
   describe('error resilience', () => {
+    it('surfaces a typed timeout and releases the poller', async () => {
+      jest.useFakeTimers();
+      const { service } = buildService({});
+      (service as any).timeoutMs = 25;
+
+      const request = (service as any).withTimeout(new Promise(() => {}));
+      jest.advanceTimersByTime(25);
+
+      await expect(request).rejects.toBeInstanceOf(HorizonTimeoutError);
+      jest.useRealTimers();
+    });
+
+    it('backs off after failure and recovers on a later poll', async () => {
+      const call = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('Horizon unavailable'))
+        .mockResolvedValueOnce({ records: [] });
+      const server = {
+        effects: () => ({
+          forAccount: () => ({
+            cursor: () => ({ order: () => ({ limit: () => ({ call }) }) }),
+          }),
+        }),
+      };
+      const { service } = buildService(server);
+      const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+
+      await (service as any).poll();
+      await (service as any).poll();
+      expect(call).toHaveBeenCalledTimes(1);
+
+      now.mockReturnValue(2_000);
+      await (service as any).poll();
+      expect(call).toHaveBeenCalledTimes(2);
+      expect((service as any).consecutiveFailures).toBe(0);
+      now.mockRestore();
+    });
+
     it('does not throw when Horizon.call() rejects — logs a warning instead', async () => {
       const server = {
         effects: () => ({
