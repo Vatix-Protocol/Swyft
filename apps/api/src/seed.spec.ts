@@ -126,6 +126,7 @@ describe('prisma seed', () => {
     await runSeed();
     expect(mockCreateMany).toHaveBeenCalledWith(
       expect.objectContaining({
+        skipDuplicates: true,
         data: expect.arrayContaining([
           expect.objectContaining({ transactionHash: 'test-tx-1' }),
           expect.objectContaining({ transactionHash: 'test-tx-2' }),
@@ -138,8 +139,13 @@ describe('prisma seed', () => {
     await runSeed();
     expect(mockCreateMany).toHaveBeenCalledWith(
       expect.objectContaining({
+        skipDuplicates: true,
         data: expect.arrayContaining([
-          expect.objectContaining({ poolId: 'test-pool-1', interval: '1h' }),
+          expect.objectContaining({
+            poolId: 'test-pool-1',
+            interval: '1h',
+            periodStart: new Date('2026-01-01T00:00:00.000Z'),
+          }),
         ]),
       }),
     );

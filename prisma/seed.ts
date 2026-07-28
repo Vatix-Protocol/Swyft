@@ -149,6 +149,7 @@ export async function main() {
 
     await prisma.swap.createMany({
       data: swapData,
+      skipDuplicates: true,
     });
     spinner.stop(true, 'Swaps seeded   (2 records)');
 
@@ -162,13 +163,14 @@ export async function main() {
         low: 0.95,
         close: 1.02,
         volumeUsd: 1000000.0,
-        periodStart: new Date(),
+        periodStart: new Date('2026-01-01T00:00:00.000Z'),
         interval: '1h',
       },
     ];
 
     await prisma.priceCandle.createMany({
       data: priceCandleData,
+      skipDuplicates: true,
     });
     spinner.stop(true, 'Price candles seeded (1 record)');
 
