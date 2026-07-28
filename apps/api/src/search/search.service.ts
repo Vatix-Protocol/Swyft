@@ -27,21 +27,34 @@ export interface SearchResponse {
 export class SearchService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async search(rawQuery: string): Promise<SearchResponse> {
+  async search(
+    rawQuery: string,
+    rawLimit = 10,
+    rawOffset = 0,
+  ): Promise<SearchResponse> {
     const query = rawQuery.trim();
     if (query.length < 2) {
       return { tokens: [], pools: [] };
     }
+    const limit = Math.min(Math.max(Math.trunc(rawLimit) || 10, 1), 50);
+    const offset = Math.max(Math.trunc(rawOffset) || 0, 0);
 
     const [tokens, pools] = await Promise.all([
-      this.searchTokens(query),
-      this.searchPools(query),
+      this.searchTokens(query, limit, offset),
+      this.searchPools(query, limit, offset),
     ]);
 
     return { tokens, pools };
   }
 
-  private searchTokens(query: string): Promise<SearchTokenResult[]> {
+  private searchTokens(
+    query: string,
+    limit: number,
+    offset: number,
+  ): Promise<SearchTokenResult[]> {
+    const tsPrefix = (query.toLowerCase().match(/[a-z0-9]+/g) ?? [])
+      .map((term) => `${term}:*`)
+      .join(' & ');
     return (
       this.prisma.$queryRawUnsafe as (
         sql: string,
@@ -60,28 +73,37 @@ export class SearchService {
           lower("address") = lower($1)
           OR "symbol" ILIKE $2
           OR "name" ILIKE $3
-          OR to_tsvector('simple', "symbol") @@ websearch_to_tsquery('simple', $4)
+          OR (
+            $4 <> ''
+            AND to_tsvector('simple', "symbol") @@ to_tsquery('simple', $4)
+          )
         ORDER BY
           CASE
             WHEN lower("symbol") = lower($1) THEN 0
             WHEN lower("address") = lower($1) THEN 0
             WHEN "symbol" ILIKE $2 THEN 1
-            WHEN to_tsvector('simple', "symbol") @@ websearch_to_tsquery('simple', $4) THEN 1
+            WHEN $4 <> '' AND to_tsvector('simple', "symbol") @@ to_tsquery('simple', $4) THEN 1
             WHEN "name" ILIKE $3 THEN 2
             ELSE 3
           END,
           "symbol" ASC,
           "name" ASC
-        LIMIT 10
+        LIMIT $5 OFFSET $6
       `,
       query,
       `${query}%`,
       `%${query}%`,
-      query,
+      tsPrefix,
+      limit,
+      offset,
     );
   }
 
-  private searchPools(query: string): Promise<SearchPoolResult[]> {
+  private searchPools(
+    query: string,
+    limit: number,
+    offset: number,
+  ): Promise<SearchPoolResult[]> {
     return (
       this.prisma.$queryRawUnsafe as (
         sql: string,
@@ -109,10 +131,12 @@ export class SearchService {
         ORDER BY
           COALESCE(NULLIF(pool."volume24h", '')::numeric, 0) DESC,
           p."poolId" ASC
-        LIMIT 10
+        LIMIT $3 OFFSET $4
       `,
       query,
       `${query}%`,
+      limit,
+      offset,
     );
   }
 }

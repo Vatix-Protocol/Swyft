@@ -64,7 +64,7 @@ describe('SearchService', () => {
     expect(tokenSql).toContain('WHEN "name" ILIKE $3 THEN 2');
   });
 
-  it('full-text searches the token symbol via to_tsvector/websearch_to_tsquery', async () => {
+  it('full-text searches token symbol prefixes through the GIN expression', async () => {
     prisma.$queryRawUnsafe.mockResolvedValue([]);
     const service = new SearchService(prisma as never);
 
@@ -73,9 +73,19 @@ describe('SearchService', () => {
     const tokenSql = prisma.$queryRawUnsafe.mock.calls[0][0] as string;
     const tokenArgs = prisma.$queryRawUnsafe.mock.calls[0].slice(1);
     expect(tokenSql).toContain(
-      `to_tsvector('simple', "symbol") @@ websearch_to_tsquery('simple', $4)`,
+      `to_tsvector('simple', "symbol") @@ to_tsquery('simple', $4)`,
     );
-    expect(tokenArgs).toEqual(['usdc', 'usdc%', '%usdc%', 'usdc']);
+    expect(tokenArgs).toEqual(['usdc', 'usdc%', '%usdc%', 'usdc:*', 10, 0]);
+  });
+
+  it('clamps pagination and passes it to both indexed queries', async () => {
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const service = new SearchService(prisma as never);
+
+    await service.search('usd', 1000, 20);
+
+    expect(prisma.$queryRawUnsafe.mock.calls[0].slice(-2)).toEqual([50, 20]);
+    expect(prisma.$queryRawUnsafe.mock.calls[1].slice(-2)).toEqual([50, 20]);
   });
 
   it('returns empty arrays when no matches are found', async () => {

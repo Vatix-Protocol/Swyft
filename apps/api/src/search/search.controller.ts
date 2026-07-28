@@ -20,12 +20,18 @@ export class SearchController {
     description: 'Search query (min 2 characters)',
     example: 'USDC',
   })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  @ApiQuery({ name: 'offset', required: false, type: Number, example: 0 })
   @ApiResponse({
     status: 200,
     description:
       'Matching tokens and pools. Pools ordered by volume24h DESC, then poolId ASC.',
   })
-  search(@Query('q') query = ''): Promise<SearchResponse> {
-    return this.searchService.search(query);
+  search(
+    @Query('q') query = '',
+    @Query('limit') limit = '10',
+    @Query('offset') offset = '0',
+  ): Promise<SearchResponse> {
+    return this.searchService.search(query, Number(limit), Number(offset));
   }
 }
