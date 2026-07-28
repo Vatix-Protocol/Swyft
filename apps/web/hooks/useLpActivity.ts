@@ -37,10 +37,11 @@ export function useLpActivity(
   walletAddress: string | null,
   authToken: string | null,
   page: number = 1,
-  limit: number = 20
+  limit: number = 20,
+  poolId?: string | null
 ) {
   return useQuery({
-    queryKey: ['lp-activity', walletAddress, page, limit],
+    queryKey: ['lp-activity', walletAddress, page, limit, poolId ?? null],
     queryFn: async (): Promise<LpActivityListResponse> => {
       if (!walletAddress || !authToken) return { items: [], total: 0 };
 
@@ -49,6 +50,7 @@ export function useLpActivity(
         page: page.toString(),
         limit: limit.toString(),
       });
+      if (poolId) params.set('pool', poolId);
 
       const response = await fetch(`${API_BASE}/positions?${params}`, {
         headers: { Authorization: `Bearer ${authToken}` },
