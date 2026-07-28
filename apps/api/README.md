@@ -55,6 +55,10 @@ The `-v` flag removes the named `postgres_data` volume, giving you a clean datab
 `CORS_ORIGIN`) as a comma-separated origin list and defaults to
 `http://localhost:3000`.
 
+Request logging automatically redacts sensitive headers and body fields such as
+`Authorization`, `x-api-key`, and password/API-key payload values before they
+are written to logs.
+
 ## Indexer recovery
 
 Each successfully persisted indexer event with a valid `ledger` field advances
@@ -103,3 +107,8 @@ retain the raw event tables for auditability and project the data into the
 canonical `Pool`, `Token`, `Swap`, and `Position` tables. Position events must
 include their pool-local `tokenId`; `liquidity` is the resulting position
 liquidity, so a value of `0` closes the position.
+
+When `OTEL_EXPORTER_OTLP_ENDPOINT` is configured, the indexer worker emits
+OpenTelemetry spans for the fetch/write/project stages of pool-created,
+swap-processed, position, and fees-collected jobs so operators can inspect the
+batch-processing pipeline via their tracing backend.

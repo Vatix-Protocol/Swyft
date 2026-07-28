@@ -103,4 +103,50 @@ describe('LoggingMiddleware', () => {
       expect.stringContaining(`requestId=${requestId}`),
     );
   });
+
+  it('redacts sensitive headers and body fields in production logs', () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+
+    const middleware = new LoggingMiddleware();
+    const res = response();
+    const req = request({
+      headers: {
+        authorization: 'Bearer top-secret',
+        'x-api-key': 'api-key-secret',
+        'x-foo': 'visible',
+      },
+      body: {
+        apiKey: 'body-secret',
+        password: 'body-password',
+        safeValue: 'visible',
+      },
+    });
+    const logSpy = jest
+      .spyOn(
+        (middleware as unknown as { logger: { log: () => void } }).logger,
+        'log',
+      )
+      .mockImplementation(() => undefined);
+
+    middleware.use(req as never, res as never, next);
+    res.emitFinish();
+
+    const output = logSpy.mock.calls.map((args) => args[0]).join(' ');
+    expect(output).toContain('"authorization":"[REDACTED]"');
+    expect(output).toContain('"x-api-key":"[REDACTED]"');
+    expect(output).toContain('"apiKey":"[REDACTED]"');
+    expect(output).toContain('"password":"[REDACTED]"');
+    expect(output).not.toContain('top-secret');
+    expect(output).not.toContain('api-key-secret');
+    expect(output).not.toContain('body-secret');
+    expect(output).not.toContain('body-password');
+    expect(output).toContain('"x-foo":"visible"');
+
+    if (previousNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
 });

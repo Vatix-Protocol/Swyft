@@ -89,6 +89,15 @@ cargo test --workspace
 pnpm --filter api test
 ```
 
+### Run web Vitest
+
+```bash
+pnpm --filter web test
+```
+
+The CI workflow includes a dedicated web Vitest job so frontend regressions are
+caught whenever changes land in `apps/web`.
+
 ### Git hooks
 
 - **pre-commit** — runs ESLint on `apps/api`.
