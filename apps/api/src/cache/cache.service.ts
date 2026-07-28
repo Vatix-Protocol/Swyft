@@ -13,6 +13,7 @@ export const TTL = {
   CANDLES_SLOW: 60, // 1h / 1d candles
   CANDLES_FAST: 10, // 1m / 5m candles
   TICKS: 10,
+  GLOBAL_STATS: 20, // short-lived — protects the DB from repeated aggregate queries
 } as const;
 
 @Injectable()
