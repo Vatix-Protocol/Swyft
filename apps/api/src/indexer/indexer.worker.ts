@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Worker, Job, QueueEvents } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
 import { IndexerCursorService } from './indexer-cursor.service';
@@ -22,6 +23,8 @@ import {
   QueueName,
 } from './queues';
 import { PoolsRepository } from '../pools/pools.repository';
+
+const tracer = trace.getTracer('swyft-indexer');
 
 @Injectable()
 export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
@@ -268,184 +271,382 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
   private async handlePoolCreated(job: Job<PoolCreatedJobData>) {
     const d = job.data;
-    if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>))
-      return;
-    await this.prisma.poolCreated.upsert({
-      where: { eventId: d.eventId },
-      update: {},
-      create: {
-        eventId: d.eventId,
-        poolId: d.poolId,
-        tokenA: d.tokenA,
-        tokenB: d.tokenB,
-        fee: d.fee,
-        sqrtPriceX96: d.sqrtPriceX96,
-        ledger: d.ledger ?? null,
+    await tracer.startActiveSpan(
+      'indexer.pool_created',
+      async (span) => {
+        try {
+          span.setAttributes({
+            'indexer.queue': QUEUE_NAMES.POOL_CREATED,
+            'indexer.job_id': job.id ?? '',
+            'indexer.event_id': d.eventId,
+            'indexer.pool_id': d.poolId,
+            'indexer.ledger': d.ledger ?? 0,
+          });
+
+          if (
+            !this.guardEmptyData(job.id, d as unknown as Record<string, unknown>)
+          ) {
+            span.setStatus({ code: SpanStatusCode.OK, message: 'skipped' });
+            return;
+          }
+
+          // Stage: write raw event
+          await tracer.startActiveSpan('indexer.pool_created.write', async (writeSpan) => {
+            try {
+              await this.prisma.poolCreated.upsert({
+                where: { eventId: d.eventId },
+                update: {},
+                create: {
+                  eventId: d.eventId,
+                  poolId: d.poolId,
+                  tokenA: d.tokenA,
+                  tokenB: d.tokenB,
+                  fee: d.fee,
+                  sqrtPriceX96: d.sqrtPriceX96,
+                  ledger: d.ledger ?? null,
+                },
+              });
+              writeSpan.setStatus({ code: SpanStatusCode.OK });
+            } catch (err) {
+              writeSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+              throw err;
+            } finally {
+              writeSpan.end();
+            }
+          });
+
+          // Stage: project into relational tables
+          await tracer.startActiveSpan('indexer.pool_created.project', async (projectSpan) => {
+            try {
+              await this.projectPoolCreated(d);
+              projectSpan.setStatus({ code: SpanStatusCode.OK });
+            } catch (err) {
+              projectSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+              throw err;
+            } finally {
+              projectSpan.end();
+            }
+          });
+
+          this.webhooks
+            .dispatch('pool.created', {
+              poolId: d.poolId,
+              tokenA: d.tokenA,
+              tokenB: d.tokenB,
+              fee: d.fee,
+              sqrtPriceX96: d.sqrtPriceX96,
+              eventId: d.eventId,
+            })
+            .catch((err) => {
+              this.logger.error(
+                `Failed to dispatch pool.created webhook: ${err.message}`,
+              );
+            });
+
+          await this.advanceLedger(job.id, d.ledger);
+          span.setStatus({ code: SpanStatusCode.OK });
+        } catch (err) {
+          span.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+          throw err;
+        } finally {
+          span.end();
+        }
       },
-    });
-
-    await this.projectPoolCreated(d);
-
-    this.webhooks
-      .dispatch('pool.created', {
-        poolId: d.poolId,
-        tokenA: d.tokenA,
-        tokenB: d.tokenB,
-        fee: d.fee,
-        sqrtPriceX96: d.sqrtPriceX96,
-        eventId: d.eventId,
-      })
-      .catch((err) => {
-        this.logger.error(
-          `Failed to dispatch pool.created webhook: ${err.message}`,
-        );
-      });
-
-    await this.advanceLedger(job.id, d.ledger);
+    );
   }
 
   private async handleSwapProcessed(job: Job<SwapProcessedJobData>) {
     const d = job.data;
-    if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>))
-      return;
-    await this.prisma.swapProcessed.upsert({
-      where: { eventId: d.eventId },
-      update: {},
-      create: {
-        eventId: d.eventId,
-        poolId: d.poolId,
-        sender: d.sender,
-        recipient: d.recipient,
-        amount0: d.amount0,
-        amount1: d.amount1,
-        sqrtPriceX96: d.sqrtPriceX96,
-        liquidity: d.liquidity,
-        tick: d.tick,
-        ledger: d.ledger ?? null,
+    await tracer.startActiveSpan(
+      'indexer.swap_processed',
+      async (span) => {
+        try {
+          span.setAttributes({
+            'indexer.queue': QUEUE_NAMES.SWAP_PROCESSED,
+            'indexer.job_id': job.id ?? '',
+            'indexer.event_id': d.eventId,
+            'indexer.pool_id': d.poolId,
+            'indexer.ledger': d.ledger ?? 0,
+          });
+
+          if (
+            !this.guardEmptyData(job.id, d as unknown as Record<string, unknown>)
+          ) {
+            span.setStatus({ code: SpanStatusCode.OK, message: 'skipped' });
+            return;
+          }
+
+          // Stage: write raw event
+          await tracer.startActiveSpan('indexer.swap_processed.write', async (writeSpan) => {
+            try {
+              await this.prisma.swapProcessed.upsert({
+                where: { eventId: d.eventId },
+                update: {},
+                create: {
+                  eventId: d.eventId,
+                  poolId: d.poolId,
+                  sender: d.sender,
+                  recipient: d.recipient,
+                  amount0: d.amount0,
+                  amount1: d.amount1,
+                  sqrtPriceX96: d.sqrtPriceX96,
+                  liquidity: d.liquidity,
+                  tick: d.tick,
+                  ledger: d.ledger ?? null,
+                },
+              });
+              writeSpan.setStatus({ code: SpanStatusCode.OK });
+            } catch (err) {
+              writeSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+              throw err;
+            } finally {
+              writeSpan.end();
+            }
+          });
+
+          // Stage: project into relational tables
+          await tracer.startActiveSpan('indexer.swap_processed.project', async (projectSpan) => {
+            try {
+              await this.projectSwapProcessed(d);
+              projectSpan.setStatus({ code: SpanStatusCode.OK });
+            } catch (err) {
+              projectSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+              throw err;
+            } finally {
+              projectSpan.end();
+            }
+          });
+
+          this.webhooks
+            .dispatch('swap.large', {
+              poolId: d.poolId,
+              sender: d.sender,
+              recipient: d.recipient,
+              amount0: d.amount0,
+              amount1: d.amount1,
+              sqrtPriceX96: d.sqrtPriceX96,
+              liquidity: d.liquidity,
+              tick: d.tick,
+              eventId: d.eventId,
+            })
+            .catch((err) => {
+              this.logger.error(
+                `Failed to dispatch swap.large webhook: ${err.message}`,
+              );
+            });
+
+          await this.advanceLedger(job.id, d.ledger);
+          span.setStatus({ code: SpanStatusCode.OK });
+        } catch (err) {
+          span.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+          throw err;
+        } finally {
+          span.end();
+        }
       },
-    });
-
-    await this.projectSwapProcessed(d);
-
-    this.webhooks
-      .dispatch('swap.large', {
-        poolId: d.poolId,
-        sender: d.sender,
-        recipient: d.recipient,
-        amount0: d.amount0,
-        amount1: d.amount1,
-        sqrtPriceX96: d.sqrtPriceX96,
-        liquidity: d.liquidity,
-        tick: d.tick,
-        eventId: d.eventId,
-      })
-      .catch((err) => {
-        this.logger.error(
-          `Failed to dispatch swap.large webhook: ${err.message}`,
-        );
-      });
-
-    await this.advanceLedger(job.id, d.ledger);
+    );
   }
 
   private async handlePositionMinted(job: Job<PositionMintedJobData>) {
     const d = job.data;
-    if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>))
-      return;
-    await this.prisma.positionMinted.upsert({
-      where: { eventId: d.eventId },
-      update: {},
-      create: {
-        eventId: d.eventId,
-        poolId: d.poolId,
-        tokenId: d.tokenId || null,
-        owner: d.owner,
-        tickLower: d.tickLower,
-        tickUpper: d.tickUpper,
-        liquidity: d.liquidity,
-        amount0: d.amount0,
-        amount1: d.amount1,
-        ledger: d.ledger ?? null,
-      },
+    await tracer.startActiveSpan('indexer.position_minted', async (span) => {
+      try {
+        span.setAttributes({
+          'indexer.queue': QUEUE_NAMES.POSITION_MINTED,
+          'indexer.job_id': job.id ?? '',
+          'indexer.event_id': d.eventId,
+          'indexer.pool_id': d.poolId,
+          'indexer.ledger': d.ledger ?? 0,
+        });
+
+        if (
+          !this.guardEmptyData(job.id, d as unknown as Record<string, unknown>)
+        ) {
+          span.setStatus({ code: SpanStatusCode.OK, message: 'skipped' });
+          return;
+        }
+
+        await tracer.startActiveSpan('indexer.position_minted.write', async (writeSpan) => {
+          try {
+            await this.prisma.positionMinted.upsert({
+              where: { eventId: d.eventId },
+              update: {},
+              create: {
+                eventId: d.eventId,
+                poolId: d.poolId,
+                tokenId: d.tokenId || null,
+                owner: d.owner,
+                tickLower: d.tickLower,
+                tickUpper: d.tickUpper,
+                liquidity: d.liquidity,
+                amount0: d.amount0,
+                amount1: d.amount1,
+                ledger: d.ledger ?? null,
+              },
+            });
+            // Project into relational Position table when the event includes a tokenId.
+            if (d.tokenId) {
+              await this.prisma.position.upsert({
+                where: { poolId_tokenId: { poolId: d.poolId, tokenId: d.tokenId } },
+                update: { liquidity: d.liquidity },
+                create: {
+                  poolId: d.poolId,
+                  tokenId: d.tokenId,
+                  ownerAddress: d.owner,
+                  lowerTick: d.tickLower,
+                  upperTick: d.tickUpper,
+                  liquidity: d.liquidity,
+                },
+              });
+            }
+            writeSpan.setStatus({ code: SpanStatusCode.OK });
+          } catch (err) {
+            writeSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+            throw err;
+          } finally {
+            writeSpan.end();
+          }
+        });
+
+        await this.advanceLedger(job.id, d.ledger);
+        span.setStatus({ code: SpanStatusCode.OK });
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+        throw err;
+      } finally {
+        span.end();
+      }
     });
-    // Project into relational Position table when the event includes a tokenId.
-    if (d.tokenId) {
-      await this.prisma.position.upsert({
-        where: { poolId_tokenId: { poolId: d.poolId, tokenId: d.tokenId } },
-        update: { liquidity: d.liquidity },
-        create: {
-          poolId: d.poolId,
-          tokenId: d.tokenId,
-          ownerAddress: d.owner,
-          lowerTick: d.tickLower,
-          upperTick: d.tickUpper,
-          liquidity: d.liquidity,
-        },
-      });
-    }
-    await this.advanceLedger(job.id, d.ledger);
   }
 
   private async handlePositionBurned(job: Job<PositionBurnedJobData>) {
     const d = job.data;
-    if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>))
-      return;
-    await this.prisma.positionBurned.upsert({
-      where: { eventId: d.eventId },
-      update: {},
-      create: {
-        eventId: d.eventId,
-        poolId: d.poolId,
-        tokenId: d.tokenId || null,
-        owner: d.owner,
-        tickLower: d.tickLower,
-        tickUpper: d.tickUpper,
-        liquidity: d.liquidity,
-        amount0: d.amount0,
-        amount1: d.amount1,
-        ledger: d.ledger ?? null,
-      },
+    await tracer.startActiveSpan('indexer.position_burned', async (span) => {
+      try {
+        span.setAttributes({
+          'indexer.queue': QUEUE_NAMES.POSITION_BURNED,
+          'indexer.job_id': job.id ?? '',
+          'indexer.event_id': d.eventId,
+          'indexer.pool_id': d.poolId,
+          'indexer.ledger': d.ledger ?? 0,
+        });
+
+        if (
+          !this.guardEmptyData(job.id, d as unknown as Record<string, unknown>)
+        ) {
+          span.setStatus({ code: SpanStatusCode.OK, message: 'skipped' });
+          return;
+        }
+
+        await tracer.startActiveSpan('indexer.position_burned.write', async (writeSpan) => {
+          try {
+            await this.prisma.positionBurned.upsert({
+              where: { eventId: d.eventId },
+              update: {},
+              create: {
+                eventId: d.eventId,
+                poolId: d.poolId,
+                tokenId: d.tokenId || null,
+                owner: d.owner,
+                tickLower: d.tickLower,
+                tickUpper: d.tickUpper,
+                liquidity: d.liquidity,
+                amount0: d.amount0,
+                amount1: d.amount1,
+                ledger: d.ledger ?? null,
+              },
+            });
+            // Project into relational Position table when the event includes a tokenId.
+            if (d.tokenId) {
+              const isClosed = d.liquidity === '0';
+              await this.prisma.position.upsert({
+                where: { poolId_tokenId: { poolId: d.poolId, tokenId: d.tokenId } },
+                update: {
+                  liquidity: d.liquidity,
+                  ...(isClosed ? { closedAt: new Date() } : {}),
+                },
+                create: {
+                  poolId: d.poolId,
+                  tokenId: d.tokenId,
+                  ownerAddress: d.owner,
+                  lowerTick: d.tickLower,
+                  upperTick: d.tickUpper,
+                  liquidity: d.liquidity,
+                  ...(isClosed ? { closedAt: new Date() } : {}),
+                },
+              });
+            }
+            writeSpan.setStatus({ code: SpanStatusCode.OK });
+          } catch (err) {
+            writeSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+            throw err;
+          } finally {
+            writeSpan.end();
+          }
+        });
+
+        await this.advanceLedger(job.id, d.ledger);
+        span.setStatus({ code: SpanStatusCode.OK });
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+        throw err;
+      } finally {
+        span.end();
+      }
     });
-    // Project into relational Position table when the event includes a tokenId.
-    if (d.tokenId) {
-      const isClosed = d.liquidity === '0';
-      await this.prisma.position.upsert({
-        where: { poolId_tokenId: { poolId: d.poolId, tokenId: d.tokenId } },
-        update: {
-          liquidity: d.liquidity,
-          ...(isClosed ? { closedAt: new Date() } : {}),
-        },
-        create: {
-          poolId: d.poolId,
-          tokenId: d.tokenId,
-          ownerAddress: d.owner,
-          lowerTick: d.tickLower,
-          upperTick: d.tickUpper,
-          liquidity: d.liquidity,
-          ...(isClosed ? { closedAt: new Date() } : {}),
-        },
-      });
-    }
-    await this.advanceLedger(job.id, d.ledger);
   }
 
   private async handleFeesCollected(job: Job<FeesCollectedJobData>) {
     const d = job.data;
-    if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>))
-      return;
-    await this.prisma.feesCollected.upsert({
-      where: { eventId: d.eventId },
-      update: {},
-      create: {
-        eventId: d.eventId,
-        poolId: d.poolId,
-        recipient: d.recipient,
-        amount0: d.amount0,
-        amount1: d.amount1,
-        ledger: d.ledger ?? null,
-      },
+    await tracer.startActiveSpan('indexer.fees_collected', async (span) => {
+      try {
+        span.setAttributes({
+          'indexer.queue': QUEUE_NAMES.FEES_COLLECTED,
+          'indexer.job_id': job.id ?? '',
+          'indexer.event_id': d.eventId,
+          'indexer.pool_id': d.poolId,
+          'indexer.ledger': d.ledger ?? 0,
+        });
+
+        if (
+          !this.guardEmptyData(job.id, d as unknown as Record<string, unknown>)
+        ) {
+          span.setStatus({ code: SpanStatusCode.OK, message: 'skipped' });
+          return;
+        }
+
+        await tracer.startActiveSpan('indexer.fees_collected.write', async (writeSpan) => {
+          try {
+            await this.prisma.feesCollected.upsert({
+              where: { eventId: d.eventId },
+              update: {},
+              create: {
+                eventId: d.eventId,
+                poolId: d.poolId,
+                recipient: d.recipient,
+                amount0: d.amount0,
+                amount1: d.amount1,
+                ledger: d.ledger ?? null,
+              },
+            });
+            writeSpan.setStatus({ code: SpanStatusCode.OK });
+          } catch (err) {
+            writeSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+            throw err;
+          } finally {
+            writeSpan.end();
+          }
+        });
+
+        await this.advanceLedger(job.id, d.ledger);
+        span.setStatus({ code: SpanStatusCode.OK });
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+        throw err;
+      } finally {
+        span.end();
+      }
     });
-    await this.advanceLedger(job.id, d.ledger);
   }
 
   /** Advances the durable checkpoint only after the event write completed. */

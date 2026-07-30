@@ -4,30 +4,54 @@ import { randomUUID } from 'crypto';
 import { getActiveTraceIds } from '../tracing';
 import { RequestContext } from './request-context';
 
-const SENSITIVE_HEADERS = new Set(['authorization', 'cookie', 'set-cookie']);
+const SENSITIVE_HEADERS = new Set([
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'set-cookie',
+  'x-api-key',
+  'api-key',
+  'x-api-token',
+]);
 const SENSITIVE_BODY_KEYS = new Set([
   'password',
   'token',
   'secret',
   'accessToken',
   'refreshToken',
+  'apiKey',
+  'api_key',
+  'apikey',
 ]);
+
+function isSensitiveHeader(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return (
+    SENSITIVE_HEADERS.has(normalized) ||
+    normalized.includes('authorization') ||
+    normalized.includes('api-key') ||
+    normalized.includes('api_key')
+  );
+}
 
 function redactHeaders(
   headers: Record<string, unknown>,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(headers)) {
-    out[k] = SENSITIVE_HEADERS.has(k.toLowerCase()) ? '[REDACTED]' : v;
+    out[k] = isSensitiveHeader(k) ? '[REDACTED]' : v;
   }
   return out;
 }
 
 function redactBody(body: unknown): unknown {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  if (body === null || body === undefined) return body;
+  if (Array.isArray(body)) return body.map((item) => redactBody(item));
+  if (typeof body !== 'object') return body;
+
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
-    out[k] = SENSITIVE_BODY_KEYS.has(k) ? '[REDACTED]' : v;
+    out[k] = SENSITIVE_BODY_KEYS.has(k) ? '[REDACTED]' : redactBody(v);
   }
   return out;
 }
