@@ -107,17 +107,18 @@ and XLM address `GBDEVU63Y6NTHJQQZIKVTC23NWLQVP3WJ2RI2OTSJTNYOIGICST6DUXR`.
 
 ### What each command does
 
-| Step | Command | What it does | Time |
-|------|---------|-------------|------|
-| 1 | `git clone` | Clone the repository | ~10s |
-| 2 | `pnpm install` | Install all dependencies via monorepo | ~2 min |
-| 3 | `cp .env.example` | Create environment files (uses safe defaults) | ~1s |
-| 4 | `docker-compose up -d --wait` | Start Postgres + Redis, wait for health checks | ~30s |
-| 5 | `pnpm db:generate` | Generate Prisma ORM types | ~10s |
-| 5 | `pnpm db:migrate:deploy` | Apply pending database migrations | ~20s |
-| 6 | `pnpm dev` | Start Next.js, NestJS, and Turborepo watchers | ~1 min |
+| Step | Command                       | What it does                                   | Time   |
+| ---- | ----------------------------- | ---------------------------------------------- | ------ |
+| 1    | `git clone`                   | Clone the repository                           | ~10s   |
+| 2    | `pnpm install`                | Install all dependencies via monorepo          | ~2 min |
+| 3    | `cp .env.example`             | Create environment files (uses safe defaults)  | ~1s    |
+| 4    | `docker-compose up -d --wait` | Start Postgres + Redis, wait for health checks | ~30s   |
+| 5    | `pnpm db:generate`            | Generate Prisma ORM types                      | ~10s   |
+| 5    | `pnpm db:migrate:deploy`      | Apply pending database migrations              | ~20s   |
+| 6    | `pnpm dev`                    | Start Next.js, NestJS, and Turborepo watchers  | ~1 min |
 
 **Troubleshooting:**
+
 - **"postgres is not reachable"** — Check Docker is running: `docker ps`. If needed, re-run: `docker-compose up -d --wait`
 - **"Port 5432 already in use"** — Stop other services: `docker-compose down` then retry
 - **"Database migration failed"** — Ensure Postgres is healthy: `docker-compose logs postgres`
@@ -136,31 +137,64 @@ cargo test --workspace
 pnpm --filter api test
 ```
 
+## Release build order
+
+Use Turbo for the release build path so packages are built in dependency order. The default entrypoint is:
+
+```bash
+pnpm turbo run build
+```
+
+For a focused SDK → web / API release, the intended sequence is:
+
+1. Build the Soroban contract package separately:
+
+   ```bash
+   pnpm --filter contracts build
+   ```
+
+   The contract package is independent from the application/package build graph and should be handled first when fresh artifacts are required.
+
+2. Build the shared packages and apps through Turbo:
+
+   ```bash
+   pnpm turbo run build --filter=web --filter=api
+   ```
+
+   Turbo resolves the release graph in dependency order, so the SDK is built before the web app, while the API build runs alongside the web path.
+
+3. For a full repo release, run the root build command:
+   ```bash
+   pnpm turbo run build
+   ```
+
+This keeps the release path predictable for maintainers and makes it clear that contract artifacts are handled separately from the SDK/web/API build sequence.
+
 ---
 
 ## Environment Variables
 
 Copy `apps/api/.env.example` to `apps/api/.env` and fill in the values below.
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `DATABASE_URL` | ✅ | `postgresql://postgres:postgres@localhost:5432/swyft` | PostgreSQL connection string (Prisma) |
-| `REDIS_URL` | ✅ | `redis://localhost:6379` | Redis connection string (BullMQ + cache) |
-| `STELLAR_NETWORK` | ✅ | `testnet` | `testnet` or `mainnet` |
-| `STELLAR_RPC_URL` | ✅ | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint |
-| `HORIZON_URL` | ✅ | `https://horizon-testnet.stellar.org` | Stellar Horizon endpoint |
-| `POOL_CONTRACT_ID` | ✅ | *(empty)* | Deployed pool contract address — see `packages/contract/deployments/testnet.json` |
-| `JWT_SECRET` | ✅ | `change-me-in-production` | Secret used to sign JWT tokens — **must be changed in production** |
-| `JWT_EXPIRES_IN` | ✅ | `7d` | JWT token lifetime |
-| `PORT` | ✅ | `3001` | HTTP port the API listens on |
-| `INTERNAL_API_KEY` | ✅ | `change-me-in-production` | Protects `/admin/*` and `/metrics/db` routes — **must be changed in production** |
-| `DB_SLOW_QUERY_THRESHOLD_MS` | ❌ | `100` | Queries slower than this (ms) are logged as warnings |
-| `SENTRY_DSN` | ❌ | *(empty)* | Sentry DSN for error tracking — leave blank to disable |
-| `SENTRY_TRACES_SAMPLE_RATE` | ❌ | `0.1` | Sentry trace sampling rate (0–1) |
-| `COMPRESSION_LEVEL` | ❌ | `6` | zlib compression level for HTTP responses (1–9) |
-| `LARGE_SWAP_THRESHOLD_USD` | ❌ | `10000` | USD threshold above which a swap triggers a webhook notification |
-| `WEBHOOK_MAX_CONSECUTIVE_FAILS` | ❌ | `10` | Number of consecutive delivery failures before disabling a webhook |
-| `WEBHOOK_RETRY_ATTEMPTS` | ❌ | `3` | Number of times to retry webhook delivery before marking as failed |
+| Variable                        | Required | Default                                               | Description                                                                       |
+| ------------------------------- | -------- | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `DATABASE_URL`                  | ✅       | `postgresql://postgres:postgres@localhost:5432/swyft` | PostgreSQL connection string (Prisma)                                             |
+| `REDIS_URL`                     | ✅       | `redis://localhost:6379`                              | Redis connection string (BullMQ + cache)                                          |
+| `STELLAR_NETWORK`               | ✅       | `testnet`                                             | `testnet` or `mainnet`                                                            |
+| `STELLAR_RPC_URL`               | ✅       | `https://soroban-testnet.stellar.org`                 | Soroban RPC endpoint                                                              |
+| `HORIZON_URL`                   | ✅       | `https://horizon-testnet.stellar.org`                 | Stellar Horizon endpoint                                                          |
+| `POOL_CONTRACT_ID`              | ✅       | _(empty)_                                             | Deployed pool contract address — see `packages/contract/deployments/testnet.json` |
+| `JWT_SECRET`                    | ✅       | `change-me-in-production`                             | Secret used to sign JWT tokens — **must be changed in production**                |
+| `JWT_EXPIRES_IN`                | ✅       | `7d`                                                  | JWT token lifetime                                                                |
+| `PORT`                          | ✅       | `3001`                                                | HTTP port the API listens on                                                      |
+| `INTERNAL_API_KEY`              | ✅       | `change-me-in-production`                             | Protects `/admin/*` and `/metrics/db` routes — **must be changed in production**  |
+| `DB_SLOW_QUERY_THRESHOLD_MS`    | ❌       | `100`                                                 | Queries slower than this (ms) are logged as warnings                              |
+| `SENTRY_DSN`                    | ❌       | _(empty)_                                             | Sentry DSN for error tracking — leave blank to disable                            |
+| `SENTRY_TRACES_SAMPLE_RATE`     | ❌       | `0.1`                                                 | Sentry trace sampling rate (0–1)                                                  |
+| `COMPRESSION_LEVEL`             | ❌       | `6`                                                   | zlib compression level for HTTP responses (1–9)                                   |
+| `LARGE_SWAP_THRESHOLD_USD`      | ❌       | `10000`                                               | USD threshold above which a swap triggers a webhook notification                  |
+| `WEBHOOK_MAX_CONSECUTIVE_FAILS` | ❌       | `10`                                                  | Number of consecutive delivery failures before disabling a webhook                |
+| `WEBHOOK_RETRY_ATTEMPTS`        | ❌       | `3`                                                   | Number of times to retry webhook delivery before marking as failed                |
 
 ---
 
@@ -263,4 +297,3 @@ Please do not open public GitHub issues for security vulnerabilities. See [`SECU
 - **GitHub Projects** — live task board
 
 ---
-
