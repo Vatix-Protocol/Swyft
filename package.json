@@ -32,7 +32,7 @@
     "prisma": "^5.22.0"
   },
   "dependencies": {
-    "@prisma/client": "^5.22.0"
+    "@prisma/client": "^7.9.1"
   },
   "engines": {
     "node": ">=18",
