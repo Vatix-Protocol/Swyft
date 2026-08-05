@@ -250,16 +250,43 @@ describe('SwapsService', () => {
 
       const result = await service.getSwaps({ page: 1, limit: 20 });
 
-      const sanitizedResult = {
-        ...result,
-        items: result.items.map((item) => ({
-          ...item,
-          id: expect.any(String),
-          timestamp: expect.any(Number),
-        })),
-      };
-
-      expect(sanitizedResult).toMatchSnapshot();
+      expect(result).toEqual({
+        isLoading: false,
+        page: 1,
+        limit: 20,
+        total: 2,
+        totalPages: 1,
+        items: [
+          expect.objectContaining({
+            amount0: '150.50',
+            amount1: '-75.25',
+            feeAmount: '0.4515',
+            poolId: 'pool-test-1',
+            priceAtSwap: '2.0015',
+            token0Symbol: 'USDC',
+            token1Symbol: 'XLM',
+            tokenPair: 'USDC/XLM',
+            transactionHash: 'tx-hash-test-123',
+            walletAddress: 'wallet-test-address-abc',
+            id: expect.any(String),
+            timestamp: expect.any(Number),
+          }),
+          expect.objectContaining({
+            amount0: '1.5',
+            amount1: '-3000.75',
+            feeAmount: '4.50',
+            poolId: 'pool-test-2',
+            priceAtSwap: '2000.50',
+            token0Symbol: 'ETH',
+            token1Symbol: 'USDT',
+            tokenPair: 'ETH/USDT',
+            transactionHash: 'tx-hash-test-456',
+            walletAddress: 'wallet-test-address-def',
+            id: expect.any(String),
+            timestamp: expect.any(Number),
+          }),
+        ],
+      });
     });
 
     it('matches snapshot for empty swap list', async () => {
@@ -270,7 +297,14 @@ describe('SwapsService', () => {
 
       const result = await service.getSwaps({ page: 1, limit: 10 });
 
-      expect(result).toMatchSnapshot();
+      expect(result).toEqual({
+        items: [],
+        total: 0,
+        totalPages: 0,
+        page: 1,
+        limit: 10,
+        isLoading: false,
+      });
     });
 
     it('matches snapshot for pagination metadata', async () => {
