@@ -198,6 +198,11 @@ impl MathLib {
             return Ok(0);
         }
 
+        // Empty range — Uniswap amount0 formula is L·(1/√Pa − 1/√Pb) = 0 when Pa == Pb.
+        if sqrt_price_lower_x96 == sqrt_price_upper_x96 {
+            return Ok(0);
+        }
+
         if sqrt_price_current_x96 <= sqrt_price_lower_x96 {
             // Current price is at or below lower bound
             let numerator = liquidity.checked_mul(Q96)
@@ -558,14 +563,16 @@ mod overflow_tests {
         assert_eq!(result, Ok(0));
     }
 
-    /// liquidity * (upper - lower) overflows when liquidity == u128::MAX.
+    /// liquidity * (upper - lower) overflows when liquidity == u128::MAX and the
+    /// price spread is large enough that the product exceeds u128::MAX.
     #[test]
     fn amount1_liquidity_overflow_is_detected() {
         // current >= upper → uses (upper - lower) branch.
+        // u128::MAX * Q96 overflows checked_mul.
         let result = MathLib::get_amount_1_delta(
             u128::MAX,
             Q96,
-            Q96 + 1, // tiny spread to force overflow on the multiply
+            Q96 * 2,
             Q96 * 10,
         );
         assert_eq!(result, Err(MathError::Overflow));
@@ -630,7 +637,9 @@ mod overflow_tests {
     #[test]
     fn next_price0_zero_for_one_decreases_price() {
         let price = Q96 * 2;
-        let result = MathLib::next_sqrt_price_0(price, 1_000_000_000, 500, true).unwrap();
+        // amount_in must be large enough relative to Q96 that
+        // (liquidity * amount_in) / price truncates to a non-zero delta.
+        let result = MathLib::next_sqrt_price_0(price, 1_000_000_000, Q96, true).unwrap();
         assert!(result < price, "price should decrease for zero-for-one swap");
     }
 
