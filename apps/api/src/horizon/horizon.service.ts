@@ -180,19 +180,19 @@ export class HorizonService implements OnModuleInit, OnModuleDestroy {
   private async batchEnqueueLedgerWindow(
     records: IndexerEffectRecord[],
   ): Promise<void> {
-    type JobEntry = {
+    const poolCreatedJobs: { name: string; data: PoolCreatedJobData }[] = [];
+    const swapProcessedJobs: {
       name: string;
-      data:
-        | PoolCreatedJobData
-        | SwapProcessedJobData
-        | PositionMintedJobData
-        | PositionBurnedJobData;
-    };
-
-    const poolCreatedJobs: JobEntry[] = [];
-    const swapProcessedJobs: JobEntry[] = [];
-    const positionMintedJobs: JobEntry[] = [];
-    const positionBurnedJobs: JobEntry[] = [];
+      data: SwapProcessedJobData;
+    }[] = [];
+    const positionMintedJobs: {
+      name: string;
+      data: PositionMintedJobData;
+    }[] = [];
+    const positionBurnedJobs: {
+      name: string;
+      data: PositionBurnedJobData;
+    }[] = [];
 
     for (const record of records) {
       const eventType = record.eventType?.toLowerCase() ?? '';

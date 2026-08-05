@@ -167,21 +167,29 @@ export class PoolsService {
       volume7d: '0',
       feeApr: pool.feeApr,
       creationTimestamp: Math.floor(pool.createdAt.getTime() / 1000),
-      recentSwaps: pool.swaps.map((swap) => {
-        const a0 = Number.parseFloat(swap.amount0 ?? '0');
-        const a1 = Number.parseFloat(swap.amount1 ?? '0');
-        const price = a1 !== 0 ? (a0 / a1).toString() : a0.toString();
+      recentSwaps: pool.swaps.map(
+        (swap: {
+          id: string;
+          amount0: string | null;
+          amount1: string | null;
+          timestamp: Date;
+          transactionHash: string;
+        }) => {
+          const a0 = Number.parseFloat(swap.amount0 ?? '0');
+          const a1 = Number.parseFloat(swap.amount1 ?? '0');
+          const price = a1 !== 0 ? (a0 / a1).toString() : a0.toString();
 
-        return {
-          id: swap.id,
-          timestamp: Math.floor(swap.timestamp.getTime() / 1000),
-          token0Amount: swap.amount0,
-          token1Amount: swap.amount1,
-          price,
-          type: a0 > a1 ? 'sell' : 'buy',
-          txHash: swap.transactionHash,
-        };
-      }),
+          return {
+            id: swap.id,
+            timestamp: Math.floor(swap.timestamp.getTime() / 1000),
+            token0Amount: swap.amount0,
+            token1Amount: swap.amount1,
+            price,
+            type: a0 > a1 ? 'sell' : 'buy',
+            txHash: swap.transactionHash,
+          };
+        },
+      ),
     };
   }
 

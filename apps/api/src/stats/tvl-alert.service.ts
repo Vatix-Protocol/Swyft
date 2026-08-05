@@ -192,7 +192,6 @@ export class TvlAlertService {
         },
         update: {
           tvlUsd,
-          updatedAt: new Date(),
         },
         create: {
           poolId,

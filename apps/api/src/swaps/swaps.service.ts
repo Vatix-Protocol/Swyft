@@ -2,7 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { GetSwapsQueryDto } from './dto/get-swaps-query.dto';
 import { SwapQuoteRequestDto } from './dto/swap-quote-request.dto';
 import { SwapQuoteResponseDto } from './dto/swap-quote-response.dto';
-import { SwapErrorCode, SwapSnapshot, SwapsQuery } from './swap.types';
+import {
+  SwapErrorCode,
+  SwapQuoteResult,
+  SwapSnapshot,
+  SwapsQuery,
+} from './swap.types';
 import { SwapsRepository } from './swaps.repository';
 import { PoolDetail, PoolsService } from '../pools/pools.service';
 import {

@@ -40,9 +40,6 @@ export const SWAGGER_TAGS = {
 
   /** Transaction relay endpoints. */
   TRANSACTIONS: 'transactions',
-
-  /** Platform-wide stats and aggregate metrics endpoints. */
-  STATS: 'stats',
 } as const;
 
 /** Valid Swagger tag values supported by the Swyft API. */

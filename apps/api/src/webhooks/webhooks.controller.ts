@@ -166,9 +166,9 @@ export class WebhooksController {
   ping(
     @Param('id') id: string,
     @Request() req: AuthRequest,
-    @Body() body?: { testEventType?: string },
+    @Body() body?: { testEventType?: WebhookEventType },
   ) {
-    const eventType = body?.testEventType || 'swap';
+    const eventType: WebhookEventType = body?.testEventType ?? 'swap';
     return this.service.ping(id, req.user.walletAddress, eventType);
   }
 
