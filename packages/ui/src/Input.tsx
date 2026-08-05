@@ -2,7 +2,7 @@ import React from 'react';
 
 export type InputSize = 'sm' | 'md' | 'lg';
 
-export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
   /** Label rendered above the input. Also sets `aria-label` when no explicit one is provided. */
   label?: string;
   /** Helper or validation message rendered below the input. */

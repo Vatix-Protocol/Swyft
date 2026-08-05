@@ -116,6 +116,7 @@ export function useRemoveLiquidity(position: PositionSnapshot | null, authToken:
         positionId: position.id,
         poolId: position.poolId,
         ownerAddress: position.ownerWallet,
+        ownerWallet: position.ownerWallet,
       });
 
       const signResult = await signTransaction(xdr, {

@@ -98,6 +98,7 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
             data?: { poolId?: string };
           };
           if (msg.event !== 'price' || msg.data?.poolId !== poolId) return;
+          if (!poolId || !tokenInId || !tokenOutId) return;
           if (!amountIn || parseFloat(amountIn) <= 0) return;
           const result = calculateSwapQuote({
             poolId,
