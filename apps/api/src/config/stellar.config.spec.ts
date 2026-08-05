@@ -100,7 +100,9 @@ describe('stellarConfig', () => {
     delete process.env.HORIZON_URL;
 
     expect(() => stellarConfig()).toThrow(/Stellar configuration is invalid/);
-    expect(() => stellarConfig()).toThrow(/HORIZON_URL: must be set in production/);
+    expect(() => stellarConfig()).toThrow(
+      /HORIZON_URL: must be set in production/,
+    );
   });
 
   it('fails boot when STELLAR_RPC_URL is missing in production', () => {
@@ -109,7 +111,9 @@ describe('stellarConfig', () => {
     delete process.env.STELLAR_RPC_URL;
 
     expect(() => stellarConfig()).toThrow(/Stellar configuration is invalid/);
-    expect(() => stellarConfig()).toThrow(/STELLAR_RPC_URL: must be set in production/);
+    expect(() => stellarConfig()).toThrow(
+      /STELLAR_RPC_URL: must be set in production/,
+    );
   });
 
   it('does not fall back to testnet defaults in production, even when both are missing', () => {
@@ -117,8 +121,12 @@ describe('stellarConfig', () => {
     delete process.env.STELLAR_RPC_URL;
     delete process.env.HORIZON_URL;
 
-    expect(() => stellarConfig()).toThrow(/STELLAR_RPC_URL: must be set in production/);
-    expect(() => stellarConfig()).toThrow(/HORIZON_URL: must be set in production/);
+    expect(() => stellarConfig()).toThrow(
+      /STELLAR_RPC_URL: must be set in production/,
+    );
+    expect(() => stellarConfig()).toThrow(
+      /HORIZON_URL: must be set in production/,
+    );
   });
 
   it('boots successfully in production when both URLs are explicitly set', () => {

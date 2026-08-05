@@ -94,7 +94,7 @@ export default function PoolDetailPage({ params }: PageProps) {
             Pool not found
           </h2>
           <p className="text-sm text-zinc-500 mb-4">
-            The pool you're looking for doesn't exist or couldn't be loaded.
+            The pool you&apos;re looking for doesn&apos;t exist or couldn&apos;t be loaded.
           </p>
           <button
             onClick={() => router.push('/pools')}

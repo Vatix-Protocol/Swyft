@@ -36,7 +36,10 @@ const mockJwtService = {
 };
 
 const mockConfigService = {
-  get: jest.fn().mockReturnValue('15m'),
+  get: jest.fn((key: string) => {
+    if (key === 'JWT_EXPIRES_IN') return '15m';
+    return undefined;
+  }),
   getOrThrow: jest.fn().mockReturnValue('test-secret'),
 };
 
@@ -47,6 +50,10 @@ describe('AuthService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockConfigService.get.mockImplementation((key: string) => {
+      if (key === 'JWT_EXPIRES_IN') return '15m';
+      return undefined;
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -107,7 +114,9 @@ describe('AuthService', () => {
     });
 
     it('uses JWT_EXPIRES_IN from ConfigService', async () => {
-      mockConfigService.get.mockReturnValueOnce('30m');
+      mockConfigService.get.mockImplementation((key: string) =>
+        key === 'JWT_EXPIRES_IN' ? '30m' : undefined,
+      );
 
       const nonce = 'expires-in-test';
       const { walletAddress, signature } = makeSignedNonce(nonce);
@@ -123,7 +132,7 @@ describe('AuthService', () => {
     });
 
     it('falls back to 15m when JWT_EXPIRES_IN is not set', async () => {
-      mockConfigService.get.mockReturnValueOnce(undefined);
+      mockConfigService.get.mockImplementation(() => undefined);
 
       const nonce = 'fallback-expiry';
       const { walletAddress, signature } = makeSignedNonce(nonce);

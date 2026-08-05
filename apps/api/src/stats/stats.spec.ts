@@ -27,6 +27,7 @@ const mockPools = [
     token0Address: 'TOKENA',
     token1Address: 'TOKENB',
     feeTier: 3000,
+    liquidity: '1000000000',
   },
 ];
 
@@ -59,15 +60,21 @@ jest.mock('@prisma/client', () => ({
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
 
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { StatsScheduler, STATS_QUEUE } from './stats.scheduler';
 import { StatsWorker } from './stats.worker';
 import { StatsModule } from './stats.module';
 import { CacheService } from '../cache/cache.service';
+import { IndexerMonitorService } from '../metrics/indexer-monitor.service';
+import { DbMetricsService } from '../metrics/db-metrics.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { TvlAlertService } from './tvl-alert.service';
 import { STATS_JOB_NAME } from './stats.queue';
 import { defaultJobOptions } from '../indexer/queues';
 import { Job } from 'bullmq';
 import { STATS_CACHE_KEY } from './stats.worker';
+import { STELLAR_CONFIG_KEY } from '../config/stellar.config';
 
 // ─── StatsScheduler (#354) ────────────────────────────────────────────────────
 
@@ -139,14 +146,38 @@ describe('StatsModule', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    module = await Test.createTestingModule({ imports: [StatsModule] })
+    module = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          load: [
+            () => ({
+              [STELLAR_CONFIG_KEY]: {
+                rpcUrl: 'https://soroban-testnet.stellar.org',
+                horizonUrl: 'https://horizon-testnet.stellar.org',
+                network: 'testnet',
+                poolContractId: '',
+              },
+            }),
+          ],
+        }),
+        StatsModule,
+      ],
+    })
       .overrideProvider(CacheService)
       .useValue(mockCacheService)
+      .overrideProvider(PrismaService)
+      .useValue({})
+      .overrideProvider(IndexerMonitorService)
+      .useValue({ onModuleInit: () => {}, onModuleDestroy: () => {} })
+      .overrideProvider(DbMetricsService)
+      .useValue({})
       .compile();
+    await module.init();
   });
 
   afterEach(async () => {
-    await module.close();
+    await module?.close();
   });
 
   it('compiles without errors', () => {
@@ -194,6 +225,13 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
       providers: [
         StatsWorker,
         { provide: CacheService, useValue: mockCacheService },
+        {
+          provide: TvlAlertService,
+          useValue: {
+            recordTvlSnapshot: jest.fn().mockResolvedValue(undefined),
+            checkAndTriggerAlerts: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
@@ -209,7 +247,7 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
   });
 
   afterEach(async () => {
-    await module.close();
+    await module?.close();
   });
 
   it('queries swaps using a Date-based timestamp filter', () => {

@@ -50,7 +50,6 @@ export function usePoolTicks(poolId: string | null) {
     }
     let cancelled = false;
     setLoading(true);
-    setError(null);
 
     fetch(`${API_BASE}/pools/${poolId}/ticks`)
       .then((r) => {
@@ -58,7 +57,10 @@ export function usePoolTicks(poolId: string | null) {
         return r.json() as Promise<TickData[]>;
       })
       .then((data) => {
-        if (!cancelled) setTicks(data);
+        if (!cancelled) {
+          setTicks(data);
+          setError(null);
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled) {

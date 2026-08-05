@@ -19,6 +19,14 @@ vi.mock('next/link', () => ({
   ),
 }));
 
+vi.mock('@/context/NetworkContext', () => ({
+  useNetworkContext: () => ({
+    network: 'TESTNET',
+    apiBase: 'http://localhost:3001/v1',
+    setNetwork: () => {},
+  }),
+}));
+
 const mockUseSwaps = vi.fn();
 vi.mock('@/hooks/useSwaps', () => ({
   useSwaps: (...args: unknown[]) => mockUseSwaps(...args),

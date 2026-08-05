@@ -1,5 +1,5 @@
+import { Logger } from '@nestjs/common';
 import {
-  Logger,
   WebSocketGateway,
   OnGatewayDisconnect,
   WebSocketServer,

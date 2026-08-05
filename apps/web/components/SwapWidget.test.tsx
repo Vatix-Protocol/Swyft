@@ -244,9 +244,7 @@ describe('SwapWidget', () => {
 
     it('swap button has enlarged touch target on mobile (min-h-[52px])', () => {
       renderWidget();
-      const btn = screen.getByRole('button', {
-        name: /Connect wallet|Select tokens|Swap|Enter/,
-      });
+      const btn = screen.getByRole('button', { name: 'Connect wallet to swap' });
       expect(btn.className).toContain('min-h-[52px]');
     });
 

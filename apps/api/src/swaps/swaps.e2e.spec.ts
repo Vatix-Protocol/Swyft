@@ -108,25 +108,26 @@ describe('Swaps E2E (mocked RPC)', () => {
 
       const res = await request(app.getHttpServer())
         .get('/swaps')
-        .query({ pool: 'pool-e2e-1' })
+        .query({ poolId: 'pool-e2e-1' })
         .expect(200);
 
       expect(mockRepo.listSwaps).toHaveBeenCalledWith(
-        expect.objectContaining({ pool: 'pool-e2e-1' }),
+        expect.objectContaining({ poolId: 'pool-e2e-1' }),
       );
       expect(res.body.items[0].poolId).toBe('pool-e2e-1');
     });
 
     it('filters swaps by wallet address', async () => {
+      const wallet = 'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW';
       mockRepo.listSwaps.mockResolvedValue({ items: [mockSwap], total: 1 });
 
       await request(app.getHttpServer())
         .get('/swaps')
-        .query({ wallet: '0xSender' })
+        .query({ wallet })
         .expect(200);
 
       expect(mockRepo.listSwaps).toHaveBeenCalledWith(
-        expect.objectContaining({ wallet: '0xSender' }),
+        expect.objectContaining({ wallet }),
       );
     });
 

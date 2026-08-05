@@ -14,7 +14,9 @@ describe('Sentry scrubber (beforeSend hook)', () => {
     // "Failed to verify wallet GAI7Z4Z4Z2IXPJ7F..."
     // It should appear as "[REDACTED]" in the Sentry event
 
-    const walletAddress = 'GAI7Z4Z4Z2IXPJ7F2IXPJ7F2IXPJ7F2IXPJ7F2IXPJ7F2IXPJ7F';
+    // Must be a full 56-char Stellar address (G + 55 base32 chars)
+    const walletAddress =
+      'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW';
     const message = `Failed for wallet ${walletAddress}`;
 
     // Pattern from sentry.ts
@@ -22,11 +24,12 @@ describe('Sentry scrubber (beforeSend hook)', () => {
     const redacted = message.replace(pattern, '[REDACTED]');
 
     expect(redacted).toBe('Failed for wallet [REDACTED]');
-    expect(redacted).not.toContain('GAI7Z4Z4Z2IXPJ7F');
+    expect(redacted).not.toContain('GABCDEFGHIJKLMNOPQRSTUVWXYZ');
   });
 
   it('should redact nonce values in request context', () => {
-    const nonce = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6';
+    // 32-char hex so it matches SENSITIVE_PATTERNS.nonce in sentry.ts
+    const nonce = 'a1b2c3d4e5f6789012345678abcdef01';
     const message = `Nonce mismatch: nonce="${nonce}" received`;
 
     // Pattern from sentry.ts

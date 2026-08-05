@@ -49,19 +49,3 @@ const API_BASE_MAP: Record<StellarNetwork, string> = {
 export function getApiBase(network: StellarNetwork): string {
   return API_BASE_MAP[network];
 }
-
-export function isStellarNetwork(value: unknown): value is StellarNetwork {
-  return value === 'TESTNET' || value === 'PUBLIC';
-}
-
-export function getNetworkPassphrase(network: StellarNetwork): string {
-  return network === 'PUBLIC'
-    ? 'Public Global Stellar Network ; September 2015'
-    : 'Test SDF Network ; September 2015';
-}
-
-export function getExplorerTxUrl(hash: string, network: StellarNetwork = SWYFT_NETWORK): string {
-  return network === 'PUBLIC'
-    ? `https://stellar.expert/explorer/public/tx/${hash}`
-    : `https://stellar.expert/explorer/testnet/tx/${hash}`;
-}

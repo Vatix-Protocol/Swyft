@@ -79,10 +79,18 @@ describe('RemoveLiquidityPanel', () => {
     );
   }
 
+  async function clickRemove(pct = 100) {
+    const removeBtn = await screen.findByRole('button', {
+      name: new RegExp(`remove ${pct}% liquidity`, 'i'),
+    });
+    await waitFor(() => expect(removeBtn).not.toBeDisabled());
+    fireEvent.click(removeBtn);
+    return removeBtn;
+  }
+
   it('shows a confirmation summary before removeLiquidity is called', async () => {
     renderPanel();
-
-    fireEvent.click(screen.getByRole('button', { name: /remove 100% liquidity/i }));
+    await clickRemove();
 
     await waitFor(() => {
       expect(screen.getByRole('alertdialog', { name: /confirm liquidity removal/i })).toBeInTheDocument();
@@ -93,19 +101,18 @@ describe('RemoveLiquidityPanel', () => {
 
   it('displays estimated amounts in the confirmation summary', async () => {
     renderPanel();
+    await clickRemove();
 
-    fireEvent.click(screen.getByRole('button', { name: /remove 100% liquidity/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText('1.5')).toBeInTheDocument();
-      expect(screen.getByText('2.5')).toBeInTheDocument();
+    const dialog = await screen.findByRole('alertdialog', {
+      name: /confirm liquidity removal/i,
     });
+    expect(dialog).toHaveTextContent('1.5');
+    expect(dialog).toHaveTextContent('2.5');
   });
 
   it('does not submit the transaction until the user confirms', async () => {
     renderPanel();
-
-    fireEvent.click(screen.getByRole('button', { name: /remove 100% liquidity/i }));
+    await clickRemove();
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /confirm remove/i })).toBeInTheDocument();
     });
@@ -117,8 +124,7 @@ describe('RemoveLiquidityPanel', () => {
 
   it('dismisses the summary and skips the transaction when cancelled', async () => {
     renderPanel();
-
-    fireEvent.click(screen.getByRole('button', { name: /remove 100% liquidity/i }));
+    await clickRemove();
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
     });
@@ -134,8 +140,7 @@ describe('RemoveLiquidityPanel', () => {
 
   it('resets confirmation when the removal percentage changes', async () => {
     renderPanel();
-
-    fireEvent.click(screen.getByRole('button', { name: /remove 100% liquidity/i }));
+    await clickRemove();
     await waitFor(() => {
       expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     });

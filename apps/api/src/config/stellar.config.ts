@@ -89,6 +89,24 @@ export const STELLAR_CONFIG_KEY = 'stellar';
 export const stellarConfig = registerAs(
   STELLAR_CONFIG_KEY,
   (): StellarConfig => {
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // In production, require explicit URLs — never silently fall back to testnet.
+    if (isProduction) {
+      const missing: string[] = [];
+      if (!process.env.STELLAR_RPC_URL) {
+        missing.push('STELLAR_RPC_URL: must be set in production');
+      }
+      if (!process.env.HORIZON_URL) {
+        missing.push('HORIZON_URL: must be set in production');
+      }
+      if (missing.length > 0) {
+        throw new Error(
+          `Stellar configuration is invalid:\n${missing.map((m) => `  ${m}`).join('\n')}`,
+        );
+      }
+    }
+
     const env = plainToInstance(StellarEnvVars, {
       STELLAR_RPC_URL: process.env.STELLAR_RPC_URL ?? TESTNET_DEFAULTS.rpcUrl,
       HORIZON_URL: process.env.HORIZON_URL ?? TESTNET_DEFAULTS.horizonUrl,

@@ -48,7 +48,11 @@ const mockUpsert = () => jest.fn().mockResolvedValue({});
 
 const mockPrismaClient = {
   token: { upsert: mockUpsert() },
-  pool: { upsert: mockUpsert(), update: mockUpsert(), findUnique: jest.fn().mockResolvedValue(null) },
+  pool: {
+    upsert: mockUpsert(),
+    update: mockUpsert(),
+    findUnique: jest.fn().mockResolvedValue(null),
+  },
   swap: { upsert: mockUpsert() },
   position: { upsert: mockUpsert() },
   poolCreated: { upsert: mockUpsert() },
@@ -93,13 +97,20 @@ jest.mock('@prisma/client', () => ({
 // ─── Imports (after mocks are set up) ────────────────────────────────────────
 
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule } from '@nestjs/config';
 import { IndexerWorker } from './indexer.worker';
 import { CacheService } from '../cache/cache.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
-import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
+import {
+  IndexerMonitorService,
+  LAST_INDEXED_LEDGER_KEY,
+} from '../metrics/indexer-monitor.service';
+import { DbMetricsService } from '../metrics/db-metrics.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { IndexerCursorService } from './indexer-cursor.service';
 import { IndexerDeadLetterService } from './indexer-dead-letter.service';
+import { STELLAR_CONFIG_KEY } from '../config/stellar.config';
 import {
   IndexerModule,
   QUEUE_POOL_CREATED,
@@ -225,12 +236,36 @@ describe('IndexerModule', () => {
 
   beforeEach(async () => {
     module = await Test.createTestingModule({
-      imports: [IndexerModule],
-    }).compile();
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          load: [
+            () => ({
+              [STELLAR_CONFIG_KEY]: {
+                rpcUrl: 'https://soroban-testnet.stellar.org',
+                horizonUrl: 'https://horizon-testnet.stellar.org',
+                network: 'testnet',
+                poolContractId: '',
+              },
+            }),
+          ],
+        }),
+        IndexerModule,
+      ],
+    })
+      .overrideProvider(PrismaService)
+      .useValue({})
+      .overrideProvider(IndexerMonitorService)
+      .useValue({ onModuleInit: () => {}, onModuleDestroy: () => {} })
+      .overrideProvider(DbMetricsService)
+      .useValue({})
+      .overrideProvider(CacheService)
+      .useValue({ get: jest.fn(), set: jest.fn(), setMaxNumber: jest.fn() })
+      .compile();
   });
 
   afterEach(async () => {
-    await module.close();
+    await module?.close();
   });
 
   it('compiles without errors', () => {
@@ -776,9 +811,7 @@ describe('IndexerWorker', () => {
 
     it('persists feeAmount even when sqrtPriceX96 is invalid', async () => {
       const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
-      await handler(
-        makeJob({ ...data, sqrtPriceX96: '0', feeAmount: '100' }),
-      );
+      await handler(makeJob({ ...data, sqrtPriceX96: '0', feeAmount: '100' }));
 
       expect(mockPrismaClient.swap.upsert).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
 import { useWalletContext } from '@/context/WalletContext';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { usePortfolio } from '@/hooks/usePortfolio';
@@ -27,6 +26,11 @@ export default function PortfolioPage() {
   const [showClosed, setShowClosed] = useState(false);
   const [collectingId, setCollectingId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!address && !loading) {
+      router.replace('/');
+    }
+  }, [address, loading, router]);
 
   const handleCollectFees = useCallback(
     async (positionId: string) => {

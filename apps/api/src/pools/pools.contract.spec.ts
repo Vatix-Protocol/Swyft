@@ -20,6 +20,7 @@
 
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { WsAdapter } from '@nestjs/platform-ws';
 import request from 'supertest';
 
 // ── Stubs ────────────────────────────────────────────────────────────────────
@@ -62,7 +63,10 @@ const prismaMock = {
   priceCandle: { findMany: emptyList },
   indexerCursor: { findUnique: jest.fn().mockResolvedValue(null) },
   poolCreated: { findMany: emptyList },
-  swapProcessed: { findMany: emptyList },
+  swapProcessed: {
+    findMany: emptyList,
+    findFirst: jest.fn().mockResolvedValue(null),
+  },
 };
 
 const redisMock = {
@@ -73,6 +77,7 @@ const redisMock = {
   publish: jest.fn().mockResolvedValue(1),
   subscribe: jest.fn().mockResolvedValue(undefined),
   on: jest.fn(),
+  connect: jest.fn().mockResolvedValue(undefined),
   quit: jest.fn().mockResolvedValue(undefined),
   duplicate: jest.fn(),
 };
@@ -87,6 +92,10 @@ jest.mock('bullmq', () => ({
   Queue: jest.fn().mockImplementation(() => ({
     add: jest.fn().mockResolvedValue({ id: '1' }),
     close: jest.fn().mockResolvedValue(undefined),
+    upsertJobScheduler: jest.fn().mockResolvedValue(undefined),
+    getRepeatableJobs: jest.fn().mockResolvedValue([]),
+    removeRepeatableByKey: jest.fn().mockResolvedValue(undefined),
+    getJobs: jest.fn().mockResolvedValue([]),
   })),
   QueueEvents: jest.fn().mockImplementation(() => ({
     on: jest.fn(),
@@ -129,12 +138,19 @@ describe('GET /v1/pools — contract schema', () => {
         invalidate: noop,
         invalidatePattern: noop,
         subscribe: jest.fn(),
+        createSubscriber: jest.fn().mockReturnValue({
+          on: jest.fn(),
+          subscribe: jest.fn().mockResolvedValue(undefined),
+          unsubscribe: jest.fn().mockResolvedValue(undefined),
+          quit: jest.fn().mockResolvedValue(undefined),
+        }),
       })
       .overrideProvider(REDIS_CLIENT)
       .useValue(redisMock)
       .compile();
 
     app = module.createNestApplication();
+    app.useWebSocketAdapter(new WsAdapter(app));
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
     app.setGlobalPrefix('v1', {
       exclude: ['health', 'docs', 'docs-json', '/'],
@@ -142,7 +158,9 @@ describe('GET /v1/pools — contract schema', () => {
     await app.init();
   });
 
-  afterAll(() => app.close());
+  afterAll(async () => {
+    await app?.close();
+  });
 
   it('returns 200 with the documented envelope shape', async () => {
     const res = await request(app.getHttpServer()).get('/v1/pools').expect(200);

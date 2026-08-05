@@ -9,6 +9,7 @@ function makePrismaStub(swaps: any[] = []) {
       findMany: jest.fn().mockResolvedValue(swaps),
     },
     priceCandle: {
+      findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn().mockResolvedValue({}),
     },
   } as any;

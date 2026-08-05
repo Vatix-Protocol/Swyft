@@ -17,6 +17,7 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./*"],
+      "@swyft/config": ["../../packages/config/src/index.ts"],
       "@swyft/ui": ["../../packages/ui/src/index.ts"],
       "@swyft/sdk": ["../../packages/sdk/src/index.ts"]
     }

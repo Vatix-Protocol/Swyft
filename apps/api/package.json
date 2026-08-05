@@ -93,6 +93,10 @@
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
+    "moduleNameMapper": {
+      "^@swyft/config$": "<rootDir>/../../../packages/config/src/index.ts",
+      "^@swyft/config/(.*)$": "<rootDir>/../../../packages/config/src/$1"
+    },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],

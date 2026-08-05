@@ -171,7 +171,9 @@ describe('WebhooksController', () => {
     it('returns examples for every webhook event type', () => {
       const examples = controller.eventExamples();
       for (const event of WEBHOOK_EVENTS) {
-        expect(examples).toHaveProperty(event);
+        // Keys contain dots (e.g. "pool.created"); use bracket access so
+        // Jest does not treat the string as a nested path.
+        expect(examples[event]).toBeDefined();
       }
     });
 

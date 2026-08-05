@@ -44,7 +44,28 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
     data: lpData,
     isLoading: lpLoading,
     error: lpError,
-  } = useLpActivity(walletAddress, null, page, PAGE_SIZE);
+  } = useLpActivity(walletAddress, null, page, PAGE_SIZE, poolFilter || null);
+
+  // Build pool filter options from the unfiltered feed. When a filter is active
+  // the API only returns matching items, so keep the last unfiltered options.
+  const unfilteredItems = poolFilter ? null : lpData?.items;
+  useEffect(() => {
+    if (!unfilteredItems) return;
+    const byPool = new Map<string, string>();
+    for (const activity of unfilteredItems) {
+      byPool.set(activity.poolId, `${activity.token0Symbol}/${activity.token1Symbol}`);
+    }
+    const next = Array.from(byPool, ([id, label]) => ({ id, label }));
+    setPoolOptions((prev) => {
+      if (
+        prev.length === next.length &&
+        prev.every((p, i) => p.id === next[i]?.id && p.label === next[i]?.label)
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [unfilteredItems]);
 
   const filteredSwaps = filterByDate(swapsData?.items || [], startDate, endDate);
   const filteredLpActivity = filterByDate(lpData?.items || [], startDate, endDate);
@@ -207,6 +228,8 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
             truncateHash={truncateHash}
             page={page}
             onBackToFirstPage={() => setPage(1)}
+            poolFilterActive={!!poolFilter}
+            onClearPoolFilter={() => setPoolFilter('')}
           />
         )}
 
@@ -413,6 +436,8 @@ interface LpTableProps {
   truncateHash: (hash: string) => string;
   page: number;
   onBackToFirstPage: () => void;
+  poolFilterActive?: boolean;
+  onClearPoolFilter?: () => void;
 }
 
 function LpTable({
@@ -424,6 +449,8 @@ function LpTable({
   truncateHash,
   page,
   onBackToFirstPage,
+  poolFilterActive = false,
+  onClearPoolFilter,
 }: LpTableProps) {
   if (error) {
     return (

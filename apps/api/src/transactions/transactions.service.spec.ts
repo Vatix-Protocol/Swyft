@@ -1,14 +1,24 @@
+import { ConfigService } from '@nestjs/config';
 import {
   InvalidInputException,
   BusinessRuleViolationException,
 } from '../request-validation/http.exceptions';
+import { STELLAR_CONFIG_KEY } from '../config/stellar.config';
 import { TransactionsService } from './transactions.service';
 
 describe('TransactionsService', () => {
   let service: TransactionsService;
 
   beforeEach(() => {
-    service = new TransactionsService();
+    const config = {
+      get: jest.fn((key: string) => {
+        if (key === STELLAR_CONFIG_KEY) {
+          return { horizonUrl: 'https://horizon-testnet.stellar.org' };
+        }
+        return undefined;
+      }),
+    } as unknown as ConfigService;
+    service = new TransactionsService(config);
   });
 
   afterEach(() => {
@@ -45,6 +55,9 @@ describe('TransactionsService', () => {
 
   // ── Horizon submission ──────────────────────────────────────────────────
 
+  // 56 chars → length % 4 === 0 and decoded length >= 40
+  const validXdr = 'A'.repeat(56);
+
   it('returns transaction result on success', async () => {
     const result = { hash: 'abc123', ledger: 42, successful: true };
     jest.spyOn(global, 'fetch').mockResolvedValue({
@@ -52,11 +65,7 @@ describe('TransactionsService', () => {
       json: () => Promise.resolve(result),
     } as Response);
 
-    // 60+ char base64 string — passes XDR pre-validation
-    const validXdr = 'A'.repeat(56) + '===='.slice(0, (4 - (56 % 4)) % 4);
-    const paddedXdr =
-      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
-    await expect(service.submit(paddedXdr)).resolves.toEqual(result);
+    await expect(service.submit(validXdr)).resolves.toEqual(result);
   });
 
   it('throws InvalidInputException for tx_malformed', async () => {
@@ -69,9 +78,7 @@ describe('TransactionsService', () => {
         }),
     } as Response);
 
-    const paddedXdr =
-      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
-    await expect(service.submit(paddedXdr)).rejects.toBeInstanceOf(
+    await expect(service.submit(validXdr)).rejects.toBeInstanceOf(
       InvalidInputException,
     );
   });
@@ -86,9 +93,7 @@ describe('TransactionsService', () => {
         }),
     } as Response);
 
-    const paddedXdr =
-      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
-    await expect(service.submit(paddedXdr)).rejects.toBeInstanceOf(
+    await expect(service.submit(validXdr)).rejects.toBeInstanceOf(
       BusinessRuleViolationException,
     );
   });
@@ -103,9 +108,7 @@ describe('TransactionsService', () => {
         }),
     } as Response);
 
-    const paddedXdr =
-      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
-    await expect(service.submit(paddedXdr)).rejects.toBeInstanceOf(
+    await expect(service.submit(validXdr)).rejects.toBeInstanceOf(
       BusinessRuleViolationException,
     );
   });
@@ -113,9 +116,7 @@ describe('TransactionsService', () => {
   it('throws BusinessRuleViolationException when fetch fails', async () => {
     jest.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
 
-    const paddedXdr =
-      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
-    await expect(service.submit(paddedXdr)).rejects.toBeInstanceOf(
+    await expect(service.submit(validXdr)).rejects.toBeInstanceOf(
       BusinessRuleViolationException,
     );
   });

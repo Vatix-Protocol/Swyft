@@ -5,18 +5,32 @@ on:
     branches: [main]
     paths:
       - 'apps/web/**'
+      - 'apps/api/**'
       - 'packages/ui/**'
       - 'packages/config/**'
+      - 'packages/sdk/**'
+      - 'packages/contract/**'
+      - 'prisma/**'
+      - 'scripts/**'
       - '.github/workflows/ci.yml'
       - 'pnpm-lock.yaml'
+      - 'package.json'
+      - 'turbo.json'
   pull_request:
     branches: [main]
     paths:
       - 'apps/web/**'
+      - 'apps/api/**'
       - 'packages/ui/**'
       - 'packages/config/**'
+      - 'packages/sdk/**'
+      - 'packages/contract/**'
+      - 'prisma/**'
+      - 'scripts/**'
       - '.github/workflows/ci.yml'
       - 'pnpm-lock.yaml'
+      - 'package.json'
+      - 'turbo.json'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -250,7 +264,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32v1-none
+          targets: wasm32-unknown-unknown
 
       - name: Install stellar-cli
         run: cargo install --locked stellar-cli --no-default-features
@@ -263,3 +277,5 @@ jobs:
           STELLAR_RPC_URL: ${{ secrets.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org' }}
           HORIZON_URL: ${{ secrets.HORIZON_URL || 'https://horizon-testnet.stellar.org' }}
           STELLAR_NETWORK: testnet
+          JWT_SECRET: ci-build-secret
+          NODE_ENV: test

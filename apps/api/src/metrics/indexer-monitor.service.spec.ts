@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import {
   IndexerMonitorService,
   LAST_INDEXED_LEDGER_KEY,
@@ -31,6 +32,17 @@ describe('IndexerMonitorService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         IndexerMonitorService,
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockReturnValue({
+              horizonUrl: 'https://horizon-testnet.stellar.org',
+              rpcUrl: 'https://soroban-testnet.stellar.org',
+              network: 'testnet',
+              poolContractId: '',
+            }),
+          },
+        },
         { provide: CacheService, useValue: mockCache },
       ],
     }).compile();

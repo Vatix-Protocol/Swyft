@@ -8,8 +8,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { PositionSnapshot } from '@swyft/ui';
 
-// ─── Module mocks ────────────────────────────────────────────────────────────
-
 const mockPush = vi.fn();
 
 vi.mock('next/navigation', () => ({
@@ -36,6 +34,7 @@ const mockEstimateRemoveAmountsAsync = vi.fn();
 const mockUseRemoveLiquidity = vi.fn();
 
 vi.mock('@swyft/sdk', () => ({
+  estimateRemoveAmounts: vi.fn(() => ({ amount0: '10.5', amount1: '5.2' })),
   estimateRemoveAmountsAsync: (...args: unknown[]) => mockEstimateRemoveAmountsAsync(...args),
 }));
 
@@ -50,8 +49,6 @@ vi.mock('@/hooks/usePositions', () => ({
     error: null,
   }),
 }));
-
-// ─── Test data ─────────────────────────────────────────────────────────────────
 
 const mockPosition: PositionSnapshot = {
   id: 'pos-1',
@@ -71,14 +68,33 @@ const mockPosition: PositionSnapshot = {
   poolCurrentPrice: 0.1085,
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 async function importPage() {
   const mod = await import('../app/positions/[id]/remove/page');
   return mod.default;
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
+/** React 19 `use()` reads fulfilled thenables synchronously when status is set. */
+function fulfilledParams(id: string): Promise<{ id: string }> {
+  const promise = Promise.resolve({ id }) as Promise<{ id: string }> & {
+    status: 'fulfilled';
+    value: { id: string };
+  };
+  promise.status = 'fulfilled';
+  promise.value = { id };
+  return promise;
+}
+
+function renderPage(Page: React.ComponentType<{ params: Promise<{ id: string }> }>) {
+  return render(<Page params={fulfilledParams('pos-1')} />);
+}
+
+async function waitForRemoveButton(pct = 100) {
+  const btn = await screen.findByRole('button', {
+    name: new RegExp(`remove ${pct}% liquidity`, 'i'),
+  });
+  await waitFor(() => expect(btn).not.toBeDisabled());
+  return btn;
+}
 
 describe('RemoveLiquidityFlow', () => {
   beforeEach(() => {
@@ -95,55 +111,44 @@ describe('RemoveLiquidityFlow', () => {
       collectFees: vi.fn(),
       reset: vi.fn(),
     });
-    Object.defineProperty(window, 'localStorage', {
-      value: { getItem: vi.fn(() => 'mock-token'), setItem: vi.fn(), removeItem: vi.fn() },
-      writable: true,
-    });
+    localStorage.setItem('swyft_auth_token', 'mock-token');
   });
 
   it('loads the remove liquidity page with position data', async () => {
     const RemoveLiquidityPage = await importPage();
-    render(<RemoveLiquidityPage params={Promise.resolve({ id: 'pos-1' })} />);
+    renderPage(RemoveLiquidityPage);
 
-    await waitFor(() => {
-      expect(screen.getByText('Remove liquidity')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Remove liquidity')).toBeInTheDocument();
   });
 
   it('displays position details including price range and current price', async () => {
     const RemoveLiquidityPage = await importPage();
-    render(<RemoveLiquidityPage params={Promise.resolve({ id: 'pos-1' })} />);
+    renderPage(RemoveLiquidityPage);
 
-    await waitFor(() => {
-      expect(screen.getByText('Price range')).toBeInTheDocument();
-      expect(screen.getByText('Current price')).toBeInTheDocument();
-      expect(screen.getByText('Position value')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Price range')).toBeInTheDocument();
+    expect(screen.getByText('Current price')).toBeInTheDocument();
+    expect(screen.getByText('Position value')).toBeInTheDocument();
   });
 
   it('shows uncollected fees with collect button', async () => {
     const RemoveLiquidityPage = await importPage();
-    render(<RemoveLiquidityPage params={Promise.resolve({ id: 'pos-1' })} />);
+    renderPage(RemoveLiquidityPage);
 
-    await waitFor(() => {
-      expect(screen.getByText('Uncollected fees')).toBeInTheDocument();
-      expect(screen.getByText('Collect fees only')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Uncollected fees')).toBeInTheDocument();
+    expect(screen.getByText('Collect fees only')).toBeInTheDocument();
   });
 
   it('allows selecting preset percentages (25, 50, 75, 100)', async () => {
     const RemoveLiquidityPage = await importPage();
-    render(<RemoveLiquidityPage params={Promise.resolve({ id: 'pos-1' })} />);
+    renderPage(RemoveLiquidityPage);
 
-    await waitFor(() => {
-      expect(screen.getByText('25%')).toBeInTheDocument();
-      expect(screen.getByText('50%')).toBeInTheDocument();
-      expect(screen.getByText('75%')).toBeInTheDocument();
-      expect(screen.getByText('100%')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('25%')).toBeInTheDocument();
+    expect(screen.getByText('50%')).toBeInTheDocument();
+    expect(screen.getByText('75%')).toBeInTheDocument();
+    expect(screen.getByText('100%')).toBeInTheDocument();
   });
 
-  it('calls removeLiquidity when remove button is clicked', async () => {
+  it('calls removeLiquidity after confirmation', async () => {
     const mockRemoveLiquidity = vi.fn();
     mockUseRemoveLiquidity.mockReturnValue({
       status: 'idle',
@@ -155,14 +160,10 @@ describe('RemoveLiquidityFlow', () => {
     });
 
     const RemoveLiquidityPage = await importPage();
-    render(<RemoveLiquidityPage params={Promise.resolve({ id: 'pos-1' })} />);
+    renderPage(RemoveLiquidityPage);
 
-    await waitFor(() => {
-      expect(screen.getByText('Remove 100% liquidity')).toBeInTheDocument();
-    });
-
-    const removeButton = screen.getByText('Remove 100% liquidity');
-    fireEvent.click(removeButton);
+    fireEvent.click(await waitForRemoveButton());
+    fireEvent.click(await screen.findByRole('button', { name: /confirm remove/i }));
 
     expect(mockRemoveLiquidity).toHaveBeenCalledWith(100);
   });
@@ -178,11 +179,9 @@ describe('RemoveLiquidityFlow', () => {
     });
 
     const RemoveLiquidityPage = await importPage();
-    render(<RemoveLiquidityPage params={Promise.resolve({ id: 'pos-1' })} />);
+    renderPage(RemoveLiquidityPage);
 
-    await waitFor(() => {
-      expect(screen.getByText(/Position closed successfully/)).toBeInTheDocument();
-    });
+    expect(await screen.findByText(/Position closed successfully/)).toBeInTheDocument();
   });
 
   it('shows error state on transaction failure', async () => {
@@ -196,11 +195,9 @@ describe('RemoveLiquidityFlow', () => {
     });
 
     const RemoveLiquidityPage = await importPage();
-    render(<RemoveLiquidityPage params={Promise.resolve({ id: 'pos-1' })} />);
+    renderPage(RemoveLiquidityPage);
 
-    await waitFor(() => {
-      expect(screen.getByText('Transaction rejected in wallet.')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Transaction rejected in wallet.')).toBeInTheDocument();
   });
 
   it('disables remove button while signing or submitting', async () => {
@@ -214,12 +211,10 @@ describe('RemoveLiquidityFlow', () => {
     });
 
     const RemoveLiquidityPage = await importPage();
-    render(<RemoveLiquidityPage params={Promise.resolve({ id: 'pos-1' })} />);
+    renderPage(RemoveLiquidityPage);
 
-    await waitFor(() => {
-      const removeButton = screen.getByText('Waiting for signature…');
-      expect(removeButton).toBeDisabled();
-    });
+    const removeButton = await screen.findByText('Waiting for signature…');
+    expect(removeButton).toBeDisabled();
   });
 
   it('navigates to portfolio after 100% removal success', async () => {
@@ -233,10 +228,8 @@ describe('RemoveLiquidityFlow', () => {
     });
 
     const RemoveLiquidityPage = await importPage();
-    render(<RemoveLiquidityPage params={Promise.resolve({ id: 'pos-1' })} />);
+    renderPage(RemoveLiquidityPage);
 
-    await waitFor(() => {
-      expect(screen.getByText(/Redirecting to portfolio/)).toBeInTheDocument();
-    }, { timeout: 3000 });
+    expect(await screen.findByText(/Redirecting to portfolio/)).toBeInTheDocument();
   });
 });

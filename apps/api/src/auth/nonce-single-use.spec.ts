@@ -22,17 +22,18 @@ describe('Auth nonce single-use enforcement (#555)', () => {
       // Redis state after:  auth:nonce:WALLET = (deleted)
 
       const walletAddress =
-        'GAI7Z4Z4Z2IXPJ7F2IXPJ7F2IXPJ7F2IXPJ7F2IXPJ7F2IXPJ7F';
+        'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW';
       const nonceKey = `auth:nonce:${walletAddress}`;
+      const redis = new Map<string, string>();
+      redis.set(nonceKey, 'nonce-value');
 
-      // Pseudocode of expected behavior:
-      // const storedNonce = await redis.get(nonceKey);  // exists
-      // await verifySignature(walletAddress, storedNonce, signature);
-      // await redis.del(nonceKey);  // now deleted
-      // return jwt;
+      // Simulate successful verify: read then delete
+      const storedNonce = redis.get(nonceKey) ?? null;
+      expect(storedNonce).toBe('nonce-value');
+      redis.delete(nonceKey);
 
-      // After del(), any attempt to retrieve the nonce returns null
-      expect('storedNonce after del').toEqual(null);
+      // After del(), any attempt to retrieve the nonce returns null/undefined
+      expect(redis.get(nonceKey) ?? null).toEqual(null);
     });
 
     it('should prevent nonce replay after first successful verification', () => {

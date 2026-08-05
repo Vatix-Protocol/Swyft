@@ -11,6 +11,12 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-unused-vars": "warn",
     },
   },
+  {
+    files: ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

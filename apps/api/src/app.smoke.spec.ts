@@ -8,6 +8,7 @@
 
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { WsAdapter } from '@nestjs/platform-ws';
 import request from 'supertest';
 
 // ── Stub helpers ──────────────────────────────────────────────────────────────
@@ -41,7 +42,10 @@ const prismaMock = {
   priceCandle: { findMany: emptyList },
   indexerCursor: { findUnique: jest.fn().mockResolvedValue(null) },
   poolCreated: { findMany: emptyList },
-  swapProcessed: { findMany: emptyList },
+  swapProcessed: {
+    findMany: emptyList,
+    findFirst: jest.fn().mockResolvedValue(null),
+  },
   $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]),
 };
 
@@ -54,6 +58,7 @@ const redisMock = {
   publish: jest.fn().mockResolvedValue(1),
   subscribe: jest.fn().mockResolvedValue(undefined),
   on: jest.fn(),
+  connect: jest.fn().mockResolvedValue(undefined),
   quit: jest.fn().mockResolvedValue(undefined),
   duplicate: jest.fn(),
 };
@@ -63,6 +68,10 @@ redisMock.duplicate.mockReturnValue(redisMock);
 const queueMock = {
   add: jest.fn().mockResolvedValue({ id: '1' }),
   close: jest.fn().mockResolvedValue(undefined),
+  upsertJobScheduler: jest.fn().mockResolvedValue(undefined),
+  getRepeatableJobs: jest.fn().mockResolvedValue([]),
+  removeRepeatableByKey: jest.fn().mockResolvedValue(undefined),
+  getJobs: jest.fn().mockResolvedValue([]),
 };
 
 // BullMQ Worker / QueueEvents stubs (prevents real Redis connection in IndexerWorker)
@@ -115,12 +124,19 @@ describe('AppModule — public routes smoke test', () => {
         ping: jest.fn().mockResolvedValue(true),
         setMaxNumber: jest.fn().mockResolvedValue(true),
         subscribe: jest.fn(),
+        createSubscriber: jest.fn().mockReturnValue({
+          on: jest.fn(),
+          subscribe: jest.fn().mockResolvedValue(undefined),
+          unsubscribe: jest.fn().mockResolvedValue(undefined),
+          quit: jest.fn().mockResolvedValue(undefined),
+        }),
       })
       .overrideProvider(REDIS_CLIENT)
       .useValue(redisMock)
       .compile();
 
     app = module.createNestApplication();
+    app.useWebSocketAdapter(new WsAdapter(app));
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
     app.setGlobalPrefix('v1', {
       exclude: ['health', 'docs', 'docs-json', '/'],
@@ -129,7 +145,7 @@ describe('AppModule — public routes smoke test', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    await app?.close();
   });
 
   it('GET / returns 200', () =>
