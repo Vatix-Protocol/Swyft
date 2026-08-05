@@ -3,42 +3,16 @@ name: CI
 on:
   push:
     branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'apps/api/**'
-      - 'packages/ui/**'
-      - 'packages/config/**'
-      - 'packages/sdk/**'
-      - 'packages/contract/**'
-      - 'prisma/**'
-      - 'scripts/**'
-      - '.github/workflows/ci.yml'
-      - 'pnpm-lock.yaml'
-      - 'package.json'
-      - 'turbo.json'
   pull_request:
     branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'apps/api/**'
-      - 'packages/ui/**'
-      - 'packages/config/**'
-      - 'packages/sdk/**'
-      - 'packages/contract/**'
-      - 'prisma/**'
-      - 'scripts/**'
-      - '.github/workflows/ci.yml'
-      - 'pnpm-lock.yaml'
-      - 'package.json'
-      - 'turbo.json'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Lint
+  frontend:
+    name: Frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,38 +30,16 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: pnpm lint
+        run: pnpm --filter web lint
 
-  contracts:
-    name: Contracts
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Test
+        run: pnpm --filter web test
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.0
+      - name: Build
+        run: pnpm --filter web build
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Address drift check — unit tests (fixture-based, no cargo needed)
-        run: pnpm --filter contracts test:drift
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Validate contracts build and check for address drift
-        run: pnpm validate:contracts:drift
-
-  test:
-    name: Test
+  backend:
+    name: Backend
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -114,95 +66,14 @@ jobs:
         ports:
           - 6379:6379
 
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Generate Prisma client
-        run: pnpm db:generate
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Apply database migrations
-        run: pnpm db:migrate:deploy
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft
-
-      - name: Run tests
-        run: pnpm test
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft
-          REDIS_URL: redis://localhost:6379
-          JWT_SECRET: ci-test-secret
-          NODE_ENV: test
-          # Stellar RPC — use public testnet endpoints in CI.
-          # For production test runs that require a private RPC, override via
-          # repository secrets: STELLAR_RPC_URL and HORIZON_URL.
-          STELLAR_RPC_URL: ${{ secrets.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org' }}
-          HORIZON_URL: ${{ secrets.HORIZON_URL || 'https://horizon-testnet.stellar.org' }}
-          STELLAR_NETWORK: testnet
-
-  web-vitest:
-    name: Web Vitest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run web Vitest
-        run: pnpm --filter web test
-
-  e2e:
-    name: E2E
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: swyft_e2e
-        options: >-
-          --health-cmd "pg_isready -U postgres -d swyft_e2e"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-test-secret
+      NODE_ENV: test
+      STELLAR_RPC_URL: ${{ secrets.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org' }}
+      HORIZON_URL: ${{ secrets.HORIZON_URL || 'https://horizon-testnet.stellar.org' }}
+      STELLAR_NETWORK: testnet
 
     steps:
       - uses: actions/checkout@v4
@@ -221,27 +92,29 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm db:generate
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft_e2e
-
-      - uses: dtolnay/rust-toolchain@stable
 
       - name: Apply database migrations
         run: pnpm db:migrate:deploy
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft_e2e
 
-      - name: Run E2E tests
+      - name: Lint
+        run: pnpm --filter api lint
+
+      - name: Unit tests
+        run: pnpm --filter api test
+
+      - name: E2E tests
         run: pnpm --filter api test:e2e
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft_e2e
-          REDIS_URL: redis://localhost:6379
-          JWT_SECRET: ci-e2e-test-secret
-          NODE_ENV: test
 
-  build:
-    name: Build
+      - name: Build
+        run: pnpm --filter api build
+
+  contracts:
+    name: Contracts
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/contract
+
     steps:
       - uses: actions/checkout@v4
 
@@ -254,28 +127,28 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - name: Install dependencies
+      - name: Install JS dependencies
+        working-directory: .
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Prisma client
-        run: pnpm db:generate
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft
+      - name: Address drift check
+        working-directory: .
+        run: pnpm --filter contracts test:drift
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Install stellar-cli
-        run: cargo install --locked stellar-cli --no-default-features
+      - name: Cache cargo target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/contract -> target
 
-      - name: Build
-        run: pnpm build
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft
-          # Stellar RPC — required by the API build (stellarConfig validates at startup).
-          STELLAR_RPC_URL: ${{ secrets.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org' }}
-          HORIZON_URL: ${{ secrets.HORIZON_URL || 'https://horizon-testnet.stellar.org' }}
-          STELLAR_NETWORK: testnet
-          JWT_SECRET: ci-build-secret
-          NODE_ENV: test
+      - name: cargo check
+        run: cargo check --workspace
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: cargo build (release wasm)
+        run: cargo build --workspace --release --target wasm32-unknown-unknown

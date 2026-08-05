@@ -1,16 +1,9 @@
 name: Database Migrations
 
 # Prisma migration smoke against an ephemeral Postgres service.
-# Fails the job if migrate deploy errors (broken migration SQL / drift).
+# Runs on main only — PRs cover migrations via the Backend CI job.
 on:
   push:
-    branches: [main]
-    paths:
-      - "prisma/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/db-migrations.yml"
-  pull_request:
     branches: [main]
     paths:
       - "prisma/**"
