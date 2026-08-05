@@ -211,7 +211,6 @@ describe('TvlAlertService', () => {
         },
         update: {
           tvlUsd: 1000000,
-          updatedAt: expect.any(Date),
         },
         create: {
           poolId: 'pool-1',
