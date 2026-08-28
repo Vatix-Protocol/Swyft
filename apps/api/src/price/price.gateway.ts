@@ -14,7 +14,7 @@ interface IncomingMessage {
   tokenB?: string;
 }
 
-@WebSocketGateway({ path: '/' })
+@WebSocketGateway({ path: '/price' })
 export class PriceGateway implements OnGatewayDisconnect {
   private readonly logger = new Logger(PriceGateway.name);
   @WebSocketServer()

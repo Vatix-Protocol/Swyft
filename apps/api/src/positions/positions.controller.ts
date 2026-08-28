@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -49,8 +57,17 @@ export class PositionsController {
     description: 'Unauthorized — valid JWT required',
   })
   getBulkPositions(
+    @CurrentWallet() walletAddress: string,
     @Body() body: BulkPositionsDto,
   ): Promise<Record<string, WalletPositions>> {
+    const unauthorized = body.wallets.some(
+      (wallet) => wallet.toLowerCase() !== walletAddress.toLowerCase(),
+    );
+    if (unauthorized) {
+      throw new ForbiddenException(
+        'Can only fetch positions for the authenticated wallet',
+      );
+    }
     return this.positionsService.getBulkPositions(body.wallets, body.status);
   }
 }
