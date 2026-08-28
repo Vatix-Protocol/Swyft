@@ -1,7 +1,8 @@
 # ADR-001: API Strategy — GraphQL vs tRPC vs REST
 
 **Date:** 2026-07-26  
-**Status:** Proposed  
+**Status:** Proposed — never accepted; `docs/TRPC-IMPLEMENTATION.md` is
+archived pending a decision here.  
 **Context:** Issue #548, #511
 
 ## Problem

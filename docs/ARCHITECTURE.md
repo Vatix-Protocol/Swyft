@@ -49,7 +49,7 @@ HorizonService           apps/api/src/horizon/horizon.service.ts
                         │  GET  /pools/:id                 │
                         │  GET  /pools/:id/ticks           │
                         │  GET  /swaps                     │
-                        │  GET  /positions                 │
+                        │  GET  /positions        (JWT)    │
                         │  GET  /tokens                    │
                         │  GET  /search                    │
                         │  GET  /indexer/status            │
@@ -61,6 +61,10 @@ HorizonService           apps/api/src/horizon/horizon.service.ts
                                       │
                               WebSocket Gateway
                               (price feed, pool updates)
+
+`(JWT)` marks routes requiring a valid `Authorization: Bearer` token. All
+`/positions` endpoints apply `JwtAuthGuard` (`positions.controller.ts`) —
+pool, swap, token, and search routes remain public.
 ```
 
 ## Component Responsibilities
@@ -89,5 +93,5 @@ successfully persisted, preventing silent data loss on restart.
 - **Ordered checkpoint**: The ledger cursor only advances after a successful
   Prisma write, so a crash mid-job results in a retry, not a skipped ledger.
 - **Webhook delivery tracking**: Every delivery attempt (success or failure) is
-  recorded in `WebhookDelivery`; after 5 consecutive failures a webhook is
-  automatically disabled.
+  recorded in `WebhookDelivery`; after `WEBHOOK_MAX_CONSECUTIVE_FAILS`
+  (default `10`) consecutive failures a webhook is automatically disabled.

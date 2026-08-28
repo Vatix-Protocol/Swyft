@@ -1,6 +1,10 @@
 # tRPC Implementation Guide for Swyft
 
-**Status:** Ready for implementation (Phase 1)  
+**Status:** Archived — not implemented, no `@trpc/*` dependencies or
+`apps/api/src/trpc/` in the current tree. ADR-001 (linked below) was never
+accepted, so this blueprint was never approved for implementation. Kept for
+reference only; the API remains REST-only. Revisit ADR-001 before reviving
+this guide.  
 **Related:** ADR-001, Issue #548
 
 ## Overview
