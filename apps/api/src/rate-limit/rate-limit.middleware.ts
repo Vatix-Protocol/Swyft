@@ -36,8 +36,8 @@ interface RateLimitHit extends RateLimitRule {
  * **Behaviour when Redis is unavailable:** all requests are allowed through and
  * rate-limit headers are set to reflect the configured limits with `remaining=0`.
  *
- * **Health-check bypass:** requests to `/health` are always passed through
- * without touching Redis or setting headers.
+ * **Health-check and metrics bypass:** requests to `/health` and `/metrics*`
+ * are always passed through without touching Redis or setting headers.
  *
  * ### Environment variables
  * | Variable | Default | Description |
@@ -102,7 +102,7 @@ export class RateLimitMiddleware
    * @param next - Express next-function; called when the request is allowed
    */
   async use(req: Request, res: Response, next: NextFunction): Promise<void> {
-    if (req.path === '/health') {
+    if (req.path === '/health' || req.path.startsWith('/metrics')) {
       next();
       return;
     }

@@ -15,18 +15,22 @@ Swyft API supports two deployment models:
 
 ### CI migration smoke (local equivalent)
 
-GitHub Actions runs Prisma migrate against ephemeral Postgres on main/PRs
-(`.github/workflows/db-migrations.yml`). Locally:
+The `db-migrations` workflow (`.github/workflows/db-migrations.yml`) is a
+manually-triggered (`workflow_dispatch`) smoke test, not a PR/main gate. It
+validates the Prisma schema and pushes it to an ephemeral Postgres with
+`prisma db push` — it does not run `prisma migrate deploy`. Locally:
 
 ```bash
 # Start Postgres (docker-compose or otherwise), then:
 export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/swyft_test?schema=public
-pnpm prisma migrate deploy --schema prisma/schema.prisma
-pnpm prisma migrate status --schema prisma/schema.prisma
+pnpm prisma validate --schema prisma/schema.prisma
+pnpm prisma db push --schema prisma/schema.prisma --skip-generate
 ```
 
-Or simply: `pnpm db:migrate:deploy` with your local `DATABASE_URL` set.
-A failing migrate fails the CI job.
+For an actual production deploy, use `pnpm db:migrate:deploy`
+(`prisma migrate deploy`), which applies versioned migrations rather than
+pushing the schema directly — see [Database Migration Order](#database-migration-order)
+below.
 | **Scaling** | Single instance | Multiple replicas with load balancer |
 | **Health checks** | Container health endpoint | HTTP `/health` probe |
 

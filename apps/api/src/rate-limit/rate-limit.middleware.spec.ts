@@ -28,6 +28,16 @@ describe('RateLimitMiddleware', () => {
     expect(res.setHeader).not.toHaveBeenCalled();
   });
 
+  it('exempts metrics scrapes', async () => {
+    const middleware = new RateLimitMiddleware();
+    const res = response();
+
+    await middleware.use({ path: '/metrics' } as never, res as never, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.setHeader).not.toHaveBeenCalled();
+  });
+
   it('adds rate limit headers when Redis is unavailable', async () => {
     const middleware = new RateLimitMiddleware();
     const res = response();
