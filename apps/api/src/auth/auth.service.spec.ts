@@ -29,6 +29,9 @@ function makeSignedNonce(nonce: string): {
 const mockRedis = {
   get: jest.fn(),
   del: jest.fn(),
+  incr: jest.fn().mockResolvedValue(1),
+  ttl: jest.fn().mockResolvedValue(120),
+  expire: jest.fn().mockResolvedValue(1),
 };
 
 const mockJwtService = {
@@ -95,7 +98,10 @@ describe('AuthService', () => {
       expect(mockRedis.del).toHaveBeenCalledWith(
         `${AuthService.NONCE_PREFIX}${walletAddress}`,
       );
-      expect(mockRedis.del).toHaveBeenCalledTimes(1);
+      expect(mockRedis.del).toHaveBeenCalledWith(
+        `${AuthService.ATTEMPTS_PREFIX}${walletAddress}`,
+      );
+      expect(mockRedis.del).toHaveBeenCalledTimes(2);
     });
 
     it('signs the JWT with the wallet address as sub', async () => {
@@ -257,6 +263,44 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
       expect(mockRedis.del).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── #776: failed attempts tracked per nonce ────────────────────────────────
+
+  describe('verifyWallet — failed attempt tracking', () => {
+    it('increments the attempts counter on a signature failure', async () => {
+      const nonce = 'attempts-nonce';
+      const { walletAddress } = makeSignedNonce(nonce);
+      const badSig = Buffer.alloc(64).toString('base64');
+
+      mockRedis.get.mockResolvedValueOnce(nonce);
+      mockRedis.incr.mockResolvedValueOnce(1);
+
+      await expect(
+        service.verifyWallet({ walletAddress, nonce, signature: badSig }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockRedis.incr).toHaveBeenCalledWith(
+        `${AuthService.ATTEMPTS_PREFIX}${walletAddress}`,
+      );
+    });
+
+    it('invalidates the nonce once MAX_NONCE_ATTEMPTS is reached', async () => {
+      const nonce = 'lockout-nonce';
+      const { walletAddress } = makeSignedNonce(nonce);
+      const badSig = Buffer.alloc(64).toString('base64');
+
+      mockRedis.get.mockResolvedValueOnce(nonce);
+      mockRedis.incr.mockResolvedValueOnce(AuthService.MAX_NONCE_ATTEMPTS);
+
+      await expect(
+        service.verifyWallet({ walletAddress, nonce, signature: badSig }),
+      ).rejects.toThrow('Too many failed attempts; nonce invalidated');
+
+      expect(mockRedis.del).toHaveBeenCalledWith(
+        `${AuthService.NONCE_PREFIX}${walletAddress}`,
+      );
     });
   });
 
