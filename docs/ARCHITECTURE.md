@@ -10,7 +10,7 @@ Stellar Network
       │
       ▼
 Horizon Node  (https://horizon-testnet.stellar.org)
-      │  SSE effects stream (poll every 5 s)
+      │  REST effects endpoint (polled every 5 s)
       ▼
 HorizonService           apps/api/src/horizon/horizon.service.ts
   • Polls effects for POOL_CONTRACT_ID

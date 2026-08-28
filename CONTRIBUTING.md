@@ -30,7 +30,7 @@ Thanks for your interest in contributing. Swyft is built almost entirely by exte
    ```
 3. Add the upstream remote:
    ```bash
-   git remote add upstream https://github.com/Valreb001/Swyft.git
+   git remote add upstream https://github.com/Vatix-Protocol/Swyft.git
    ```
 4. Follow the [Development Setup](#development-setup) section below.
 
@@ -108,9 +108,9 @@ caught whenever changes land in `apps/web`.
 
 ## Finding Work
 
-- Browse [open issues](https://github.com/Valreb001/Swyft/issues)
-- Issues labelled [`good first issue`](https://github.com/Valreb001/Swyft/issues?q=label%3A%22good+first+issue%22) are well-scoped and don't require deep protocol knowledge
-- Issues labelled [`bounty`](https://github.com/Valreb001/Swyft/issues?q=label%3Abounty) have a financial reward attached
+- Browse [open issues](https://github.com/Vatix-Protocol/Swyft/issues)
+- Issues labelled [`good first issue`](https://github.com/Vatix-Protocol/Swyft/issues?q=label%3A%22good+first+issue%22) are well-scoped and don't require deep protocol knowledge
+- Issues labelled [`bounty`](https://github.com/Vatix-Protocol/Swyft/issues?q=label%3Abounty) have a financial reward attached
 - Comment on an issue before starting work to avoid duplication
 
 ---
@@ -233,4 +233,4 @@ New features **must** include tests. Bug fixes **should** include a regression t
 
 ## Questions?
 
-Open a [GitHub Discussion](https://github.com/Valreb001/Swyft/discussions) — the maintainer and community are there to help.
+Open a [GitHub Discussion](https://github.com/Vatix-Protocol/Swyft/discussions) — the maintainer and community are there to help.

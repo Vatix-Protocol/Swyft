@@ -16,7 +16,7 @@ This document outlines the planned development phases for Swyft — a concentrat
 - [x] Issue and PR templates
 - [x] Core Soroban contract scaffolding (math-lib, pool, router, position-nft, fee-collector, oracle-adapter)
 - [ ] Full contract test coverage
-- [ ] Local dev environment (Docker Compose)
+- [x] Local dev environment (Docker Compose)
 
 ---
 

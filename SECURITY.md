@@ -42,7 +42,7 @@ The following are **not** eligible for a disclosure report under this policy:
 
 ### How to report
 
-Send a report by email to the maintainer via GitHub. You can find the contact by navigating to the [repository owner's profile](https://github.com/Valreb001) and using the email listed there, or by opening a **private** [GitHub Security Advisory](https://github.com/Valreb001/Swyft/security/advisories/new).
+Send a report by email to the maintainer via GitHub. You can find the contact by navigating to the [repository owner's profile](https://github.com/Vatix-Protocol) and using the email listed there, or by opening a **private** [GitHub Security Advisory](https://github.com/Vatix-Protocol/Swyft/security/advisories/new).
 
 ### What to include
 
