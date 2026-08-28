@@ -1,9 +1,10 @@
 /**
- * #407 — AppModule smoke test: all public (unauthenticated) routes return 200.
+ * #407 — AppModule smoke test: core routes return 200.
  *
  * The entire module graph is bootstrapped but every external dependency
  * (Prisma, Redis, BullMQ, Horizon, JWT) is replaced with lightweight stubs so
- * the test runs without a live database or message broker.
+ * the test runs without a live database or message broker. ApiKeyGuard is
+ * overridden since this suite only asserts route wiring, not auth.
  */
 
 import { INestApplication, ValidationPipe } from '@nestjs/common';
@@ -103,6 +104,7 @@ import { AppModule } from './app.module';
 import { PrismaService } from './prisma/prisma.service';
 import { CacheService } from './cache/cache.service';
 import { REDIS_CLIENT } from './redis/redis.constants';
+import { ApiKeyGuard } from './auth/api-key.guard';
 
 // ── Test suite ─────────────────────────────────────────────────────────────────
 
@@ -133,6 +135,8 @@ describe('AppModule — public routes smoke test', () => {
       })
       .overrideProvider(REDIS_CLIENT)
       .useValue(redisMock)
+      .overrideGuard(ApiKeyGuard)
+      .useValue({ canActivate: () => true })
       .compile();
 
     app = module.createNestApplication();

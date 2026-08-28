@@ -5,6 +5,7 @@ import { SwapsService } from './swaps.service';
 import { SwapsRepository } from './swaps.repository';
 import { SwapsController } from './swaps.controller';
 import { PoolsService } from '../pools/pools.service';
+import { ApiKeyGuard } from '../auth/api-key.guard';
 
 const mockSwap = {
   id: 'swap-e2e-1',
@@ -64,7 +65,10 @@ describe('Swaps E2E (mocked RPC)', () => {
         { provide: SwapsRepository, useValue: mockRepo },
         { provide: PoolsService, useValue: mockPools },
       ],
-    }).compile();
+    })
+      .overrideGuard(ApiKeyGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(

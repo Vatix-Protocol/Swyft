@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { Token } from '@swyft/ui';
 import { API_BASE } from '@/lib/constants';
+import { apiFetch } from '@/lib/api-fetch';
 
 const RECENT_KEY = 'swyft_recent_tokens';
 const RECENT_MAX = 5;
@@ -17,7 +18,7 @@ export function useTokens() {
     setLoading(true);
     setError(null);
 
-    fetch(`${API_BASE}/pools`)
+    apiFetch(`${API_BASE}/pools`)
       .then((r) => r.json())
       .then((data: { items?: Array<{ token0: string; token1: string }> }) => {
         if (cancelled) return;
@@ -82,7 +83,7 @@ export function usePoolId(tokenInId: string | null, tokenOutId: string | null) {
     }
     let cancelled = false;
 
-    fetch(`${API_BASE}/pools`)
+    apiFetch(`${API_BASE}/pools`)
       .then((r) => r.json())
       .then((data: { items?: Array<{ id: string; token0: string; token1: string }> }) => {
         if (cancelled) return;

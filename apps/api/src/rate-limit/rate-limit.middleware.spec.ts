@@ -89,6 +89,65 @@ describe('RateLimitMiddleware', () => {
     expect(next).toHaveBeenCalled();
   });
 
+  it('fails closed with 503 when Redis is unavailable in production', async () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const middleware = new RateLimitMiddleware();
+      const res = response();
+
+      await middleware.use(
+        {
+          path: '/pools',
+          originalUrl: '/pools',
+          headers: {},
+          ip: '127.0.0.1',
+        } as never,
+        res as never,
+        next,
+      );
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusCode: 503,
+          error: 'Service Unavailable',
+        }),
+      );
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+    }
+  });
+
+  it('fails closed with 503 when a Redis command throws in production', async () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const middleware = new RateLimitMiddleware();
+      (middleware as unknown as { redis: object }).redis = {
+        incr: jest.fn().mockRejectedValue(new Error('connection lost')),
+      };
+      const res = response();
+
+      await middleware.use(
+        {
+          path: '/pools',
+          originalUrl: '/pools',
+          headers: {},
+          ip: '127.0.0.1',
+        } as never,
+        res as never,
+        next,
+      );
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(503);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+    }
+  });
+
   it('returns the standard ErrorResponse body on 429 with Retry-After', async () => {
     const middleware = new RateLimitMiddleware();
     (middleware as unknown as { redis: object }).redis = {

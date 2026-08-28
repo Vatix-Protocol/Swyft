@@ -33,8 +33,11 @@ interface RateLimitHit extends RateLimitRule {
  * NestJS middleware that enforces per-IP (and per-internal-key) rate limits
  * using Redis sliding-window counters.
  *
- * **Behaviour when Redis is unavailable:** all requests are allowed through and
- * rate-limit headers are set to reflect the configured limits with `remaining=0`.
+ * **Behaviour when Redis is unavailable:** in production (`NODE_ENV=production`)
+ * requests are rejected with HTTP 503 to fail closed rather than allow
+ * unlimited traffic. Outside production (local dev, test) requests are
+ * allowed through with degraded headers so Redis is not a hard local
+ * dependency.
  *
  * **Health-check bypass:** requests to `/health` are always passed through
  * without touching Redis or setting headers.
@@ -108,8 +111,7 @@ export class RateLimitMiddleware
     }
 
     if (!this.redis) {
-      this.setHeaders(res, this.publicRuleFor(req), 0, 0);
-      next();
+      this.handleRedisUnavailable(req, res, next);
       return;
     }
 
@@ -122,8 +124,7 @@ export class RateLimitMiddleware
         rules.map((rule) => this.hit(rule, identity, this.routeBucketFor(req))),
       );
     } catch {
-      this.setHeaders(res, this.publicRuleFor(req), 0, 0);
-      next();
+      this.handleRedisUnavailable(req, res, next);
       return;
     }
     const effective = this.effectiveHit(hits);
@@ -152,6 +153,47 @@ export class RateLimitMiddleware
     }
 
     next();
+  }
+
+  /**
+   * Handles a request when Redis is unreachable (never connected, or the
+   * current command failed). In production this fails closed with HTTP 503
+   * so a Redis outage cannot be used to bypass rate limits; outside
+   * production it falls back to the previous fail-open behaviour so local
+   * development and tests don't require a running Redis.
+   *
+   * @param req - Incoming Express request
+   * @param res - Outgoing Express response
+   * @param next - Express next-function
+   */
+  private handleRedisUnavailable(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): void {
+    if (!this.isProduction()) {
+      this.setHeaders(res, this.publicRuleFor(req), 0, 0);
+      next();
+      return;
+    }
+
+    const body: ErrorResponse = {
+      statusCode: 503,
+      message: 'Rate limiting is temporarily unavailable',
+      error: 'Service Unavailable',
+      timestamp: new Date().toISOString(),
+      path: req.originalUrl || req.path,
+      requestId: RequestContext.requestId,
+    };
+    res.status(503).json(body);
+  }
+
+  /**
+   * Whether the process is running in production, used to decide whether a
+   * Redis outage fails closed (production) or open (local dev/test).
+   */
+  private isProduction(): boolean {
+    return process.env.NODE_ENV === 'production';
   }
 
   /**

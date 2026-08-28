@@ -1,10 +1,19 @@
-import { Controller, Get, Query } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
+import { ApiKeyGuard } from '../auth/api-key.guard';
 import { SearchService, SearchResponse } from './search.service';
 import { SWAGGER_TAGS } from '../swagger.constants';
 
 @ApiTags(SWAGGER_TAGS.SEARCH)
+@ApiSecurity('api-key')
 @Controller('search')
+@UseGuards(ApiKeyGuard)
 export class SearchController {
   constructor(private readonly searchService: SearchService) {}
 

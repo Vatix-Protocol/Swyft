@@ -7,16 +7,19 @@ import {
   Param,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiOperation,
   ApiParam,
   ApiQuery,
   ApiResponse,
+  ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
 import { createHash } from 'crypto';
 import { Response } from 'express';
+import { ApiKeyGuard } from '../auth/api-key.guard';
 import { CacheService } from '../cache/cache.service';
 import { GetPoolsQueryDto } from './dto/get-pools-query.dto';
 import { GetTicksQueryDto } from './dto/get-ticks-query.dto';
@@ -26,7 +29,9 @@ import { PoolsListResponse, PoolsService } from './pools.service';
 import { SWAGGER_TAGS } from '../swagger.constants';
 
 @ApiTags(SWAGGER_TAGS.POOLS)
+@ApiSecurity('api-key')
 @Controller('pools')
+@UseGuards(ApiKeyGuard)
 /**
  * PoolsController — HTTP API surface for pool-related operations.
  *

@@ -67,11 +67,16 @@ variables — see `apps/api/.env.example`.
 
 ## Behaviour When Redis Is Unavailable
 
-The middleware uses lazy-connect and never blocks app startup on Redis. If
-Redis is unreachable when a request comes in, the request is **allowed
-through** (fail open) and the response still carries the standard headers,
-computed from the configured limit for that route with `remaining=0` — so
-clients get a consistent, machine-readable signal even in a degraded state.
+The middleware uses lazy-connect and never blocks app startup on Redis. What
+happens when Redis is unreachable for a request depends on `NODE_ENV`:
+
+- **Production (`NODE_ENV=production`):** the request **fails closed** with
+  HTTP 503 (`Service Unavailable`) — a Redis outage cannot be used to bypass
+  rate limits.
+- **Non-production (local dev, test):** the request is **allowed through**
+  (fail open) and the response still carries the standard headers, computed
+  from the configured limit for that route with `remaining=0`, so Redis is
+  not a hard dependency for local development.
 
 ## Identity
 

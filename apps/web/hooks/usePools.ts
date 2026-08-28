@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useNetworkContext } from '@/context/NetworkContext';
+import { apiFetch } from '@/lib/api-fetch';
 
 export type PoolOrderBy = 'tvl' | 'volume' | 'apr';
 
@@ -43,7 +44,7 @@ export function usePools({ page, orderBy, search }: UsePoolsParams) {
         orderBy,
         ...(search ? { search } : {}),
       });
-      const res = await fetch(`${apiBase}/pools?${params}`);
+      const res = await apiFetch(`${apiBase}/pools?${params}`);
       if (!res.ok) throw new Error('Failed to fetch pools');
       return res.json();
     },

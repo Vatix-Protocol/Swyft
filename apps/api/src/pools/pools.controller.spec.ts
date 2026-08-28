@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PoolsController } from './pools.controller';
 import { PoolsService } from './pools.service';
 import { CacheService } from '../cache/cache.service';
+import { ApiKeyGuard } from '../auth/api-key.guard';
 
 describe('PoolsController - list endpoint', () => {
   let controller: PoolsController;
@@ -30,7 +31,10 @@ describe('PoolsController - list endpoint', () => {
           useValue: { get: jest.fn(), set: jest.fn() },
         },
       ],
-    }).compile();
+    })
+      .overrideGuard(ApiKeyGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<PoolsController>(PoolsController);
   });

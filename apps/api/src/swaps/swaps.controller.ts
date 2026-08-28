@@ -1,5 +1,12 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
-import { ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  ApiBody,
+  ApiOperation,
+  ApiResponse,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
+import { ApiKeyGuard } from '../auth/api-key.guard';
 import { SWAGGER_TAGS } from '../swagger.constants';
 import { GetSwapsQueryDto } from './dto/get-swaps-query.dto';
 import { SwapQuoteRequestDto } from './dto/swap-quote-request.dto';
@@ -7,7 +14,9 @@ import { SwapQuoteResponseDto } from './dto/swap-quote-response.dto';
 import { SwapsListResponse, SwapsService } from './swaps.service';
 
 @ApiTags(SWAGGER_TAGS.SWAPS)
+@ApiSecurity('api-key')
 @Controller('swaps')
+@UseGuards(ApiKeyGuard)
 export class SwapsController {
   constructor(private readonly swapsService: SwapsService) {}
 

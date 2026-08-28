@@ -116,6 +116,7 @@ import { AppModule } from '../app.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../cache/cache.service';
 import { REDIS_CLIENT } from '../redis/redis.constants';
+import { ApiKeyGuard } from '../auth/api-key.guard';
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
@@ -147,6 +148,8 @@ describe('GET /v1/pools — contract schema', () => {
       })
       .overrideProvider(REDIS_CLIENT)
       .useValue(redisMock)
+      .overrideGuard(ApiKeyGuard)
+      .useValue({ canActivate: () => true })
       .compile();
 
     app = module.createNestApplication();
