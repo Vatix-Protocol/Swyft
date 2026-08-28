@@ -13,9 +13,11 @@ import { AppModule } from './app.module';
 import { CompressionMiddleware } from './compression.middleware';
 import { AllExceptionsFilter } from './request-validation/all-exceptions.filter';
 import { getCorsOrigins, validateCorsConfig } from './cors';
+import { validateInternalApiKeyConfig } from './admin/internal-key.guard';
 
 async function bootstrap() {
   validateCorsConfig();
+  validateInternalApiKeyConfig();
 
   const app = await NestFactory.create(AppModule);
   app.enableCors({ origin: getCorsOrigins(), credentials: true });

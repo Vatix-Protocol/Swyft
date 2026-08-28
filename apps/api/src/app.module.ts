@@ -21,6 +21,7 @@ import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { StatsModule } from './stats/stats.module';
 import { TokensModule } from './tokens/tokens.module';
 import { SearchModule } from './search/search.module';
+import { TransactionsModule } from './transactions/transactions.module';
 import { stellarConfig } from './config/stellar.config';
 
 @Module({
@@ -51,6 +52,7 @@ import { stellarConfig } from './config/stellar.config';
     StatsModule,
     SearchModule,
     TokensModule,
+    TransactionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
