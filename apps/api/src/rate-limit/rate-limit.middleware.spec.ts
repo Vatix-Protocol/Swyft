@@ -69,6 +69,27 @@ describe('RateLimitMiddleware', () => {
     expect(next).toHaveBeenCalled();
   });
 
+  it('applies a dedicated rate limit for GET /pools/:id/ticks when Redis is unavailable', async () => {
+    const middleware = new RateLimitMiddleware();
+    const res = response();
+
+    await middleware.use(
+      {
+        path: '/pools/abc123/ticks',
+        method: 'GET',
+        headers: {},
+        ip: '127.0.0.1',
+      } as never,
+      res as never,
+      next,
+    );
+
+    expect(res.headers.get('X-RateLimit-Limit')).toBe('30');
+    expect(res.headers.get('X-RateLimit-Remaining')).toBe('0');
+    expect(res.headers.has('X-RateLimit-Reset')).toBe(true);
+    expect(next).toHaveBeenCalled();
+  });
+
   it('does not apply transaction rule for GET /transactions', async () => {
     const middleware = new RateLimitMiddleware();
     const res = response();

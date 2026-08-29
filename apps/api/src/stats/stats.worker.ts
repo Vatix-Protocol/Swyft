@@ -5,7 +5,8 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Worker, Job } from 'bullmq';
-import { PrismaClient, Swap } from '@prisma/client';
+import { Swap } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 import { CacheService, TTL } from '../cache/cache.service';
 import { makeQueueOptions } from '../indexer/queues';
 import { STATS_QUEUE_NAME } from './stats.queue';
@@ -17,10 +18,10 @@ export const STATS_CACHE_KEY = (poolId: string) => `stats:pool:${poolId}`;
 @Injectable()
 export class StatsWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(StatsWorker.name);
-  private readonly prisma = new PrismaClient();
   private worker!: Worker;
 
   constructor(
+    private readonly prisma: PrismaService,
     private readonly cache: CacheService,
     private readonly tvlAlertService: TvlAlertService,
   ) {}
@@ -42,7 +43,6 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.worker.close();
-    await this.prisma.$disconnect();
   }
 
   private async process(_job: Job): Promise<void> {

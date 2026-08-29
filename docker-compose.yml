@@ -38,6 +38,9 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
       HORIZON_URL: ${HORIZON_URL:-https://horizon-testnet.stellar.org}
+      STELLAR_RPC_URL: ${STELLAR_RPC_URL:-https://soroban-testnet.stellar.org}
+      STELLAR_NETWORK: ${STELLAR_NETWORK:-testnet}
+      POOL_CONTRACT_ID: ${POOL_CONTRACT_ID:-}
     depends_on:
       postgres:
         condition: service_healthy

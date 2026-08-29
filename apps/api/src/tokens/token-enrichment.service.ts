@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaClient } from '@prisma/client';
 import { Contract, rpc, scValToNative } from '@stellar/stellar-sdk';
+import { PrismaService } from '../prisma/prisma.service';
 import { STELLAR_CONFIG_KEY, StellarConfig } from '../config/stellar.config';
 
 interface TokenListEntry {
@@ -19,11 +19,13 @@ interface UniswapTokenList {
 @Injectable()
 export class TokenEnrichmentService implements OnModuleInit {
   private readonly logger = new Logger(TokenEnrichmentService.name);
-  private readonly prisma = new PrismaClient();
   private readonly rpcUrl: string;
   private readonly tokenListUrl: string | undefined;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {
     const stellarCfg = this.config.get<StellarConfig>(STELLAR_CONFIG_KEY)!;
     this.rpcUrl = stellarCfg.rpcUrl;
     this.tokenListUrl = this.config.get<string>('TOKEN_LIST_URL');

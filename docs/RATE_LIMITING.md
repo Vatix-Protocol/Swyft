@@ -60,6 +60,7 @@ additional, stricter rule layered on top:
 | Candles | `GET /prices/:base/:quote/candles` | `CANDLE_RATE_LIMIT_PER_MINUTE` (60) | `INTERNAL_CANDLE_RATE_LIMIT_PER_MINUTE` (240) |
 | Auth | `/auth/*` | `AUTH_RATE_LIMIT_PER_MINUTE` (10) | `INTERNAL_AUTH_RATE_LIMIT_PER_MINUTE` (60) |
 | Transactions | `POST /transactions` | `TRANSACTION_RATE_LIMIT_PER_MINUTE` (20) | `INTERNAL_TRANSACTION_RATE_LIMIT_PER_MINUTE` (120) |
+| Ticks | `GET /pools/:id/ticks` | `TICKS_RATE_LIMIT_PER_MINUTE` (30) | `INTERNAL_TICKS_RATE_LIMIT_PER_MINUTE` (120) |
 
 "Internal" requests are those carrying a valid `x-internal-key` header
 matching `INTERNAL_API_KEY`. All limits are configurable via environment
@@ -88,4 +89,4 @@ clients get a consistent, machine-readable signal even in a degraded state.
 
 ---
 
-*Last updated: 2026-07-27*
+*Last updated: 2026-08-29*
