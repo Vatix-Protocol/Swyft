@@ -5,8 +5,8 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Worker, Job, QueueEvents } from 'bullmq';
-import { PrismaClient } from '@prisma/client';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
+import { PrismaService } from '../prisma/prisma.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
 import { IndexerCursorService } from './indexer-cursor.service';
@@ -36,7 +36,6 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
    */
   private static readonly UNKNOWN_TOKEN_ADDRESS = 'unknown';
   private readonly logger = new Logger(IndexerWorker.name);
-  private readonly prisma = new PrismaClient();
   private readonly workers: Worker[] = [];
   private readonly queueEvents: QueueEvents[] = [];
   private queueDepthTimer: NodeJS.Timeout | null = null;
@@ -49,6 +48,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
   );
 
   constructor(
+    private readonly prisma: PrismaService,
     private readonly webhooks: WebhooksService,
     private readonly tokenEnrichment: TokenEnrichmentService,
     private readonly cursorService: IndexerCursorService,
@@ -133,7 +133,6 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
       'Timed out waiting for indexer workers to drain in-flight jobs — forcing shutdown',
     );
 
-    await this.prisma.$disconnect();
     this._isLoading = false;
     this._isShuttingDown = false;
     this.logger.log('Indexer workers shut down gracefully');

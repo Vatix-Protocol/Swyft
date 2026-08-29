@@ -54,6 +54,8 @@ interface RateLimitHit extends RateLimitRule {
  * | `INTERNAL_AUTH_RATE_LIMIT_PER_MINUTE` | `60` | Per-minute limit for auth endpoints (internal) |
  * | `TRANSACTION_RATE_LIMIT_PER_MINUTE` | `20` | Per-minute limit for POST /transactions (public) |
  * | `INTERNAL_TRANSACTION_RATE_LIMIT_PER_MINUTE` | `120` | Per-minute limit for POST /transactions (internal) |
+ * | `TICKS_RATE_LIMIT_PER_MINUTE` | `30` | Per-minute limit for GET /pools/:id/ticks (public) |
+ * | `INTERNAL_TICKS_RATE_LIMIT_PER_MINUTE` | `120` | Per-minute limit for GET /pools/:id/ticks (internal) |
  * | `INTERNAL_API_KEY` | _(unset)_ | Shared secret sent via `x-internal-key` header |
  */
 @Injectable()
@@ -264,6 +266,16 @@ export class RateLimitMiddleware
       };
     }
 
+    if (/^\/pools\/[^/]+\/ticks\/?$/.test(req.path)) {
+      return {
+        name: internal ? 'internal-ticks' : 'ticks',
+        limit: internal
+          ? this.envInt('INTERNAL_TICKS_RATE_LIMIT_PER_MINUTE', 120)
+          : this.envInt('TICKS_RATE_LIMIT_PER_MINUTE', 30),
+        windowSeconds: 60,
+      };
+    }
+
     return null;
   }
 
@@ -369,6 +381,7 @@ export class RateLimitMiddleware
     }
     if (req.path.startsWith('/auth')) return 'auth';
     if (req.path === '/transactions') return 'transactions';
+    if (/^\/pools\/[^/]+\/ticks\/?$/.test(req.path)) return 'pools-ticks';
     return 'global';
   }
 

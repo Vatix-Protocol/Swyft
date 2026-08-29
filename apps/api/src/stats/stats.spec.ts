@@ -48,14 +48,11 @@ const mockFindManyPools = jest.fn().mockResolvedValue(mockPools);
 const mockFindManySwaps = jest.fn();
 const mockFindManyPositions = jest.fn().mockResolvedValue(mockPositions);
 
-jest.mock('@prisma/client', () => ({
-  PrismaClient: jest.fn().mockImplementation(() => ({
-    pool: { findMany: mockFindManyPools, update: mockPoolUpdate },
-    swap: { findMany: mockFindManySwaps },
-    position: { findMany: mockFindManyPositions },
-    $disconnect: jest.fn().mockResolvedValue(undefined),
-  })),
-}));
+const mockPrismaService = {
+  pool: { findMany: mockFindManyPools, update: mockPoolUpdate },
+  swap: { findMany: mockFindManySwaps },
+  position: { findMany: mockFindManyPositions },
+};
 
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
 
@@ -224,6 +221,7 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
     module = await Test.createTestingModule({
       providers: [
         StatsWorker,
+        { provide: PrismaService, useValue: mockPrismaService },
         { provide: CacheService, useValue: mockCacheService },
         {
           provide: TvlAlertService,

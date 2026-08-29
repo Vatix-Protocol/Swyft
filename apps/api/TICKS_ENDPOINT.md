@@ -166,7 +166,8 @@ curl "http://localhost:3000/pools/clx1234567890123456789012/ticks?lowerTick=-276
 2. **Compression**: Enable gzip compression for large tick datasets
 3. **Streaming**: Consider streaming responses for very large datasets
 4. **Metrics**: Add monitoring for cache hit rates and response times
-5. **Rate Limiting**: Add rate limiting to prevent abuse
+
+Rate limiting is enforced via `TICKS_RATE_LIMIT_PER_MINUTE` / `INTERNAL_TICKS_RATE_LIMIT_PER_MINUTE` — see `docs/RATE_LIMITING.md`.
 
 ## Dependencies
 

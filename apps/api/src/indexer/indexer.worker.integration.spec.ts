@@ -198,15 +198,12 @@ const mockPrismaClient = {
   $disconnect: jest.fn().mockResolvedValue(undefined),
 };
 
-jest.mock('@prisma/client', () => ({
-  PrismaClient: jest.fn().mockImplementation(() => mockPrismaClient),
-}));
-
 // ─── Imports ──────────────────────────────────────────────────────────────────
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { Job } from 'bullmq';
 import { IndexerWorker } from './indexer.worker';
+import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../cache/cache.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
@@ -256,6 +253,7 @@ describe('IndexerWorker Integration (test-db)', () => {
     module = await Test.createTestingModule({
       providers: [
         IndexerWorker,
+        { provide: PrismaService, useValue: mockPrismaClient },
         {
           provide: CacheService,
           useValue: { setMaxNumber: mockSetMaxNumber },
