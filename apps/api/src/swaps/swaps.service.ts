@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { getSwapQuote } from '@swyft/sdk';
 import { GetSwapsQueryDto } from './dto/get-swaps-query.dto';
 import { SwapQuoteRequestDto } from './dto/swap-quote-request.dto';
 import { SwapQuoteResponseDto } from './dto/swap-quote-response.dto';
@@ -90,11 +91,9 @@ export class SwapsService {
   }
 
   /**
-   * Estimates a swap quote from the pool's current spot price. This is a
-   * spot-price estimate, not a full tick-crossing simulation — it doesn't
-   * account for liquidity depth, so priceImpact is always reported as 0.
-   * Real depth-aware quoting would walk the pool's tick ladder the same way
-   * the client-side SDK's `getSwapQuote` does.
+   * Estimates a swap quote by walking the pool's tick ladder (same
+   * tick-crossing simulation as the SDK's `getSwapQuote`), so priceImpact
+   * reflects real liquidity depth instead of always being 0.
    */
   async getQuote(dto: SwapQuoteRequestDto): Promise<SwapQuoteResponseDto> {
     const pool = await this.poolsService.findPoolById(dto.poolId);
@@ -110,22 +109,86 @@ export class SwapsService {
       );
     }
 
-    const amountIn = Number.parseFloat(dto.amountIn);
-    const lpFeeAmount = amountIn * (pool.feeTier / 1_000_000);
-    const amountInAfterFee = amountIn - lpFeeAmount;
-    const amountOut = zeroForOne
-      ? amountInAfterFee * price
-      : amountInAfterFee / price;
-    const minimumReceived = amountOut * (1 - dto.slippageBps / 10_000);
-    const executionPrice = amountIn > 0 ? amountOut / amountIn : 0;
+    const tokenInDecimals = zeroForOne
+      ? pool.token0.decimals
+      : pool.token1.decimals;
+    const tokenOutDecimals = zeroForOne
+      ? pool.token1.decimals
+      : pool.token0.decimals;
+    const amountInBase = this.toBaseUnits(dto.amountIn, tokenInDecimals);
+    if (amountInBase <= 0n) {
+      throw new InvalidInputException('amountIn must be greater than zero');
+    }
+
+    const ticks = await this.poolsService.getPoolTicks(dto.poolId);
+
+    let result;
+    try {
+      result = getSwapQuote({
+        poolState: {
+          poolAddress: pool.id,
+          sqrtPrice: pool.currentSqrtPrice,
+          currentTick: pool.currentTick,
+          liquidity: pool.totalLiquidity,
+          feeTier: pool.feeTier,
+          token0: pool.token0.address,
+          token1: pool.token1.address,
+          ticks: ticks.map((tick) => ({
+            tick: tick.tickIndex,
+            liquidityNet: tick.liquidityNet,
+            liquidityGross: tick.liquidityGross,
+            feeGrowthOutside: '0',
+          })),
+        },
+        tokenIn: dto.tokenIn,
+        amountIn: amountInBase,
+        slippage: dto.slippageBps,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'quote failed';
+      throw new BusinessRuleViolationException(message);
+    }
+
+    const amountOut = this.fromBaseUnits(
+      BigInt(result.amountOut),
+      tokenOutDecimals,
+    );
+    const lpFee = this.fromBaseUnits(BigInt(result.fee), tokenInDecimals);
+    const minimumReceived = this.fromBaseUnits(
+      BigInt(result.minimumReceived),
+      tokenOutDecimals,
+    );
+    const amountInFloat = Number.parseFloat(dto.amountIn);
+    const executionPrice =
+      amountInFloat > 0 ? Number(amountOut) / amountInFloat : 0;
 
     return {
-      amountOut: amountOut.toFixed(7),
-      priceImpact: 0,
-      lpFee: lpFeeAmount.toFixed(7),
-      minimumReceived: minimumReceived.toFixed(7),
+      amountOut,
+      priceImpact: result.priceImpact,
+      lpFee,
+      minimumReceived,
       executionPrice: executionPrice.toFixed(7),
     };
+  }
+
+  /** Converts a decimal string amount into an integer base-units bigint. */
+  private toBaseUnits(amount: string, decimals: number): bigint {
+    const [whole, frac = ''] = amount.split('.');
+    const paddedFrac = (frac + '0'.repeat(decimals)).slice(0, decimals);
+    return (
+      BigInt(whole || '0') * 10n ** BigInt(decimals) + BigInt(paddedFrac || '0')
+    );
+  }
+
+  /** Converts an integer base-units bigint into a decimal string amount. */
+  private fromBaseUnits(amount: bigint, decimals: number): string {
+    const divisor = 10n ** BigInt(decimals);
+    const whole = amount / divisor;
+    const frac = (amount % divisor)
+      .toString()
+      .padStart(decimals, '0')
+      .replace(/0+$/, '');
+    return frac ? `${whole}.${frac}` : `${whole}`;
   }
 
   /** Returns true for token0->token1, false for token1->token0. */
