@@ -8,6 +8,8 @@ import type { Token } from '@swyft/ui';
 import { API_BASE, getNetworkPassphrase } from '@/lib/constants';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { useTransactionStatus } from '@/context/TransactionStatusContext';
+import { submitTransaction, MevSubmissionError } from '@/lib/mev-submission';
+import { useMevProtection } from './useMevProtection';
 
 export type SwapStatus = 'idle' | 'signing' | 'submitting' | 'success' | 'error';
 export type SwapError = 'rejected' | 'slippage' | 'network' | null;
@@ -38,6 +40,7 @@ const ERROR_MESSAGES: Record<Exclude<SwapError, null>, string> = {
 export function useSwapExecution() {
   const { network } = useNetworkContext();
   const { reportTx } = useTransactionStatus();
+  const { enabled: mevEnabled, mevRpcUrl } = useMevProtection();
   const labelRef = useRef('Swap');
   const [result, setResult] = useState<SwapResult>({
     status: 'idle',
@@ -104,33 +107,30 @@ export function useSwapExecution() {
 
       setResult({ status: 'submitting', error: null, txHash: null, detail: null });
 
-      const res = await fetch(`${API_BASE}/transactions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ xdr: signedXdr }),
-      });
-
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as {
-          code?: string;
-          message?: string;
-          extras?: { result_codes?: unknown };
-        };
-        const error: SwapError = body.code === 'SLIPPAGE_EXCEEDED' ? 'slippage' : 'network';
-        // Surface the Horizon/RPC detail so it reaches TransactionStatusIndicator
-        // instead of only being visible in a network trace.
+      try {
+        const { hash } = await submitTransaction({
+          signedXdr,
+          apiBase: API_BASE,
+          mevEnabled,
+          mevRpcUrl,
+        });
+        setResult({ status: 'success', error: null, txHash: hash, detail: null });
+      } catch (submitErr) {
+        const error: SwapError =
+          submitErr instanceof MevSubmissionError && submitErr.code === 'SLIPPAGE_EXCEEDED'
+            ? 'slippage'
+            : 'network';
         const detail =
-          typeof body.message === 'string'
-            ? body.extras?.result_codes
-              ? `${body.message} (${JSON.stringify(body.extras.result_codes)})`
-              : body.message
-            : null;
+          submitErr instanceof MevSubmissionError
+            ? submitErr.detail
+              ? `${submitErr.message} (${submitErr.detail})`
+              : submitErr.message
+            : submitErr instanceof Error
+              ? submitErr.message
+              : null;
         setResult({ status: 'error', error, txHash: null, detail });
         return;
       }
-
-      const data = (await res.json()) as { hash: string };
-      setResult({ status: 'success', error: null, txHash: data.hash, detail: null });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
