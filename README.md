@@ -65,7 +65,7 @@ swyft/
 
 ```bash
 # 1. Clone and enter repo
-git clone https://github.com/vatix-protocol/Swyft.git
+git clone https://github.com/Vatix-Protocol/Swyft.git
 cd swyft
 
 # 2. Install dependencies (~2 min)
@@ -234,9 +234,9 @@ Full architecture details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 | Phase                    | Timeline | Focus                                      | Status         |
 | ------------------------ | -------- | ------------------------------------------ | -------------- |
 | Phase 0 — Foundation     | M1–2     | Monorepo, CI, contributor onboarding       | 🟡 In progress |
-| Phase 1 — Core contracts | M2–5     | Soroban CL pool, router, position NFT      | ⚪ Planned     |
-| Phase 2 — Backend & SDK  | M4–7     | NestJS API, indexer, `@swyft/sdk`          | ⚪ Planned     |
-| Phase 3 — Frontend       | M6–9     | Swap UI, LP management, pool browser       | ⚪ Planned     |
+| Phase 1 — Core contracts | M2–5     | Soroban CL pool, router, position NFT      | 🟢 Implemented |
+| Phase 2 — Backend & SDK  | M4–7     | NestJS API, indexer, `@swyft/sdk`          | 🟢 Implemented |
+| Phase 3 — Frontend       | M6–9     | Swap UI, LP management, pool browser       | 🟢 Implemented |
 | Phase 4 — Mainnet        | M9–12    | Audit, mainnet deploy, liquidity bootstrap | ⚪ Planned     |
 | Phase 5 — Growth         | M12+     | Governance, fee tiers, integrations        | ⚪ Future      |
 
@@ -252,7 +252,7 @@ Swyft is built almost entirely by external contributors. The maintainer handles 
 
 ### Good first issues
 
-Look for issues labelled [`good first issue`](https://github.com/vatix-protocol/Swyft/issues?q=label%3A%22good+first+issue%22). These are small, well-scoped tasks that don't require deep protocol knowledge.
+Look for issues labelled [`good first issue`](https://github.com/Vatix-Protocol/Swyft/issues?q=label%3A%22good+first+issue%22). These are small, well-scoped tasks that don't require deep protocol knowledge.
 
 ### Issue labels
 
