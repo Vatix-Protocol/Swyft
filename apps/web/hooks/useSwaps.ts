@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/constants';
+import { apiFetch } from '@/lib/api-fetch';
 
 export interface SwapSnapshot {
   id: string;
@@ -36,7 +37,7 @@ export function useSwaps(walletAddress: string | null, page: number = 1, limit: 
         limit: limit.toString(),
       });
 
-      const response = await fetch(`${API_BASE}/swaps?${params}`);
+      const response = await apiFetch(`${API_BASE}/swaps?${params}`);
       if (!response.ok) {
         throw new Error('Failed to fetch swaps');
       }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { API_BASE } from '@/lib/constants';
+import { apiFetch } from '@/lib/api-fetch';
 
 export type Interval = '1m' | '5m' | '1h' | '1d';
 
@@ -66,7 +67,7 @@ export function usePriceCandles(tokenA: string | null, tokenB: string | null, in
     if (!tokenA || !tokenB) return;
     setLoading(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/prices/${tokenA}/${tokenB}/candles?interval=${interval}&limit=168`
       );
       if (!res.ok) {

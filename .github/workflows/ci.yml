@@ -93,10 +93,8 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
-      # Migrations assume a pre-existing baseline schema; for ephemeral CI DBs
-      # sync the schema from prisma/schema.prisma instead.
-      - name: Apply database schema
-        run: pnpm prisma db push --schema prisma/schema.prisma --skip-generate
+      - name: Apply database migrations
+        run: pnpm db:migrate:deploy
 
       - name: Lint
         run: pnpm --filter api lint

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { API_BASE } from '@/lib/constants';
+import { apiFetch } from '@/lib/api-fetch';
 
 export interface TickData {
   tick: number;
@@ -51,7 +52,7 @@ export function usePoolTicks(poolId: string | null) {
     let cancelled = false;
     setLoading(true);
 
-    fetch(`${API_BASE}/pools/${poolId}/ticks`)
+    apiFetch(`${API_BASE}/pools/${poolId}/ticks`)
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to load tick data: HTTP ${r.status}`);
         return r.json() as Promise<TickData[]>;
@@ -93,7 +94,7 @@ export function usePools() {
     setLoading(true);
     setError(null);
 
-    fetch(`${API_BASE}/pools?limit=50&orderBy=tvl`, { cache: 'no-store' })
+    apiFetch(`${API_BASE}/pools?limit=50&orderBy=tvl`, { cache: 'no-store' })
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to load pools: HTTP ${r.status}`);
         return r.json();

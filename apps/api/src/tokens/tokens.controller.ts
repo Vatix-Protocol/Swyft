@@ -1,11 +1,19 @@
-import { Controller, Get, Query } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
+import { ApiKeyGuard } from '../auth/api-key.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { SWAGGER_TAGS } from '../swagger.constants';
 import { GetTokensQueryDto } from './dto/get-tokens-query.dto';
 
 @ApiTags(SWAGGER_TAGS.TOKENS)
+@ApiSecurity('api-key')
 @Controller('tokens')
+@UseGuards(ApiKeyGuard)
 export class TokensController {
   constructor(private readonly prisma: PrismaService) {}
 
