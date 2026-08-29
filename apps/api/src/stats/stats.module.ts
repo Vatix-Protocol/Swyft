@@ -7,6 +7,7 @@ import { StatsService } from './stats.service';
 import { StatsController } from './stats.controller';
 import { TvlAlertService } from './tvl-alert.service';
 import { TvlAlertController } from './tvl-alert.controller';
+import { UsdPriceFeedService } from './usd-price-feed.service';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 
 @Module({
@@ -16,6 +17,7 @@ import { WebhooksModule } from '../webhooks/webhooks.module';
     StatsScheduler,
     StatsService,
     TvlAlertService,
+    UsdPriceFeedService,
     { provide: STATS_QUEUE, useFactory: createStatsQueue },
   ],
   controllers: [TvlAlertController, StatsController],

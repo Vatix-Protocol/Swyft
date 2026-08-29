@@ -47,7 +47,7 @@ export class IndexerController {
   @ApiOperation({
     summary: 'Indexer status — use to show empty-state copy while syncing',
   })
-  getStatus(): IndexerStatusResponse {
+  async getStatus(): Promise<IndexerStatusResponse> {
     if (this.worker.isShuttingDown) {
       return {
         isLoading: false,
@@ -63,6 +63,16 @@ export class IndexerController {
         status: 'initializing',
         message:
           'The indexer is starting up. On-chain data will appear here once syncing is complete.',
+      };
+    }
+
+    const queueDepth = await this.worker.getTotalQueueDepth();
+    if (queueDepth > 0) {
+      return {
+        isLoading: false,
+        status: 'processing',
+        message:
+          'The indexer is processing on-chain events. Data will update shortly.',
       };
     }
 

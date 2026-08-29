@@ -68,6 +68,7 @@ function buildService(horizonServer: object) {
   const swapProcessedQueue = buildQueueMock();
   const positionMintedQueue = buildQueueMock();
   const positionBurnedQueue = buildQueueMock();
+  const feesCollectedQueue = buildQueueMock();
 
   const service = new HorizonService(
     config,
@@ -79,12 +80,14 @@ function buildService(horizonServer: object) {
     swapProcessedQueue as never,
     positionMintedQueue as never,
     positionBurnedQueue as never,
+    feesCollectedQueue as never,
   );
 
   // Inject stubbed Horizon server (bypasses real network)
   (service as any).server = horizonServer;
-  // Set contractId so the poller is active
-  (service as any).contractId = 'GPOOL_CONTRACT';
+  // Track the legacy pool contract so the poller is active
+  (service as any).trackedAccounts.add('GPOOL_CONTRACT');
+  (service as any).cursors.set('GPOOL_CONTRACT', 'now');
 
   return {
     service,
@@ -96,6 +99,7 @@ function buildService(horizonServer: object) {
     swapProcessedQueue,
     positionMintedQueue,
     positionBurnedQueue,
+    feesCollectedQueue,
   };
 }
 
@@ -157,7 +161,7 @@ describe('HorizonService — poller (Horizon mocked)', () => {
       ]);
       const { service, swapProcessedQueue, cursorService } =
         buildService(server);
-      (service as any).cursor = 'before';
+      (service as any).cursors.set('GPOOL_CONTRACT', 'before');
 
       swapProcessedQueue.addBulk
         .mockResolvedValueOnce([])
@@ -167,7 +171,9 @@ describe('HorizonService — poller (Horizon mocked)', () => {
 
       // First ledger window enqueued successfully → paging advances to that window.
       // Second window failed → durable checkpoint untouched; no skip past failure.
-      expect((service as any).cursor).toBe('cursor-fail-a');
+      expect((service as any).cursors.get('GPOOL_CONTRACT')).toBe(
+        'cursor-fail-a',
+      );
       expect(cursorService.advanceLedger).not.toHaveBeenCalled();
     });
 

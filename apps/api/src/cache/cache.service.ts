@@ -15,6 +15,7 @@ export const TTL = {
   TICKS: 10,
   STATS: 300, // pool stats aggregation runs every 5 min; match its window
   GLOBAL_STATS: 300, // platform-wide /stats/global cache window
+  USD_PRICE: 600, // price:usd:* refreshed every 5 min; keep a stale-but-present buffer
 } as const;
 
 @Injectable()
