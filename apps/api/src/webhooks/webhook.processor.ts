@@ -12,6 +12,10 @@ import {
   WEBHOOK_RETRY_ATTEMPTS,
   WEBHOOK_RETRY_BACKOFF_MS,
 } from './webhook-backoff';
+import {
+  assertPublicWebhookUrl,
+  WEBHOOK_FETCH_TIMEOUT_MS,
+} from './webhook-url-guard';
 
 export {
   WEBHOOK_RETRY_ATTEMPTS,
@@ -111,6 +115,7 @@ export class WebhookWorker implements OnModuleInit, OnModuleDestroy {
     let responseStatus: number | undefined;
 
     try {
+      await assertPublicWebhookUrl(webhook.url);
       const res = await fetch(webhook.url, {
         method: 'POST',
         headers: {
@@ -118,10 +123,11 @@ export class WebhookWorker implements OnModuleInit, OnModuleDestroy {
           ...(signature ? { 'X-Swyft-Signature': signature } : {}),
         },
         body,
+        signal: AbortSignal.timeout(WEBHOOK_FETCH_TIMEOUT_MS),
       });
       responseStatus = res.status;
     } catch {
-      // network failure — BullMQ will retry
+      // network failure, timeout, or blocked address — BullMQ will retry
     }
 
     const deliveryMs = Date.now() - start;

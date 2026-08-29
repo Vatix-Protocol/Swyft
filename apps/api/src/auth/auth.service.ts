@@ -35,6 +35,12 @@ export class AuthService {
 
   /** Redis key prefix used when storing nonces — must match the nonce endpoint. */
   static readonly NONCE_PREFIX = 'auth:nonce:';
+  /** Redis key prefix for the per-nonce failed-attempt counter. */
+  static readonly ATTEMPTS_PREFIX = 'auth:nonce:attempts:';
+  /** Failed signature/mismatch attempts allowed against a single nonce before it is invalidated. */
+  static readonly MAX_NONCE_ATTEMPTS = Number(
+    process.env.AUTH_MAX_NONCE_ATTEMPTS ?? '5',
+  );
 
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
@@ -70,16 +76,23 @@ export class AuthService {
 
     // ── 2. Nonce value match ──────────────────────────────────────────────────
     if (storedNonce !== nonce) {
+      await this.registerFailedAttempt(walletAddress, redisKey);
       this.logger.warn(`Nonce mismatch for wallet ${walletAddress}`);
       // Treat as a 401 rather than 400 — the nonce is present but wrong.
       throw new UnauthorizedException('Nonce mismatch');
     }
 
     // ── 3. Stellar signature verification ────────────────────────────────────
-    this.assertSignatureValid(walletAddress, nonce, signature);
+    try {
+      this.assertSignatureValid(walletAddress, nonce, signature);
+    } catch (err) {
+      await this.registerFailedAttempt(walletAddress, redisKey);
+      throw err;
+    }
 
     // ── 4. Consume the nonce (single-use guarantee) ───────────────────────────
     await this.redis.del(redisKey);
+    await this.redis.del(AuthService.ATTEMPTS_PREFIX + walletAddress);
     this.logger.log(`Nonce consumed for wallet ${walletAddress}`);
 
     // ── 5. Issue JWT ──────────────────────────────────────────────────────────
@@ -89,6 +102,35 @@ export class AuthService {
   }
 
   // ─── Private helpers ───────────────────────────────────────────────────────
+
+  /**
+   * Increments the failed-attempt counter for a nonce and invalidates the
+   * nonce once `MAX_NONCE_ATTEMPTS` is reached, preventing an attacker from
+   * hammering /auth/verify with bad signatures for the remainder of the
+   * nonce's TTL.
+   */
+  private async registerFailedAttempt(
+    walletAddress: string,
+    nonceKey: string,
+  ): Promise<void> {
+    const attemptsKey = AuthService.ATTEMPTS_PREFIX + walletAddress;
+    const attempts = await this.redis.incr(attemptsKey);
+    if (attempts === 1) {
+      const nonceTtl = await this.redis.ttl(nonceKey);
+      await this.redis.expire(attemptsKey, nonceTtl > 0 ? nonceTtl : 120);
+    }
+
+    if (attempts >= AuthService.MAX_NONCE_ATTEMPTS) {
+      await this.redis.del(nonceKey);
+      await this.redis.del(attemptsKey);
+      this.logger.warn(
+        `Nonce invalidated for wallet ${walletAddress} after ${attempts} failed attempts`,
+      );
+      throw new UnauthorizedException(
+        'Too many failed attempts; nonce invalidated',
+      );
+    }
+  }
 
   /**
    * Verifies an Ed25519 signature produced by Freighter.
