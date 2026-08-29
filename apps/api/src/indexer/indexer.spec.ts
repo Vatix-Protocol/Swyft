@@ -324,6 +324,7 @@ describe('IndexerWorker', () => {
     module = await Test.createTestingModule({
       providers: [
         IndexerWorker,
+        { provide: PrismaService, useValue: mockPrismaClient },
         { provide: CacheService, useValue: mockCacheService },
         { provide: WebhooksService, useValue: mockWebhooksService },
         {
@@ -457,13 +458,6 @@ describe('IndexerWorker', () => {
       expect(mockQueueEventsClose).toHaveBeenCalledTimes(
         Object.keys(QUEUE_NAMES).length,
       );
-    });
-
-    it('disconnects Prisma on shutdown', async () => {
-      worker.onModuleInit();
-      await worker.onModuleDestroy();
-
-      expect(mockPrismaClient.$disconnect).toHaveBeenCalledTimes(1);
     });
   });
 
