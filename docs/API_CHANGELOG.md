@@ -83,4 +83,4 @@ GET /pools?limit=50&offset=50
 - All timestamps are Unix timestamps in **seconds** (not milliseconds)
 - All prices are denominated in **token1 per token0**
 - All currency amounts are strings to preserve precision
-- Rate limiting is enforced at 100 req/min per IP
+- Rate limiting is enforced at 300 req/min per IP by default (see `RATE_LIMIT_PER_MINUTE` in `docs/RATE_LIMITING.md`)
