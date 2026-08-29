@@ -13,7 +13,11 @@
  *   STELLAR_RPC_URL   — Soroban JSON-RPC endpoint
  *   HORIZON_URL       — Horizon REST API endpoint
  *   STELLAR_NETWORK   — "testnet" | "mainnet"  (default: "testnet")
- *   POOL_CONTRACT_ID  — deployed pool contract address (optional on testnet)
+ *   POOL_CONTRACT_ID  — deployed single-pool contract address (legacy, optional)
+ *   POOL_FACTORY_CONTRACT_ID — pool factory contract address; when set, the
+ *                       Horizon indexer polls the factory account for
+ *                       `pool_created` events and starts polling each pool
+ *                       it discovers
  *
  * **Production boot behaviour (`NODE_ENV=production`):** STELLAR_RPC_URL and
  * HORIZON_URL must be set explicitly — the testnet defaults below are never
@@ -65,6 +69,10 @@ class StellarEnvVars {
   @IsOptional()
   @IsString()
   POOL_CONTRACT_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  POOL_FACTORY_CONTRACT_ID?: string;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────────────
@@ -74,6 +82,7 @@ export interface StellarConfig {
   horizonUrl: string;
   network: StellarNetwork;
   poolContractId: string;
+  poolFactoryContractId: string;
 }
 
 export const STELLAR_CONFIG_KEY = 'stellar';
@@ -112,6 +121,7 @@ export const stellarConfig = registerAs(
       HORIZON_URL: process.env.HORIZON_URL ?? TESTNET_DEFAULTS.horizonUrl,
       STELLAR_NETWORK: process.env.STELLAR_NETWORK ?? 'testnet',
       POOL_CONTRACT_ID: process.env.POOL_CONTRACT_ID,
+      POOL_FACTORY_CONTRACT_ID: process.env.POOL_FACTORY_CONTRACT_ID,
     });
 
     const errors = validateSync(env, { skipMissingProperties: false });
@@ -131,6 +141,7 @@ export const stellarConfig = registerAs(
       horizonUrl: env.HORIZON_URL,
       network: env.STELLAR_NETWORK,
       poolContractId: env.POOL_CONTRACT_ID ?? '',
+      poolFactoryContractId: env.POOL_FACTORY_CONTRACT_ID ?? '',
     };
   },
 );

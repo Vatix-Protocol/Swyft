@@ -222,6 +222,22 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
     return worker;
   }
 
+  /** Total waiting + active jobs across all indexer queues, for status reporting. */
+  async getTotalQueueDepth(): Promise<number> {
+    let total = 0;
+    for (const worker of this.workers) {
+      try {
+        const client = await worker.client;
+        const waiting = await client.llen(`bull:${worker.name}:wait`);
+        const active = await client.llen(`bull:${worker.name}:active`);
+        total += waiting + active;
+      } catch {
+        // Redis unreachable — treat as unknown depth rather than blocking status.
+      }
+    }
+    return total;
+  }
+
   private async logQueueDepths() {
     for (const worker of this.workers) {
       const counts = await worker.client
