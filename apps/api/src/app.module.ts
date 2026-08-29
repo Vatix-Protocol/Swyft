@@ -22,6 +22,7 @@ import { StatsModule } from './stats/stats.module';
 import { TokensModule } from './tokens/tokens.module';
 import { SearchModule } from './search/search.module';
 import { stellarConfig } from './config/stellar.config';
+import { infraConfig } from './config/infra.config';
 
 @Module({
   imports: [
@@ -29,7 +30,7 @@ import { stellarConfig } from './config/stellar.config';
     // namespaces throughout the application via ConfigService injection.
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [stellarConfig],
+      load: [stellarConfig, infraConfig],
       // Do not throw on extra keys; only the declared vars are validated.
       ignoreEnvVars: false,
     }),
