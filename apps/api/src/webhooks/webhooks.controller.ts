@@ -17,6 +17,7 @@ import {
   verifyWebhookSignature,
 } from './webhook.types';
 import { SWAGGER_TAGS } from '../swagger.constants';
+import { CreateWebhookDto } from './dto/create-webhook.dto';
 
 interface AuthRequest {
   user: { walletAddress: string };
@@ -62,16 +63,7 @@ export class WebhooksController {
       },
     },
   })
-  create(
-    @Request() req: AuthRequest,
-    @Body()
-    body: {
-      url: string;
-      eventTypes: WebhookEventType[];
-      secret?: string;
-      largeSwapUsd?: number;
-    },
-  ) {
+  create(@Request() req: AuthRequest, @Body() body: CreateWebhookDto) {
     return this.service.create(
       req.user.walletAddress,
       body.url,
