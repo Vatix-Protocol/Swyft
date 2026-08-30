@@ -22,7 +22,7 @@ import {
  */
 export const EMPTY_POSITION_MESSAGE = 'No positions found. Make a deposit to get started.';
 
-async function callContract(
+export async function callContract(
   rpcUrl: string,
   contractAddress: string,
   method: string,

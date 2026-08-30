@@ -34,7 +34,11 @@ export default function PortfolioPage() {
 
   const handleCollectFees = useCallback(
     async (positionId: string) => {
-      if (!authToken) return;
+      if (!authToken) {
+        // Redirect to home to connect wallet
+        router.replace('/');
+        return;
+      }
       const position = active.find((p) => p.id === positionId);
       if (!position) return;
 
@@ -199,6 +203,7 @@ export default function PortfolioPage() {
               position={p}
               onCollectFees={handleCollectFees}
               collecting={collectingId === p.id}
+              authRequired={!authToken}
             />
           ))}
         </div>

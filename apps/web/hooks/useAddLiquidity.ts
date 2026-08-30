@@ -1,7 +1,11 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
+import { signTransaction } from '@stellar/freighter-api';
+import { buildAddLiquidityTx } from '@swyft/sdk';
 import type { PoolDetail } from './usePoolTicks';
+import { API_BASE, getNetworkPassphrase } from '@/lib/constants';
+import { useNetworkContext } from '@/context/NetworkContext';
 
 const TICK_BASE = 1.0001;
 const MIN_TICK = -887272;
@@ -98,6 +102,7 @@ const defaultState: AddLiquidityState = {
 
 export function useAddLiquidity() {
   const [state, setState] = useState<AddLiquidityState>(defaultState);
+  const { network } = useNetworkContext();
 
   const tickSpacing = state.pool ? feeToTickSpacing(state.pool.feeTier) : 60;
 
@@ -266,23 +271,56 @@ export function useAddLiquidity() {
       try {
         const { pool, lowerTick, upperTick, amount0, amount1 } = state;
         if (!pool) throw new Error('No pool selected');
-        const payload = JSON.stringify({
-          op: 'mint',
-          pool: pool.id,
+
+        // Calculate liquidity units from token amounts (simplified: use amount0 as proxy)
+        const liquidityAmount = parseFloat(amount0 || '0') > 0
+          ? Math.floor(parseFloat(amount0) * 1e7).toString()
+          : Math.floor(parseFloat(amount1 || '0') * 1e7).toString();
+
+        if (!liquidityAmount || liquidityAmount === '0') {
+          throw new Error('Enter an amount to add');
+        }
+
+        const { xdr } = buildAddLiquidityTx({
+          poolId: pool.id,
+          ownerAddress: walletAddress,
           lowerTick,
           upperTick,
-          amount0,
-          amount1,
-          owner: walletAddress,
+          liquidity: liquidityAmount,
         });
-        const xdr = Buffer.from(payload).toString('base64');
+
         setState((s) => ({ ...s, txStatus: 'submitting' }));
-        await signXdr(xdr);
-        await new Promise((r) => setTimeout(r, 1200));
+
+        const signResult = await signTransaction(xdr, {
+          networkPassphrase: getNetworkPassphrase(network),
+        });
+        const signedXdr =
+          typeof signResult === 'string'
+            ? signResult
+            : 'signedTxXdr' in signResult
+              ? (signResult as { signedTxXdr: string }).signedTxXdr
+              : null;
+
+        if (!signedXdr) {
+          setState((s) => ({ ...s, txStatus: 'error', txError: 'rejected' }));
+          return;
+        }
+
+        const res = await fetch(`${API_BASE}/transactions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('swyft_auth_token') || ''}` },
+          body: JSON.stringify({ xdr: signedXdr }),
+        });
+
+        if (!res.ok) {
+          throw new Error('network');
+        }
+
+        const data = (await res.json()) as { hash: string };
         setState((s) => ({
           ...s,
           txStatus: 'success',
-          txHash: `0x${Math.random().toString(16).slice(2, 18)}`,
+          txHash: data.hash,
           positionNftId: `pos-${Date.now().toString(36)}`,
         }));
       } catch (e: unknown) {
@@ -294,7 +332,7 @@ export function useAddLiquidity() {
         }));
       }
     },
-    [state]
+    [state, network]
   );
 
   const reset = useCallback(() => setState(defaultState), []);

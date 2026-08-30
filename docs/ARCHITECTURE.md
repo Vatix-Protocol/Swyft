@@ -95,3 +95,16 @@ successfully persisted, preventing silent data loss on restart.
 - **Webhook delivery tracking**: Every delivery attempt (success or failure) is
   recorded in `WebhookDelivery`; after `WEBHOOK_MAX_CONSECUTIVE_FAILS`
   (default `10`) consecutive failures a webhook is automatically disabled.
+
+## SDK Liquidity Module
+
+The `@swyft/sdk` package provides transaction builders for liquidity operations:
+
+- `buildAddLiquidityTx` — Builds mint/add_liquidity transactions
+- `buildBurnTx` — Builds burn/remove_liquidity transactions
+- `buildCollectTx` — Builds collect fee transactions
+- `buildRerangeTx` — Atomic remove + add in a single transaction
+- `detectPoolType` — Detects pool vs cl-pool ABI via contract `name()` method
+
+All builders accept a `poolType` parameter (`'pool'` or `'cl_pool'`) to handle
+the different contract ABIs. The SDK targets the Stellar testnet by default.
