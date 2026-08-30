@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { calculateSwapQuote, type SwapQuote } from '@swyft/sdk';
+import { EMPTY_QUOTE, type SwapQuote } from '@swyft/sdk';
 import { API_BASE } from '@/lib/constants';
+import { apiFetch } from '@/lib/api-fetch';
 
 function getWsBase(): string {
   if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_WS_URL) {
@@ -25,6 +26,59 @@ interface Params {
   slippageBps: number;
 }
 
+interface FetchQuoteArgs {
+  poolId: string;
+  tokenInId: string;
+  tokenOutId: string;
+  amountIn: string;
+  slippageBps: number;
+  signal?: AbortSignal;
+}
+
+/** Calls the API's POST /swaps/quote, backed by real pool depth. */
+async function fetchSwapQuote({
+  poolId,
+  tokenInId,
+  tokenOutId,
+  amountIn,
+  slippageBps,
+  signal,
+}: FetchQuoteArgs): Promise<SwapQuote> {
+  const res = await apiFetch(`${API_BASE}/swaps/quote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      poolId,
+      tokenIn: tokenInId,
+      tokenOut: tokenOutId,
+      amountIn,
+      slippageBps,
+    }),
+    signal,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch swap quote: ${res.status}`);
+  }
+
+  const data = (await res.json()) as {
+    amountOut: string;
+    priceImpact: number;
+    lpFee: string;
+    minimumReceived: string;
+    executionPrice: string;
+  };
+
+  return {
+    amountOut: data.amountOut,
+    priceImpact: data.priceImpact,
+    lpFee: data.lpFee,
+    protocolFee: '0',
+    minimumReceived: data.minimumReceived,
+    executionPrice: data.executionPrice,
+  };
+}
+
 export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippageBps }: Params) {
   const [quote, setQuote] = useState<SwapQuote | null>(null);
   const [loading, setLoading] = useState(false);
@@ -32,7 +86,8 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
   const abortControllerRef = useRef<AbortController | null>(null);
   const sequenceRef = useRef(0);
 
-  // Recalculate quote whenever inputs change (debounced)
+  // Recalculate quote whenever inputs change (debounced), sourced from the
+  // API's POST /swaps/quote (real pool depth), not local stub math.
   useEffect(() => {
     if (!poolId || !tokenInId || !tokenOutId || !amountIn || parseFloat(amountIn) <= 0) {
       setQuote(null);
@@ -47,11 +102,33 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
     const currentSequence = ++sequenceRef.current;
 
     debounceRef.current = setTimeout(() => {
-      const result = calculateSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippageBps });
-      if (currentSequence === sequenceRef.current) {
-        setQuote(result);
-      }
-      setLoading(false);
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      fetchSwapQuote({
+        poolId,
+        tokenInId,
+        tokenOutId,
+        amountIn,
+        slippageBps,
+        signal: controller.signal,
+      })
+        .then((result) => {
+          if (currentSequence === sequenceRef.current) {
+            setQuote(result);
+          }
+        })
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          if (currentSequence === sequenceRef.current) {
+            setQuote(EMPTY_QUOTE);
+          }
+        })
+        .finally(() => {
+          if (currentSequence === sequenceRef.current) {
+            setLoading(false);
+          }
+        });
     }, DEBOUNCE_MS);
 
     return () => {
@@ -100,14 +177,19 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
           if (msg.event !== 'price' || msg.data?.poolId !== poolId) return;
           if (!poolId || !tokenInId || !tokenOutId) return;
           if (!amountIn || parseFloat(amountIn) <= 0) return;
-          const result = calculateSwapQuote({
-            poolId,
-            tokenInId,
-            tokenOutId,
-            amountIn,
-            slippageBps,
-          });
-          setQuote(result);
+
+          // Re-fetch from the API on live price events too, so the quote
+          // reflects real depth rather than the hardcoded-reserve helper.
+          const currentSequence = ++sequenceRef.current;
+          fetchSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippageBps })
+            .then((result) => {
+              if (currentSequence === sequenceRef.current) {
+                setQuote(result);
+              }
+            })
+            .catch(() => {
+              // Keep the last known-good quote on transient fetch errors.
+            });
         } catch {
           // ignore malformed messages
         }
