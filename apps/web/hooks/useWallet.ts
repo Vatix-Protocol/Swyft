@@ -11,7 +11,25 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { SWYFT_NETWORK, WALLET_STORAGE_KEY, type StellarNetwork } from '@/lib/constants';
 
-export type WalletError = 'NOT_INSTALLED' | 'REJECTED' | 'WRONG_NETWORK' | null;
+export type WalletError =
+  | 'NOT_INSTALLED'
+  | 'REJECTED'
+  | 'WRONG_NETWORK'
+  | 'UNSUPPORTED_WALLET'
+  | null;
+
+/**
+ * Supported wallet kits. Only 'freighter' is implemented today.
+ *
+ * 'xbull' is listed in docs/ROADMAP.md (Phase 3) as a planned integration
+ * but is NOT wired up yet — there is no @creit.tech/xbull-wallet-connect
+ * (or equivalent) dependency in this package, and no signing/connect calls
+ * for it exist below. Selecting 'xbull' fails fast with UNSUPPORTED_WALLET
+ * rather than silently falling back to Freighter, so callers don't get a
+ * false sense that xBull is connected. Until xBull ships, Freighter is the
+ * only supported wallet — do not present xBull as available in the UI.
+ */
+export type WalletKind = 'freighter' | 'xbull';
 
 export interface WalletState {
   address: string | null;
@@ -28,8 +46,14 @@ export interface WalletState {
  * @param targetNetwork - Network the connected wallet is expected to be on.
  *   Defaults to the build-time env network; pass the live selection from
  *   `useNetworkContext()` to validate against the user's runtime choice.
+ * @param walletKind - Which wallet kit to use. Only 'freighter' is
+ *   implemented; see the `WalletKind` doc comment above for why 'xbull'
+ *   is accepted in the type but rejected at runtime for now.
  */
-export function useWallet(targetNetwork: StellarNetwork = SWYFT_NETWORK): WalletState {
+export function useWallet(
+  targetNetwork: StellarNetwork = SWYFT_NETWORK,
+  walletKind: WalletKind = 'freighter'
+): WalletState {
   const [address, setAddress] = useState<string | null>(null);
   const [error, setError] = useState<WalletError>(null);
   const [connecting, setConnecting] = useState(false);
@@ -88,6 +112,11 @@ export function useWallet(targetNetwork: StellarNetwork = SWYFT_NETWORK): Wallet
 
   const connect = useCallback(async () => {
     setError(null);
+    if (walletKind !== 'freighter') {
+      // xBull is not implemented yet (see WalletKind doc comment above).
+      setError('UNSUPPORTED_WALLET');
+      return;
+    }
     setConnecting(true);
     try {
       const connected = await isConnected();
@@ -111,7 +140,7 @@ export function useWallet(targetNetwork: StellarNetwork = SWYFT_NETWORK): Wallet
     } finally {
       setConnecting(false);
     }
-  }, [validateAndSet]);
+  }, [validateAndSet, walletKind]);
 
   const disconnect = useCallback(() => {
     setAddress(null);
