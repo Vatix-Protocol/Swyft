@@ -71,7 +71,11 @@ export function useRecentTokens() {
   return { recentIds: get(), pushRecent: push };
 }
 
-export function usePoolId(tokenInId: string | null, tokenOutId: string | null) {
+export function usePoolId(
+  tokenInId: string | null,
+  tokenOutId: string | null,
+  feeTier?: number | null
+) {
   const [poolId, setPoolId] = useState<string | null>(null);
   const [poolExists, setPoolExists] = useState<boolean | null>(null);
 
@@ -85,16 +89,32 @@ export function usePoolId(tokenInId: string | null, tokenOutId: string | null) {
 
     apiFetch(`${API_BASE}/pools`)
       .then((r) => r.json())
-      .then((data: { items?: Array<{ id: string; token0: string; token1: string }> }) => {
-        if (cancelled) return;
-        const match = (data.items ?? []).find(
-          (p) =>
-            (p.token0 === tokenInId && p.token1 === tokenOutId) ||
-            (p.token0 === tokenOutId && p.token1 === tokenInId)
-        );
-        setPoolId(match?.id ?? null);
-        setPoolExists(!!match);
-      })
+      .then(
+        (data: {
+          items?: Array<{ id: string; token0: string; token1: string; feeTier: number | string }>;
+        }) => {
+          if (cancelled) return;
+          const candidates = (data.items ?? []).filter(
+            (p) =>
+              (p.token0 === tokenInId && p.token1 === tokenOutId) ||
+              (p.token0 === tokenOutId && p.token1 === tokenInId)
+          );
+
+          let match: (typeof candidates)[number] | undefined;
+          if (feeTier != null) {
+            // Multiple fee-tier pools can exist for the same pair; only
+            // treat it as a match if the fee tier is also honored.
+            match = candidates.find((p) => Number(p.feeTier) === feeTier);
+          } else {
+            // No fee tier requested: fall back deterministically to the
+            // lowest fee-tier pool rather than an arbitrary array order.
+            match = [...candidates].sort((a, b) => Number(a.feeTier) - Number(b.feeTier))[0];
+          }
+
+          setPoolId(match?.id ?? null);
+          setPoolExists(candidates.length > 0 ? !!match : false);
+        }
+      )
       .catch(() => {
         if (!cancelled) {
           setPoolId(null);
@@ -105,7 +125,7 @@ export function usePoolId(tokenInId: string | null, tokenOutId: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [tokenInId, tokenOutId]);
+  }, [tokenInId, tokenOutId, feeTier]);
 
   return { poolId, poolExists };
 }
