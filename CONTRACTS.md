@@ -1,12 +1,11 @@
 # Swyft Smart Contracts
 
-All 9 Swyft smart contracts compile and build successfully.
+All 8 Swyft smart contracts compile and build successfully. (The `hello-world` sample/placeholder was removed from the workspace; it is not a shipped Swyft contract.)
 
 ## Contracts
 
 | Contract         | Purpose                     | Status |
 | ---------------- | --------------------------- | ------ |
-| `hello-world`    | Example contract            | ✅     |
 | `math-lib`       | Fixed-point math (Q64.96)   | ✅     |
 | `pool`           | Concentrated liquidity pool | ✅     |
 | `pool-factory`   | Pool deployment & registry  | ✅     |
@@ -36,11 +35,10 @@ pnpm validate:contracts
 Output:
 
 ```
-Building hello-world... ✓
 Building math-lib... ✓
 Building pool... ✓
 ...
-Passed: 9/9
+Passed: 8/8
 All Swyft contracts validated!
 ```
 
