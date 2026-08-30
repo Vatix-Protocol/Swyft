@@ -4,7 +4,6 @@
 set -e
 
 CONTRACTS=(
-  "hello-world"
   "math-lib"
   "pool"
   "pool-factory"
