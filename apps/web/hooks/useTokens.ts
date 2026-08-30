@@ -77,31 +77,39 @@ export function useRecentTokens() {
 export function usePoolId(tokenInId: string | null, tokenOutId: string | null) {
   const [poolId, setPoolId] = useState<string | null>(null);
   const [poolExists, setPoolExists] = useState<boolean | null>(null);
+  const [feeTier, setFeeTier] = useState<number | null>(null);
 
   useEffect(() => {
     if (!tokenInId || !tokenOutId) {
       setPoolId(null);
       setPoolExists(null);
+      setFeeTier(null);
       return;
     }
     let cancelled = false;
 
     apiFetch(`${API_BASE}/pools`)
       .then((r) => r.json())
-      .then((data: { items?: Array<{ id: string; token0: string; token1: string }> }) => {
-        if (cancelled) return;
-        const match = (data.items ?? []).find(
-          (p) =>
-            (p.token0 === tokenInId && p.token1 === tokenOutId) ||
-            (p.token0 === tokenOutId && p.token1 === tokenInId)
-        );
-        setPoolId(match?.id ?? null);
-        setPoolExists(!!match);
-      })
+      .then(
+        (data: {
+          items?: Array<{ id: string; token0: string; token1: string; feeTier?: number }>;
+        }) => {
+          if (cancelled) return;
+          const match = (data.items ?? []).find(
+            (p) =>
+              (p.token0 === tokenInId && p.token1 === tokenOutId) ||
+              (p.token0 === tokenOutId && p.token1 === tokenInId)
+          );
+          setPoolId(match?.id ?? null);
+          setPoolExists(!!match);
+          setFeeTier(match?.feeTier ?? null);
+        }
+      )
       .catch(() => {
         if (!cancelled) {
           setPoolId(null);
           setPoolExists(null);
+          setFeeTier(null);
         }
       });
 
@@ -110,5 +118,5 @@ export function usePoolId(tokenInId: string | null, tokenOutId: string | null) {
     };
   }, [tokenInId, tokenOutId]);
 
-  return { poolId, poolExists };
+  return { poolId, poolExists, feeTier };
 }
