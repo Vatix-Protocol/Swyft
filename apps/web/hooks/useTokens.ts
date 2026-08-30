@@ -18,26 +18,29 @@ export function useTokens() {
     setLoading(true);
     setError(null);
 
-    apiFetch(`${API_BASE}/pools`)
-      .then((r) => r.json())
-      .then((data: { items?: Array<{ token0: string; token1: string }> }) => {
-        if (cancelled) return;
-        const seen = new Set<string>();
-        const list: Token[] = [];
-        for (const pool of data.items ?? []) {
-          for (const raw of [pool.token0, pool.token1]) {
-            if (seen.has(raw)) continue;
-            seen.add(raw);
-            list.push({
-              id: raw,
-              symbol: raw.length > 8 ? `${raw.slice(0, 4)}…` : raw,
-              name: raw,
-              logoUrl: null,
-            });
-          }
-        }
-        setTokens(list);
+    apiFetch(`${API_BASE}/tokens?limit=100`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to load tokens (${r.status})`);
+        return r.json();
       })
+      .then(
+        (data: {
+          contractAddress?: string;
+          symbol: string;
+          name: string;
+          logoUri: string | null;
+        }[] | { items?: Array<{ contractAddress: string; symbol: string; name: string; logoUri: string | null }> }) => {
+          if (cancelled) return;
+          const items = Array.isArray(data) ? data : data.items ?? [];
+          const list: Token[] = items.map((t) => ({
+            id: t.contractAddress ?? '',
+            symbol: t.symbol,
+            name: t.name,
+            logoUrl: t.logoUri ?? null,
+          }));
+          setTokens(list);
+        }
+      )
       .catch((err: unknown) => {
         if (!cancelled) {
           setTokens([]);
