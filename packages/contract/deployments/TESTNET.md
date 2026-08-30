@@ -23,7 +23,8 @@ pnpm --filter contracts deploy:testnet
 | `router`                     | `ROUTER_CONTRACT_ID`            | Swap router                    |
 | `positionNft`                | `POSITION_NFT_CONTRACT_ID`      | LP position NFTs               |
 | `feeCollector`               | `FEE_COLLECTOR_CONTRACT_ID`     | Protocol fee collector         |
-| `oracleAdapter`              | `ORACLE_ADAPTER_CONTRACT_ID`    | TWAP / oracle adapter          |
+| `oracleAdapter`              | `ORACLE_ADAPTER_CONTRACT_ID`    | TWAP oracle for `pool`         |
+| `clPoolOracleAdapter`        | `CL_POOL_ORACLE_ADAPTER_CONTRACT_ID` | TWAP oracle for `clPool` |
 
 Empty strings mean “not yet deployed”. After deploy, IDs are `C…` Soroban contract addresses.
 

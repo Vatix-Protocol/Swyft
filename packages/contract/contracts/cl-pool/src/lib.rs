@@ -46,6 +46,7 @@ enum DataKey {
     FeeGrowthGlobal1,
     NftContract,
     NextPositionId,
+    Oracle,
     Position(u64),
 }
 
@@ -56,6 +57,34 @@ pub struct ClPool;
 impl ClPool {
     pub fn name(_env: Env) -> Symbol {
         Symbol::new(&_env, "cl_pool")
+    }
+
+    /// Wires the oracle-adapter instance this pool writes observations to.
+    ///
+    /// Deploy-time wiring step: the pool records a price observation after
+    /// every swap so `get_twap` has real history to answer from. Can be set
+    /// once; re-pointing (which would let an attacker redirect the pool's
+    /// observation writes) is rejected.
+    pub fn set_oracle(env: Env, oracle: Address) {
+        match env.storage().instance().get::<DataKey, Address>(&DataKey::Oracle) {
+            Some(existing) if existing != oracle => {
+                panic_pool_error(&env, PoolError::AlreadyInitialized);
+            }
+            Some(_) => {}
+            None => {
+                env.storage().instance().set(&DataKey::Oracle, &oracle);
+                env.events().publish(
+                    (Symbol::new(&env, "OracleSet"),),
+                    (oracle,),
+                );
+            }
+        }
+    }
+
+    /// Returns the oracle-adapter address this pool writes observations to,
+    /// or `None` if no oracle has been wired yet.
+    pub fn get_oracle(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Oracle)
     }
 
     pub fn initialize(
@@ -336,6 +365,23 @@ impl ClPool {
             .instance()
             .set(&DataKey::CurrentTick, &sqrt_price_to_tick(new_sqrt_price));
 
+        // Record the post-swap observation with the oracle adapter (if wired).
+        // Failing loudly here — rather than skipping — keeps the TWAP honest:
+        // a wired oracle must never silently miss a swap. Raw cross-contract
+        // invoke keeps the oracle-adapter out of this crate's wasm (its `name`
+        // export would collide with ours at link time).
+        if let Some(oracle) = env.storage().instance().get::<DataKey, Address>(&DataKey::Oracle) {
+            env.invoke_contract::<()>(
+                &oracle,
+                &Symbol::new(&env, "write_observation"),
+                soroban_sdk::vec![
+                    &env,
+                    new_sqrt_price.into_val(&env),
+                    liquidity.into_val(&env),
+                ],
+            );
+        }
+
         env.events().publish(
             (Symbol::new(&env, "Swap"),),
             (zero_for_one, amount_0_delta, amount_1_delta),
@@ -566,23 +612,27 @@ impl ClPool {
 
 // ── Math helpers ─────────────────────────────────────────────────────────────
 
-/// Approximate tick from sqrt price using log base 1.0001.
+/// Approximate tick from sqrt price using the linear model matching
+/// [`tick_to_sqrt_price`]: `sqrt_price ≈ Q96 + tick * Q96 / 20000`, so
+/// `tick ≈ (sqrt_price - Q96) * 20000 / Q96`.
+///
+/// The math is done entirely in `u128` — casting `Q96` (2^96) to `i64` would
+/// wrap to zero and `ratio * 20000` would overflow for any price that has
+/// actually moved, panicking every real swap.
 pub fn sqrt_price_to_tick(sqrt_price_x96: u128) -> i32 {
     if sqrt_price_x96 == 0 {
         return 0;
     }
-    // log_1.0001(price) = log_1.0001((sqrt_price/2^96)^2)
-    // ≈ 2 * (sqrt_price - 2^96) / (2^96 * ln(1.0001))  for small deviations
-    // Use integer approximation: tick ≈ (sqrt_price_x96 / Q96 - 1) * 20000
-    let q = Q96 as i64;
-
+    let scaled = |diff: u128| -> i32 {
+        let whole = diff / Q96;
+        let frac = diff % Q96;
+        let v = whole * 20000 + frac * 20000 / Q96;
+        v.min(i32::MAX as u128) as i32
+    };
     if sqrt_price_x96 >= Q96 {
-        let ratio = (sqrt_price_x96 - Q96) as i64;
-        ((ratio * 20000).checked_div(q).unwrap_or(0)).try_into().unwrap_or(i32::MAX)
+        scaled(sqrt_price_x96 - Q96)
     } else {
-        let ratio = (Q96 - sqrt_price_x96) as i64;
-        let val = (ratio * 20000).checked_div(q).unwrap_or(0);
-        val.saturating_neg().try_into().unwrap_or(i32::MIN)
+        -scaled(Q96 - sqrt_price_x96)
     }
 }
 
@@ -674,6 +724,9 @@ fn ensure_initialized(env: &Env) {
 fn panic_pool_error(env: &Env, error: PoolError) -> ! {
     env.panic_with_error(soroban_sdk::Error::from_contract_error(error as u32))
 }
+
+#[cfg(test)]
+mod test;
 
 #[cfg(test)]
 mod fixture_tests {

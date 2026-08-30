@@ -250,6 +250,8 @@ dependencies = [
 name = "cl-pool"
 version = "0.1.0"
 dependencies = [
+ "oracle-adapter",
+ "position-nft",
  "soroban-sdk",
 ]
 
@@ -970,6 +972,7 @@ dependencies = [
 name = "pool"
 version = "0.1.0"
 dependencies = [
+ "oracle-adapter",
  "soroban-sdk",
 ]
 
