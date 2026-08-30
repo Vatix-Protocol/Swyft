@@ -196,6 +196,21 @@ Copy `apps/api/.env.example` to `apps/api/.env` and fill in the values below.
 | `WEBHOOK_MAX_CONSECUTIVE_FAILS` | ❌       | `10`                                                  | Number of consecutive delivery failures before disabling a webhook                |
 | `WEBHOOK_RETRY_ATTEMPTS`        | ❌       | `3`                                                   | Number of times to retry webhook delivery before marking as failed                |
 
+### Web app (`apps/web/.env`)
+
+Copy `apps/web/.env.example` to `apps/web/.env`. `NEXT_PUBLIC_*` values are
+inlined into the client bundle at **build** time, so they must be set when the
+web image is built (build args in `docker-compose.yml` / `apps/web/Dockerfile`), not just at runtime.
+
+| Variable                          | Required            | Default                    | Description                                                                                     |
+| --------------------------------- | ------------------- | -------------------------- | ----------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_STELLAR_NETWORK`     | ✅                  | `TESTNET`                  | `TESTNET` or `PUBLIC` — build-time default network (passphrase, RPC, explorer links)            |
+| `NEXT_PUBLIC_API_URL`             | ✅                  | `http://localhost:3001`    | Shared API base URL (no `/v1` suffix — appended automatically)                                  |
+| `NEXT_PUBLIC_API_URL_TESTNET`     | ❌                  | falls back to `NEXT_PUBLIC_API_URL` | Per-network API URL for testnet, used when the runtime network switcher selects TESTNET |
+| `NEXT_PUBLIC_API_URL_PUBLIC`      | ✅ for mainnet      | falls back to `NEXT_PUBLIC_API_URL` | Per-network API URL for mainnet — **must be set on PUBLIC deployments**, otherwise mainnet traffic silently uses the testnet/localhost URL |
+| `NEXT_PUBLIC_WS_URL`              | ❌                  | derived from API URL       | WebSocket URL for live candles/swap quotes                                                      |
+| `NEXT_PUBLIC_SWYFT_API_KEY`       | ❌                  | _(none)_                   | `X-Api-Key` for the read-only market-data endpoints                                             |
+
 ---
 
 ## Architecture
