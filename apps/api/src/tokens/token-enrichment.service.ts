@@ -61,24 +61,27 @@ export class TokenEnrichmentService implements OnModuleInit {
     listMap: Map<string, TokenListEntry>,
   ): Promise<void> {
     try {
-      const onChain = await this.fetchOnChainMetadata(contractAddress);
+      const [onChain, existing] = await Promise.all([
+        this.fetchOnChainMetadata(contractAddress),
+        this.prisma.token.findUnique({ where: { address: contractAddress } }),
+      ]);
       const listed = listMap.get(contractAddress.toLowerCase());
+
+      // A transient RPC failure or missing token-list entry must never
+      // regress a token that was already enriched with real metadata back
+      // to the 'UNKNOWN' placeholder — prefer the previously stored value
+      // over the placeholder when this pass finds nothing new.
+      const data = {
+        symbol: onChain.symbol ?? listed?.symbol ?? existing?.symbol ?? 'UNKNOWN',
+        name: onChain.name ?? listed?.name ?? existing?.name ?? contractAddress,
+        decimals: onChain.decimals ?? listed?.decimals ?? existing?.decimals ?? 7,
+        logoUri: listed?.logoURI ?? existing?.logoUri ?? null,
+      };
 
       await this.prisma.token.upsert({
         where: { address: contractAddress },
-        update: {
-          symbol: onChain.symbol ?? listed?.symbol ?? 'UNKNOWN',
-          name: onChain.name ?? listed?.name ?? contractAddress,
-          decimals: onChain.decimals ?? listed?.decimals ?? 7,
-          logoUri: listed?.logoURI ?? null,
-        },
-        create: {
-          address: contractAddress,
-          symbol: onChain.symbol ?? listed?.symbol ?? 'UNKNOWN',
-          name: onChain.name ?? listed?.name ?? contractAddress,
-          decimals: onChain.decimals ?? listed?.decimals ?? 7,
-          logoUri: listed?.logoURI ?? null,
-        },
+        update: data,
+        create: { address: contractAddress, ...data },
       });
     } catch (err) {
       this.logger.warn(
