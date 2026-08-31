@@ -70,10 +70,9 @@ export interface MevProtectionState {
   /** Whether MEV protection is currently enabled by the user. */
   enabled: boolean;
   /**
-   * Whether a valid MEV-protected RPC endpoint is configured via
-   * NEXT_PUBLIC_MEV_PROTECTED_RPC_URL. When `enabled` is true but
-   * `available` is false, swaps will fail explicitly rather than
-   * silently falling back to the public RPC.
+   * Whether a valid MEV-protected RPC endpoint is configured.
+   * When `enabled` is true but `available` is false, the UI should
+   * warn the user that MEV protection cannot be provided.
    */
   available: boolean;
   /**
@@ -86,6 +85,11 @@ export interface MevProtectionState {
    * Always a valid http(s) URL — never an empty string or undefined.
    */
   rpcUrl: string;
+  /**
+   * The raw MEV-protected RPC URL from the environment, or undefined
+   * if not set / invalid. Passed to mev-submission for direct RPC calls.
+   */
+  mevRpcUrl: string | undefined;
 }
 
 /**
@@ -119,23 +123,14 @@ export function useMevProtection(): MevProtectionState {
     }
   };
 
-  const available = isMevEndpointConfigured();
-
-  // Warn once in production if MEV is enabled but the endpoint is missing
-  useEffect(() => {
-    if (enabled && !available && process.env.NODE_ENV === 'production') {
-      console.warn(
-        '[Swyft] MEV protection is enabled but NEXT_PUBLIC_MEV_PROTECTED_RPC_URL ' +
-          'is not configured. Swaps will fail. Set a valid https:// endpoint or ' +
-          'disable MEV protection.',
-      );
-    }
-  }, [enabled, available]);
+  const mevUrl = process.env.NEXT_PUBLIC_MEV_PROTECTED_RPC_URL;
+  const available = isValidRpcUrl(mevUrl);
 
   return {
     enabled,
     available,
     toggle,
     rpcUrl: resolveRpcUrl(enabled),
+    mevRpcUrl: available ? mevUrl : undefined,
   };
 }
