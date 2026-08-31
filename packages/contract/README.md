@@ -13,6 +13,22 @@ Soroban smart contracts for the Swyft concentrated-liquidity DEX on Stellar.
 | `fee-collector`  | `fee_collector`  | Aggregates and distributes protocol fees           |
 | `oracle-adapter` | `oracle_adapter` | Wraps an upstream price oracle                     |
 
+### Pool liquidity lifecycle
+
+The `pool` contract moves real tokens on every liquidity change:
+
+-  `pool.mint(sender, position_id, tick_lower, tick_upper, amount)` requires auth from
+  `sender` and transfers the quoted `amount_0`/`amount_1` **from the sender into the
+  pool contract** before recording the position. `sender` must hold sufficient
+  balances of both pool tokens.
+-  `pool.burn(sender, position_id, tick_lower, tick_upper, amount)` requires auth from
+  `sender` and transfers the redeemed `amount_0`/`amount_1` **from the pool contract
+  back to `sender`**.
+
+The returned amounts are the exact token deltas, so integrators (SDK, indexer, LP UI)
+can rely on wallet/contract balances moving in lockstep with quotes — the contract does
+not silently report liquidity it never funded.
+
 ## Prerequisites
 
 - Rust stable + `wasm32-unknown-unknown` target
