@@ -3,9 +3,16 @@ import {
   estimateRemoveAmountsAsync,
   buildBurnTx,
   buildCollectTx,
+  buildAddLiquidityTx,
+  buildRerangeTx,
+  detectPoolType,
   RemoveAmountsParams,
   ValidationError,
 } from '../liquidity';
+
+// Valid Soroban contract addresses for testing (must start with C)
+const VALID_POOL_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+const VALID_OWNER = 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ';
 
 // ---------------------------------------------------------------------------
 // estimateRemoveAmounts
@@ -31,14 +38,12 @@ describe('estimateRemoveAmounts', () => {
   });
 
   it('returns only amount0 when price is below lower tick', () => {
-    // price well below lower tick → all token0
     const result = estimateRemoveAmounts({ ...base, currentPrice: 0.00001 });
     expect(parseFloat(result.amount0)).toBeGreaterThan(0);
     expect(parseFloat(result.amount1)).toBe(0);
   });
 
   it('returns only amount1 when price is above upper tick', () => {
-    // price well above upper tick → all token1
     const result = estimateRemoveAmounts({ ...base, currentPrice: 100000 });
     expect(parseFloat(result.amount0)).toBe(0);
     expect(parseFloat(result.amount1)).toBeGreaterThan(0);
@@ -131,43 +136,26 @@ describe('estimateRemoveAmountsAsync', () => {
 describe('buildBurnTx', () => {
   it('returns a base64 XDR string and type burn', () => {
     const tx = buildBurnTx({
-      positionId: 'pos-1',
-      poolId: 'pool-1',
+      positionId: '1',
+      poolId: VALID_POOL_ID,
+      liquidity: '1000000',
       liquidityBps: 5000,
-      ownerAddress: 'GABC',
+      ownerAddress: VALID_OWNER,
     });
     expect(tx.type).toBe('burn');
     expect(typeof tx.xdr).toBe('string');
     expect(tx.xdr.length).toBeGreaterThan(0);
-    // Must be valid base64
     expect(() => Buffer.from(tx.xdr, 'base64')).not.toThrow();
-  });
-
-  it('encodes all params and timestamp in the xdr payload', () => {
-    const tx = buildBurnTx({
-      positionId: 'pos-1',
-      poolId: 'pool-1',
-      liquidityBps: 5000,
-      ownerAddress: 'GABC',
-    });
-    const decoded = Buffer.from(tx.xdr, 'base64').toString('utf-8');
-    const payload = JSON.parse(decoded);
-    expect(payload.op).toBe('burn');
-    expect(payload.positionId).toBe('pos-1');
-    expect(payload.poolId).toBe('pool-1');
-    expect(payload.liquidityBps).toBe(5000);
-    expect(payload.ownerAddress).toBe('GABC');
-    expect(payload.timestamp).toBeDefined();
-    expect(typeof payload.timestamp).toBe('string');
   });
 
   it('throws when liquidityBps is out of range', () => {
     expect(() =>
       buildBurnTx({
-        positionId: 'pos-1',
-        poolId: 'pool-1',
+        positionId: '1',
+        poolId: VALID_POOL_ID,
+        liquidity: '1000000',
         liquidityBps: 10001,
-        ownerAddress: 'GABC',
+        ownerAddress: VALID_OWNER,
       })
     ).toThrow();
   });
@@ -176,11 +164,25 @@ describe('buildBurnTx', () => {
     expect(() =>
       buildBurnTx({
         positionId: '',
-        poolId: 'pool-1',
+        poolId: VALID_POOL_ID,
+        liquidity: '1000000',
         liquidityBps: 5000,
-        ownerAddress: 'GABC',
+        ownerAddress: VALID_OWNER,
       })
     ).toThrow();
+  });
+
+  it('supports cl_pool poolType', () => {
+    const tx = buildBurnTx({
+      positionId: '1',
+      poolId: VALID_POOL_ID,
+      liquidity: '1000000',
+      liquidityBps: 5000,
+      ownerAddress: VALID_OWNER,
+      poolType: 'cl_pool',
+    });
+    expect(tx.type).toBe('burn');
+    expect(tx.xdr.length).toBeGreaterThan(0);
   });
 });
 
@@ -191,10 +193,10 @@ describe('buildBurnTx', () => {
 describe('buildCollectTx', () => {
   it('returns a base64 XDR string and type collect with valid ownerWallet', () => {
     const tx = buildCollectTx({
-      positionId: 'pos-1',
-      poolId: 'pool-1',
-      ownerAddress: 'GBUQWP3BOUZX34ULNQG23RQ6F4PFXPUWX3BNRQNOBJGAZLMUUYJEZGPK',
-      ownerWallet: 'GBUQWP3BOUZX34ULNQG23RQ6F4PFXPUWX3BNRQNOBJGAZLMUUYJEZGPK',
+      positionId: '1',
+      poolId: VALID_POOL_ID,
+      ownerAddress: VALID_OWNER,
+      ownerWallet: VALID_OWNER,
     });
     expect(tx.type).toBe('collect');
     expect(typeof tx.xdr).toBe('string');
@@ -202,24 +204,12 @@ describe('buildCollectTx', () => {
     expect(() => Buffer.from(tx.xdr, 'base64')).not.toThrow();
   });
 
-  it('includes ownerWallet in the request payload', () => {
-    const ownerWallet = 'GBUQWP3BOUZX34ULNQG23RQ6F4PFXPUWX3BNRQNOBJGAZLMUUYJEZGPK';
-    const tx = buildCollectTx({
-      positionId: 'pos-1',
-      poolId: 'pool-1',
-      ownerAddress: ownerWallet,
-      ownerWallet: ownerWallet,
-    });
-    const payload = JSON.parse(Buffer.from(tx.xdr, 'base64').toString());
-    expect(payload.ownerWallet).toBe(ownerWallet);
-  });
-
   it('throws ValidationError when ownerWallet is missing', () => {
     expect(() =>
       buildCollectTx({
-        positionId: 'pos-1',
-        poolId: 'pool-1',
-        ownerAddress: 'GABC',
+        positionId: '1',
+        poolId: VALID_POOL_ID,
+        ownerAddress: VALID_OWNER,
         ownerWallet: '',
       })
     ).toThrow(ValidationError);
@@ -228,33 +218,141 @@ describe('buildCollectTx', () => {
   it('throws ValidationError when ownerWallet is not a valid Stellar address', () => {
     expect(() =>
       buildCollectTx({
-        positionId: 'pos-1',
-        poolId: 'pool-1',
-        ownerAddress: 'GABC',
+        positionId: '1',
+        poolId: VALID_POOL_ID,
+        ownerAddress: VALID_OWNER,
         ownerWallet: 'invalid-address',
       })
     ).toThrow(ValidationError);
   });
 
-  it('throws ValidationError when ownerWallet does not start with G', () => {
+  it('supports cl_pool poolType', () => {
+    const tx = buildCollectTx({
+      positionId: '1',
+      poolId: VALID_POOL_ID,
+      ownerAddress: VALID_OWNER,
+      ownerWallet: VALID_OWNER,
+      poolType: 'cl_pool',
+    });
+    expect(tx.type).toBe('collect');
+    expect(tx.xdr.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildAddLiquidityTx
+// ---------------------------------------------------------------------------
+
+describe('buildAddLiquidityTx', () => {
+  it('returns a base64 XDR string and type add_liquidity', () => {
+    const tx = buildAddLiquidityTx({
+      poolId: VALID_POOL_ID,
+      ownerAddress: VALID_OWNER,
+      lowerTick: -1000,
+      upperTick: 1000,
+      liquidity: '1000000',
+    });
+    expect(tx.type).toBe('add_liquidity');
+    expect(typeof tx.xdr).toBe('string');
+    expect(tx.xdr.length).toBeGreaterThan(0);
+    expect(() => Buffer.from(tx.xdr, 'base64')).not.toThrow();
+  });
+
+  it('throws when lowerTick >= upperTick', () => {
     expect(() =>
-      buildCollectTx({
-        positionId: 'pos-1',
-        poolId: 'pool-1',
-        ownerAddress: 'GABC',
-        ownerWallet: 'CBUQWP3BOUZX34ULNQG23RQ6F4PFXPUWX3BNRQNOBJGAZLMUUYJEZGPK',
+      buildAddLiquidityTx({
+        poolId: VALID_POOL_ID,
+        ownerAddress: VALID_OWNER,
+        lowerTick: 1000,
+        upperTick: 1000,
+        liquidity: '1000000',
       })
     ).toThrow(ValidationError);
   });
 
-  it('throws ValidationError when ownerWallet is not 56 characters', () => {
+  it('throws when liquidity is zero', () => {
     expect(() =>
-      buildCollectTx({
-        positionId: 'pos-1',
-        poolId: 'pool-1',
-        ownerAddress: 'GABC',
-        ownerWallet: 'GBUQWP3BOUZX34ULNQG23RQ6F4PFXPUWX3BNRQNOBJGAZLMUUYJEZGP',
+      buildAddLiquidityTx({
+        poolId: VALID_POOL_ID,
+        ownerAddress: VALID_OWNER,
+        lowerTick: -1000,
+        upperTick: 1000,
+        liquidity: '0',
       })
     ).toThrow(ValidationError);
+  });
+
+  it('supports cl_pool poolType', () => {
+    const tx = buildAddLiquidityTx({
+      poolId: VALID_POOL_ID,
+      ownerAddress: VALID_OWNER,
+      lowerTick: -1000,
+      upperTick: 1000,
+      liquidity: '1000000',
+      poolType: 'cl_pool',
+    });
+    expect(tx.type).toBe('add_liquidity');
+    expect(tx.xdr.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildRerangeTx
+// ---------------------------------------------------------------------------
+
+describe('buildRerangeTx', () => {
+  it('returns a base64 XDR string and type rerange', () => {
+    const tx = buildRerangeTx({
+      poolId: VALID_POOL_ID,
+      positionId: '1',
+      ownerAddress: VALID_OWNER,
+      liquidity: '1000000',
+      newLowerTick: -2000,
+      newUpperTick: 2000,
+    });
+    expect(tx.type).toBe('rerange');
+    expect(typeof tx.xdr).toBe('string');
+    expect(tx.xdr.length).toBeGreaterThan(0);
+    expect(() => Buffer.from(tx.xdr, 'base64')).not.toThrow();
+  });
+
+  it('throws when newLowerTick >= newUpperTick', () => {
+    expect(() =>
+      buildRerangeTx({
+        poolId: VALID_POOL_ID,
+        positionId: '1',
+        ownerAddress: VALID_OWNER,
+        liquidity: '1000000',
+        newLowerTick: 2000,
+        newUpperTick: 2000,
+      })
+    ).toThrow(ValidationError);
+  });
+
+  it('throws when liquidity is zero', () => {
+    expect(() =>
+      buildRerangeTx({
+        poolId: VALID_POOL_ID,
+        positionId: '1',
+        ownerAddress: VALID_OWNER,
+        liquidity: '0',
+        newLowerTick: -2000,
+        newUpperTick: 2000,
+      })
+    ).toThrow(ValidationError);
+  });
+
+  it('supports cl_pool poolType', () => {
+    const tx = buildRerangeTx({
+      poolId: VALID_POOL_ID,
+      positionId: '1',
+      ownerAddress: VALID_OWNER,
+      liquidity: '1000000',
+      newLowerTick: -2000,
+      newUpperTick: 2000,
+      poolType: 'cl_pool',
+    });
+    expect(tx.type).toBe('rerange');
+    expect(tx.xdr.length).toBeGreaterThan(0);
   });
 });

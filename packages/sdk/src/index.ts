@@ -20,6 +20,9 @@ export type {
 export {
   buildBurnTx,
   buildCollectTx,
+  buildAddLiquidityTx,
+  buildRerangeTx,
+  detectPoolType,
   estimateRemoveAmounts,
   estimateRemoveAmountsAsync,
   ValidationError,
@@ -27,9 +30,14 @@ export {
 export type {
   BurnTxParams,
   CollectTxParams,
+  AddLiquidityTxParams,
+  RerangeTxParams,
+  PoolType,
   UnsignedTx,
   BurnUnsignedTx,
   CollectUnsignedTx,
+  AddLiquidityUnsignedTx,
+  RerangeUnsignedTx,
   RemoveAmountsResult,
   RemoveAmountsParams,
 } from './liquidity';

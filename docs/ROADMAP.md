@@ -56,7 +56,7 @@ This document outlines the planned development phases for Swyft — a concentrat
 **Goal:** Fully functional dApp UI.
 
 - [ ] Swap interface (single-hop and multi-hop)
-- [ ] LP management (add/remove/rerange liquidity)
+- [x] LP management (add/remove/rerange liquidity)
 - [ ] Pool browser with TVL, APR, volume charts
 - [ ] Portfolio dashboard (positions, unclaimed fees)
 - [x] Freighter wallet integration
