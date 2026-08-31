@@ -11,9 +11,147 @@ import {
 /** Cap on rows fetched per bulk-by-wallet lookup — a portfolio overview, not a paginated feed. */
 const BULK_POSITIONS_LIMIT = 500;
 
+/** Cap on rows fetched per event type before merging/paginating an activity feed. */
+const ACTIVITY_FETCH_LIMIT = 200;
+
+export interface LpActivityEntry {
+  id: string;
+  type: 'mint' | 'burn' | 'fee_collection';
+  poolId: string;
+  token0Symbol: string;
+  token1Symbol: string;
+  amount0: string;
+  amount1: string;
+  txHash: string;
+  walletAddress: string;
+  timestamp: number;
+}
+
 @Injectable()
 export class PositionsRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Merges real on-chain PositionMinted, PositionBurned and FeesCollected
+   * events indexed for a wallet into a single chronological activity feed.
+   */
+  async listActivityByWallet(
+    walletAddress: string,
+    query: { pool?: string; page: number; limit: number },
+  ): Promise<{ items: LpActivityEntry[]; total: number }> {
+    const wallet = walletAddress.toLowerCase();
+    const poolFilter = query.pool?.trim();
+
+    const mintedWhere: any = {
+      owner: { equals: wallet, mode: 'insensitive' },
+    };
+    const burnedWhere: any = {
+      owner: { equals: wallet, mode: 'insensitive' },
+    };
+    const feesWhere: any = {
+      recipient: { equals: wallet, mode: 'insensitive' },
+    };
+    if (poolFilter) {
+      mintedWhere.poolId = { equals: poolFilter, mode: 'insensitive' };
+      burnedWhere.poolId = { equals: poolFilter, mode: 'insensitive' };
+      feesWhere.poolId = { equals: poolFilter, mode: 'insensitive' };
+    }
+
+    const [minted, burned, fees] = await Promise.all([
+      this.prisma.positionMinted.findMany({
+        where: mintedWhere,
+        orderBy: { createdAt: 'desc' },
+        take: ACTIVITY_FETCH_LIMIT,
+      }),
+      this.prisma.positionBurned.findMany({
+        where: burnedWhere,
+        orderBy: { createdAt: 'desc' },
+        take: ACTIVITY_FETCH_LIMIT,
+      }),
+      this.prisma.feesCollected.findMany({
+        where: feesWhere,
+        orderBy: { createdAt: 'desc' },
+        take: ACTIVITY_FETCH_LIMIT,
+      }),
+    ]);
+
+    const poolIds = [
+      ...new Set([...minted, ...burned, ...fees].map((e) => e.poolId)),
+    ];
+    const pools = await this.prisma.pool.findMany({
+      where: { id: { in: poolIds } },
+      select: { id: true, token0Address: true, token1Address: true },
+    });
+    const tokenAddresses = new Set<string>();
+    for (const pool of pools) {
+      tokenAddresses.add(pool.token0Address);
+      tokenAddresses.add(pool.token1Address);
+    }
+    const tokens = await this.prisma.token.findMany({
+      where: { address: { in: Array.from(tokenAddresses) } },
+    });
+    const tokenSymbolMap = new Map(
+      tokens.map((t) => [t.address.toLowerCase(), t.symbol]),
+    );
+    const poolTokenSymbols = new Map(
+      pools.map((p) => [
+        p.id,
+        {
+          token0Symbol:
+            tokenSymbolMap.get(p.token0Address.toLowerCase()) ?? 'UNKNOWN',
+          token1Symbol:
+            tokenSymbolMap.get(p.token1Address.toLowerCase()) ?? 'UNKNOWN',
+        },
+      ]),
+    );
+    const symbolsFor = (poolId: string) =>
+      poolTokenSymbols.get(poolId) ?? {
+        token0Symbol: 'UNKNOWN',
+        token1Symbol: 'UNKNOWN',
+      };
+
+    const entries: LpActivityEntry[] = [
+      ...minted.map((e) => ({
+        id: e.eventId,
+        type: 'mint' as const,
+        poolId: e.poolId,
+        ...symbolsFor(e.poolId),
+        amount0: e.amount0,
+        amount1: e.amount1,
+        txHash: e.eventId,
+        walletAddress: e.owner,
+        timestamp: e.createdAt.getTime(),
+      })),
+      ...burned.map((e) => ({
+        id: e.eventId,
+        type: 'burn' as const,
+        poolId: e.poolId,
+        ...symbolsFor(e.poolId),
+        amount0: e.amount0,
+        amount1: e.amount1,
+        txHash: e.eventId,
+        walletAddress: e.owner,
+        timestamp: e.createdAt.getTime(),
+      })),
+      ...fees.map((e) => ({
+        id: e.eventId,
+        type: 'fee_collection' as const,
+        poolId: e.poolId,
+        ...symbolsFor(e.poolId),
+        amount0: e.amount0,
+        amount1: e.amount1,
+        txHash: e.eventId,
+        walletAddress: e.recipient,
+        timestamp: e.createdAt.getTime(),
+      })),
+    ].sort((a, b) => b.timestamp - a.timestamp);
+
+    const total = entries.length;
+    const skip = (query.page - 1) * query.limit;
+    const items = entries.slice(skip, skip + query.limit);
+
+    return { items, total };
+  }
 
   async listPositionsByWallet(
     walletAddress: string,

@@ -1,12 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import { PriceService } from '../price/price.service';
+import { GetLpActivityQueryDto } from './dto/get-lp-activity-query.dto';
 import { GetPositionsQueryDto } from './dto/get-positions-query.dto';
 import {
   PositionRangeStatus,
   PositionSnapshot,
   PositionsQuery,
 } from './position.types';
-import { PositionsRepository } from './positions.repository';
+import { LpActivityEntry, PositionsRepository } from './positions.repository';
+
+export interface LpActivityListResponse {
+  items: LpActivityEntry[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
 
 interface PositionResponse {
   id: string;
@@ -113,6 +122,27 @@ export class PositionsService {
     );
 
     return result;
+  }
+
+  async getLpActivity(
+    walletAddress: string,
+    query: GetLpActivityQueryDto,
+  ): Promise<LpActivityListResponse> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const { items, total } = await this.positionsRepository.listActivityByWallet(
+      walletAddress,
+      { pool: query.pool?.trim() || undefined, page, limit },
+    );
+
+    return {
+      items,
+      page,
+      limit,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+    };
   }
 
   private async toResponse(
