@@ -59,7 +59,10 @@ This document outlines the planned development phases for Swyft — a concentrat
 - [ ] LP management (add/remove/rerange liquidity)
 - [ ] Pool browser with TVL, APR, volume charts
 - [ ] Portfolio dashboard (positions, unclaimed fees)
-- [ ] Freighter + xBull wallet integration
+- [x] Freighter wallet integration
+- [ ] xBull wallet integration (useWallet accepts a `WalletKind` but xBull
+      is not wired up yet; connecting with it fails fast with
+      `UNSUPPORTED_WALLET` — Freighter-only until this ships)
 - [ ] Mobile-responsive layout
 - [ ] Light / dark mode
 

@@ -26,9 +26,11 @@ const makePoolDetail = (overrides: Partial<PoolDetail> = {}): PoolDetail => ({
     decimals: 18,
   },
   feeTier: 3000,
-  currentSqrtPrice: '79228162514264337593543950336', // price = 1
+  // Encodes a human price (token1 per token0) of 1, accounting for the
+  // 6 vs 18 decimals difference between token0 and token1 below.
+  currentSqrtPrice: '79228162514264337593543950336000000', // price = 1
   currentTick: 0,
-  totalLiquidity: '1000000000000000000',
+  totalLiquidity: '5000000000000000000000000',
   tvl: '5000000',
   volume24h: '1200000',
   volume7d: '0',
@@ -53,25 +55,27 @@ const makeSnapshot = (overrides: Partial<SwapSnapshot> = {}): SwapSnapshot => ({
   ...overrides,
 });
 
-const makeToken = (overrides: Partial<Token> = {}): Token =>
-  ({
-    id: 'tok-1',
-    address: 'USDC-addr',
-    symbol: 'USDC',
-    name: 'USD Coin',
-    decimals: 6,
-    logoUri: null,
-    ...overrides,
-  }) as Token;
+const makeToken = (overrides: Partial<Token> = {}): Token => ({
+  id: 'tok-1',
+  address: 'USDC-addr',
+  symbol: 'USDC',
+  name: 'USD Coin',
+  decimals: 6,
+  logoUri: null,
+  ...overrides,
+});
 
 describe('SwapsService', () => {
   let service: SwapsService;
   let repo: jest.Mocked<SwapsRepository>;
-  let pools: { findPoolById: jest.Mock };
+  let pools: { findPoolById: jest.Mock; getPoolTicks: jest.Mock };
 
   beforeEach(async () => {
     repo = { listSwaps: jest.fn() } as unknown as jest.Mocked<SwapsRepository>;
-    pools = { findPoolById: jest.fn() };
+    pools = {
+      findPoolById: jest.fn(),
+      getPoolTicks: jest.fn().mockResolvedValue([]),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -157,24 +161,26 @@ describe('SwapsService', () => {
       slippageBps: 50,
     };
 
-    it('quotes token0 -> token1 using the pool spot price and fee tier', async () => {
+    it('quotes token0 -> token1 by walking the tick ladder from the pool price and fee tier', async () => {
       pools.findPoolById.mockResolvedValue(makePoolDetail());
 
       const result = await service.getQuote(baseRequest);
 
       expect(result).toEqual({
-        amountOut: '99.7000000',
+        amountOut: '99.699999998011982',
         priceImpact: 0,
-        lpFee: '0.3000000',
-        minimumReceived: '99.2015000',
+        lpFee: '0.3',
+        minimumReceived: '99.20149999802192209',
         executionPrice: '0.9970000',
       });
     });
 
-    it('quotes token1 -> token0 using the inverse spot price', async () => {
-      // sqrtPrice = 2 -> price (token1 per token0) = 4
+    it('quotes token1 -> token0 using the inverse price', async () => {
+      // sqrtPrice encodes price (token1 per token0) = 4
       pools.findPoolById.mockResolvedValue(
-        makePoolDetail({ currentSqrtPrice: '158456325028528675187087900672' }),
+        makePoolDetail({
+          currentSqrtPrice: '158456325028528675187087900672000000',
+        }),
       );
 
       const result = await service.getQuote({
@@ -184,7 +190,7 @@ describe('SwapsService', () => {
       });
 
       // amountInAfterFee (99.7) / price (4)
-      expect(result.amountOut).toBe('24.9250000');
+      expect(result.amountOut).toBe('24.924999');
     });
 
     it('throws ResourceNotFoundException for an unknown pool', async () => {

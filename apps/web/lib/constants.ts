@@ -38,6 +38,13 @@ export const API_BASE = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:
 export const FEE_APR_DOC_URL =
   'https://github.com/Vatix-Protocol/Swyft/blob/main/docs/FEE_APR_CALCULATION.md';
 
+/**
+ * Router contract address used for exact-output swaps (`exact_output_single`).
+ * Must be set for the "exact output" swap mode to be available; when unset
+ * the widget falls back to exact-input only.
+ */
+export const ROUTER_ADDRESS = process.env.NEXT_PUBLIC_ROUTER_ADDRESS ?? '';
+
 /** Per-network API base URLs. The environment variable overrides the default
  *  for the build-time network; the other network uses its own default. */
 const API_BASE_MAP: Record<StellarNetwork, string> = {
@@ -47,5 +54,10 @@ const API_BASE_MAP: Record<StellarNetwork, string> = {
 
 /** Returns the API base URL for the given network. */
 export function getApiBase(network: StellarNetwork): string {
-  return API_BASE_MAP[network];
+  const override =
+    (network === 'TESTNET'
+      ? process.env.NEXT_PUBLIC_API_URL_TESTNET
+      : process.env.NEXT_PUBLIC_API_URL_PUBLIC) || undefined;
+  const base = override ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+  return `${base}/v1`;
 }

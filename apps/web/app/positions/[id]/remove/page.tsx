@@ -1,16 +1,11 @@
 'use client';
 
-import { use } from 'react';
+import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePosition } from '@/hooks/usePositions';
 import { RemoveLiquidityPanel } from '@/components/RemoveLiquidityPanel';
-
-// Auth token sourced from localStorage (set by the auth flow).
-// Replace with a proper auth context once the auth module is wired.
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('swyft_auth_token');
-}
+import { useWalletContext } from '@/context/WalletContext';
+import { getAuthToken, authenticateWallet } from '@/lib/auth';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -18,8 +13,29 @@ interface PageProps {
 
 export default function RemoveLiquidityPage({ params }: PageProps) {
   const { id } = use(params);
-  const authToken = getAuthToken();
+  const { address } = useWalletContext();
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authenticating, setAuthenticating] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const { position, loading, error } = usePosition(id, authToken);
+
+  useEffect(() => {
+    setAuthToken(getAuthToken());
+  }, [address]);
+
+  const handleAuthenticate = useCallback(async () => {
+    if (!address) return;
+    setAuthenticating(true);
+    setAuthError(null);
+    try {
+      const token = await authenticateWallet(address);
+      setAuthToken(token);
+    } catch {
+      setAuthError('Failed to authenticate wallet. Please try again.');
+    } finally {
+      setAuthenticating(false);
+    }
+  }, [address]);
 
   if (loading) {
     return (
@@ -44,12 +60,31 @@ export default function RemoveLiquidityPage({ params }: PageProps) {
   }
 
   if (!authToken) {
+    if (!address) {
+      return (
+        <div className="flex min-h-[60vh] flex-col items-center justify-center gap-2">
+          <p className="text-sm text-zinc-500">Connect your wallet to manage positions.</p>
+          <Link href="/" className="text-sm text-indigo-600 underline hover:text-indigo-500">
+            Go home
+          </Link>
+        </div>
+      );
+    }
+
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-2">
-        <p className="text-sm text-zinc-500">Connect your wallet to manage positions.</p>
-        <Link href="/" className="text-sm text-indigo-600 underline hover:text-indigo-500">
-          Go home
-        </Link>
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 px-4 text-center">
+        <p className="text-sm text-zinc-500">
+          Authenticate your wallet to remove liquidity from this position.
+        </p>
+        <button
+          type="button"
+          onClick={handleAuthenticate}
+          disabled={authenticating}
+          className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {authenticating ? 'Authenticating…' : 'Authenticate wallet'}
+        </button>
+        {authError && <p className="text-xs text-red-500">{authError}</p>}
       </div>
     );
   }

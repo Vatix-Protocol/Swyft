@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useSwaps, SwapSnapshot } from '@/hooks/useSwaps';
 import { useLpActivity, LpActivity, LpActivityType } from '@/hooks/useLpActivity';
 import { useNetworkContext } from '@/context/NetworkContext';
+import { getAuthToken } from '@/lib/auth';
 
 type Tab = 'swaps' | 'lp';
 
@@ -34,6 +35,11 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
   const [endDate, setEndDate] = useState<string>('');
   const [poolFilter, setPoolFilter] = useState<string>('');
   const [poolOptions, setPoolOptions] = useState<{ id: string; label: string }[]>([]);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAuthToken(getAuthToken());
+  }, [walletAddress]);
 
   const {
     data: swapsData,
@@ -44,7 +50,7 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
     data: lpData,
     isLoading: lpLoading,
     error: lpError,
-  } = useLpActivity(walletAddress, null, page, PAGE_SIZE, poolFilter || null);
+  } = useLpActivity(walletAddress, authToken, page, PAGE_SIZE, poolFilter || null);
 
   // Build pool filter options from the unfiltered feed. When a filter is active
   // the API only returns matching items, so keep the last unfiltered options.

@@ -12,6 +12,7 @@ Soroban smart contracts for the Swyft concentrated-liquidity DEX on Stellar.
 | `pool-factory`   | `pool_factory`   | Deploys and tracks CL pool instances               |
 | `router`         | `router`         | Routes swaps across pools                          |
 | `position-nft`   | `position_nft`   | Mints/tracks LP position NFTs                      |
+| `cl-pool`        | `cl_pool`        | Concentrated-liquidity pool (tick-based swaps)     |
 | `fee-collector`  | `fee_collector`  | Aggregates and distributes protocol fees           |
 | `oracle-adapter` | `oracle_adapter` | Circular-buffer TWAP oracle (per-pool instance)    |
 
@@ -33,6 +34,22 @@ mock data.
   fails loudly (`InsufficientHistory` / `WindowTooLarge`) rather than returning
   fabricated prices. Once wired, a failed observation write reverts the swap —
   the TWAP is never silently stale.
+
+### Pool liquidity lifecycle
+
+The `pool` contract moves real tokens on every liquidity change:
+
+-  `pool.mint(sender, position_id, tick_lower, tick_upper, amount)` requires auth from
+  `sender` and transfers the quoted `amount_0`/`amount_1` **from the sender into the
+  pool contract** before recording the position. `sender` must hold sufficient
+  balances of both pool tokens.
+-  `pool.burn(sender, position_id, tick_lower, tick_upper, amount)` requires auth from
+  `sender` and transfers the redeemed `amount_0`/`amount_1` **from the pool contract
+  back to `sender`**.
+
+The returned amounts are the exact token deltas, so integrators (SDK, indexer, LP UI)
+can rely on wallet/contract balances moving in lockstep with quotes — the contract does
+not silently report liquidity it never funded.
 
 ## Prerequisites
 

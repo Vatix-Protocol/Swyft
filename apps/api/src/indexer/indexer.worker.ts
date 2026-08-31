@@ -880,33 +880,34 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      // A swap can arrive before (or without) its pool's pool.created event,
-      // e.g. when events are processed out of order or the creation event was
-      // missed. Upsert instead of update so the pool is created on its first
-      // state update rather than silently dropping the swap. The token/fee
-      // fields are unknown at this point; projectPoolCreated backfills them
-      // with the authoritative values if/when that event arrives.
-      await this.prisma.pool.upsert({
+      // Update the pool's price/tick/liquidity if the pool already exists.
+      // If the swap arrived before the pool.created event (out-of-order
+      // processing), we skip the pool state update rather than creating a
+      // placeholder with token0Address/token1Address = 'unknown'. The swap
+      // row is still persisted above. The pool.created event will create the
+      // pool with the correct token addresses, and subsequent swaps will
+      // update it normally.
+      const existingPool = await this.prisma.pool.findUnique({
         where: { id: d.poolId },
-        update: {
-          currentSqrtPrice: d.sqrtPriceX96,
-          currentTick: d.tick,
-          liquidity: d.liquidity,
-          updatedAt: new Date(),
-        },
-        create: {
-          id: d.poolId,
-          token0Address: IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
-          token1Address: IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
-          feeTier: 0,
-          currentSqrtPrice: d.sqrtPriceX96,
-          currentTick: d.tick,
-          liquidity: d.liquidity,
-          tvl: '0',
-          volume24h: '0',
-          feeApr: '0',
-        },
+        select: { id: true },
       });
+
+      if (existingPool) {
+        await this.prisma.pool.update({
+          where: { id: d.poolId },
+          data: {
+            currentSqrtPrice: d.sqrtPriceX96,
+            currentTick: d.tick,
+            liquidity: d.liquidity,
+            updatedAt: new Date(),
+          },
+        });
+      } else {
+        this.logger.warn(
+          `Swap ${d.eventId} references pool ${d.poolId} which does not exist yet. ` +
+            `Pool state update skipped — waiting for pool.created event.`,
+        );
+      }
     } catch (err) {
       this.logger.error(
         `Failed to project swap ${d.eventId}: ${err instanceof Error ? err.message : String(err)}`,

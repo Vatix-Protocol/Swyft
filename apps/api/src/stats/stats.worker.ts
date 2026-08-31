@@ -68,7 +68,7 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
         const priceA = await this.getUsdPrice(pool.token0Address);
         const priceB = await this.getUsdPrice(pool.token1Address);
 
-        const tvl = Number(pool.liquidity) * ((priceA + priceB) / 2);
+        const tvl = await this.computeTvl(pool, priceA, priceB);
 
         const volume24h = swaps24h.reduce(
           (sum: number, s: Swap) =>
@@ -134,5 +134,41 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
   private async getUsdPrice(token: string): Promise<number> {
     const cached = await this.cache.get<number>(`price:usd:${token}`);
     return cached ?? 1;
+  }
+
+  /**
+   * Values the pool from its actual on-chain reserves at the current tick,
+   * derived from the concentrated-liquidity virtual-reserve formulas
+   * (reserve0 = L / sqrtPrice, reserve1 = L * sqrtPrice), rather than from
+   * liquidity times an average token price.
+   */
+  private async computeTvl(
+    pool: {
+      liquidity: string;
+      currentSqrtPrice: string;
+      token0Address: string;
+      token1Address: string;
+    },
+    priceA: number,
+    priceB: number,
+  ): Promise<number> {
+    const sqrtPrice = Number(pool.currentSqrtPrice) / 2 ** 96;
+    if (!Number.isFinite(sqrtPrice) || sqrtPrice <= 0) return 0;
+
+    const liquidity = Number(pool.liquidity);
+    const [decimals0, decimals1] = await Promise.all([
+      this.getTokenDecimals(pool.token0Address),
+      this.getTokenDecimals(pool.token1Address),
+    ]);
+
+    const reserve0 = liquidity / sqrtPrice / 10 ** decimals0;
+    const reserve1 = (liquidity * sqrtPrice) / 10 ** decimals1;
+
+    return reserve0 * priceA + reserve1 * priceB;
+  }
+
+  private async getTokenDecimals(address: string): Promise<number> {
+    const token = await this.prisma.token.findUnique({ where: { address } });
+    return token?.decimals ?? 18;
   }
 }

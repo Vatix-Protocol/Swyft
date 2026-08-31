@@ -56,6 +56,8 @@ pub enum RouterError {
     PoolNotFound = 5,
     EmptyData = 6,
     AlreadyInitialized = 7,
+    InvalidPair = 8,
+    ExactOutputUnsupported = 9,
 }
 
 
@@ -160,14 +162,19 @@ impl Router {
             panic_router(&env, RouterError::ZeroAmount);
         }
 
+        // In the concentrated-liquidity model the party that funds the swap is
+        // also the recipient of the output (`cl_pool.swap` transfers both legs to
+        // and from a single `sender`). `recipient` plays that role here.
+        params.recipient.require_auth();
+
         let pool = get_pool(&env, &params.token_in, &params.token_out, params.fee);
         let (amount_in_used, amount_out) = execute_swap(
             &env,
             &pool,
+            &params.recipient,
             &params.token_in,
             &params.token_out,
             params.amount_in,
-            true,
             params.sqrt_price_limit_x96,
         );
 
@@ -214,36 +221,12 @@ impl Router {
             panic_router(&env, RouterError::ZeroAmount);
         }
 
-        let pool = get_pool(&env, &params.token_in, &params.token_out, params.fee);
-        let (amount_in_used, amount_out) = execute_swap(
-            &env,
-            &pool,
-            &params.token_in,
-            &params.token_out,
-            params.amount_out,
-            false,
-            params.sqrt_price_limit_x96,
-        );
-
-        if amount_in_used > params.amount_in_max {
-            panic_router(&env, RouterError::SlippageExceeded);
-        }
-
-        env.events().publish(
-            (symbol_short!("Swap"),),
-            (
-                params.token_in.clone(),
-                params.token_out.clone(),
-                amount_in_used,
-                amount_out,
-                params.recipient.clone(),
-            ),
-        );
-
-        SwapResult {
-            amount_in: amount_in_used,
-            amount_out,
-        }
+        // `cl_pool.swap` is an exact-input-only swap: it consumes a fixed
+        // `amount_in` and derives the output from the current tick/liquidity.
+        // There is no way to invert that one-way pricing into a requested exact
+        // output with a single pool call, so we refuse rather than silently
+        // execute a lossy, unrelated swap ("no silent mock success").
+        panic_router(&env, RouterError::ExactOutputUnsupported);
     }
 }
 
@@ -282,32 +265,63 @@ fn get_pool(env: &Env, token_in: &Address, token_out: &Address, fee: u32) -> Add
     pool.unwrap_or_else(|| panic_router(env, RouterError::PoolNotFound))
 }
 
-/// Execute a single-hop swap against the pool contract.
-/// `exact_input = true`  → amount is the input, returns (amount_in, amount_out)
-/// `exact_input = false` → amount is the desired output, returns (amount_in, amount_out)
+/// Execute a single-hop exact-input swap against the concentrated-liquidity pool.
+///
+/// Aligns the router's [`SwapResult`] model with the `cl-pool` contract's native
+/// `swap(sender, zero_for_one, amount_in, sqrt_price_limit_x96) -> (i128, i128)`
+/// interface. The pool reports signed deltas for *both* tokens; we derive the
+/// input/output pair from the requested direction:
+///
+/// * `zero_for_one`  (token_in == token_0): returns `(+amount_in, -amount_out)`,
+///   so `amount_in = delta_0` and `amount_out = -delta_1`.
+/// * `!zero_for_one` (token_in == token_1): returns `(-amount_out, +amount_in)`,
+///   so `amount_in = delta_1` and `amount_out = -delta_0`.
+///
+/// # Panics
+/// Panics with [`RouterError::InvalidPair`] if `token_in`/`token_out` do not
+/// exactly match the pool's two tokens.
 fn execute_swap(
     env: &Env,
     pool: &Address,
+    sender: &Address,
     token_in: &Address,
     token_out: &Address,
     amount: u128,
-    exact_input: bool,
     sqrt_price_limit_x96: u128,
 ) -> (u128, u128) {
-    // Call pool.swap(token_in, token_out, amount, exact_input, sqrt_price_limit_x96)
-    let result: SwapResult = env.invoke_contract(
+    let token_0: Address = env.invoke_contract(pool, &Symbol::new(env, "get_token_0"), soroban_sdk::vec![env]);
+    let token_1: Address = env.invoke_contract(pool, &Symbol::new(env, "get_token_1"), soroban_sdk::vec![env]);
+
+    let zero_for_one = token_in == &token_0;
+    let zero_to_one_valid = zero_for_one && token_out == &token_1;
+    let one_to_zero_valid = !zero_for_one && token_in == &token_1 && token_out == &token_0;
+    if !zero_to_one_valid && !one_to_zero_valid {
+        panic_router(env, RouterError::InvalidPair);
+    }
+
+    let (delta_0, delta_1): (i128, i128) = env.invoke_contract(
         pool,
         &Symbol::new(env, "swap"),
         soroban_sdk::vec![
             env,
-            token_in.into_val(env),
-            token_out.into_val(env),
+            sender.into_val(env),
+            zero_for_one.into_val(env),
             amount.into_val(env),
-            exact_input.into_val(env),
             sqrt_price_limit_x96.into_val(env),
         ],
     );
-    (result.amount_in, result.amount_out)
+
+    if zero_for_one {
+        let amount_in = u128::try_from(delta_0).expect("token0 delta must be positive");
+        let amount_in_neg = delta_1.checked_neg().expect("token1 delta must be negative");
+        let amount_out = u128::try_from(amount_in_neg).expect("token1 out must be positive");
+        (amount_in, amount_out)
+    } else {
+        let amount_in = u128::try_from(delta_1).expect("token1 delta must be positive");
+        let amount_in_neg = delta_0.checked_neg().expect("token0 delta must be negative");
+        let amount_out = u128::try_from(amount_in_neg).expect("token0 out must be positive");
+        (amount_in, amount_out)
+    }
 }
 
 #[cfg(test)]

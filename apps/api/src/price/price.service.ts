@@ -185,6 +185,11 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
     this.clientPools.get(client)?.delete(poolId);
   }
 
+  /** Number of pools a given client is currently subscribed to. */
+  getSubscriptionCount(client: WebSocket): number {
+    return this.clientPools.get(client)?.size ?? 0;
+  }
+
   removeClient(client: WebSocket): void {
     const pools = this.clientPools.get(client);
     if (pools) {
