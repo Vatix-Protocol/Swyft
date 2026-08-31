@@ -9,6 +9,8 @@
  * - Requires explicit WEB_APP_ORIGIN or CORS_ORIGIN — no fallback to localhost
  * - Throws error if neither env var is configured
  * - Rejects any origin not in the allowlist
+ * - Rejects localhost/127.0.0.1 and the wildcard '*' (invalid alongside
+ *   the always-on `credentials: true`)
  *
  * **Env vars:**
  * - `WEB_APP_ORIGIN`: Comma-separated list of allowed origins (e.g., "https://app.example.com,https://www.example.com")
@@ -58,6 +60,19 @@ export function validateCorsConfig(): void {
     if (hasLocalhost) {
       throw new Error(
         `Production CORS validation failed: localhost/127.0.0.1 not allowed in production. ` +
+          `Found: ${origins.join(', ')}`,
+      );
+    }
+
+    // `credentials: true` is always set in main.ts. A wildcard origin combined
+    // with credentialed requests is an invalid/unsafe CORS config — browsers
+    // reject it, but some proxies/middleware fail open by reflecting the
+    // request origin instead of the literal '*'. Fail closed at startup.
+    const hasWildcard = origins.some((origin) => origin === '*');
+    if (hasWildcard) {
+      throw new Error(
+        `Production CORS validation failed: wildcard origin '*' is not allowed in production ` +
+          `(credentials are enabled, and '*' cannot be combined with credentialed requests). ` +
           `Found: ${origins.join(', ')}`,
       );
     }

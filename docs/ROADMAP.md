@@ -95,4 +95,4 @@ This document outlines the planned development phases for Swyft — a concentrat
 
 ## How to Influence the Roadmap
 
-Open a [GitHub Discussion](https://github.com/Valreb001/Swyft/discussions) with the `RFC` label to propose new features or changes to phase priorities. The maintainer reviews RFCs during each monthly planning cycle.
+Open a [GitHub Discussion](https://github.com/Vatix-Protocol/Swyft/discussions) with the `RFC` label to propose new features or changes to phase priorities. The maintainer reviews RFCs during each monthly planning cycle.

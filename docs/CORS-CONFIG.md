@@ -54,6 +54,10 @@ npm run dev
 - **Rejects** any requests from origins not in the allowlist
 - **Requires** explicit `WEB_APP_ORIGIN` or `CORS_ORIGIN` — no fallback to localhost
 - **Blocks** localhost and 127.0.0.1 even if explicitly configured
+- **Blocks** the wildcard origin `*` — the API always sends `credentials: true`,
+  and a wildcard origin cannot legally be combined with credentialed requests
+  (browsers reject it, and some proxies fail open by reflecting the request
+  origin instead)
 - Fails fast at startup if config is missing
 
 **Error if misconfigured:**
@@ -147,6 +151,22 @@ export WEB_APP_ORIGIN="https://app.example.com,http://localhost:3000"
 
 # GOOD (will start)
 export WEB_APP_ORIGIN="https://app.example.com"
+```
+
+### Startup error: "wildcard origin '*' is not allowed in production"
+
+**Problem:** You included `*` in `WEB_APP_ORIGIN`/`CORS_ORIGIN`. The API always
+sends `credentials: true`, and pairing that with a wildcard origin is an
+invalid, unsafe CORS configuration.
+
+**Solution:**
+List explicit origins instead of `*`:
+```bash
+# BAD (won't start)
+export WEB_APP_ORIGIN="*"
+
+# GOOD (will start)
+export WEB_APP_ORIGIN="https://app.example.com,https://www.example.com"
 ```
 
 ---

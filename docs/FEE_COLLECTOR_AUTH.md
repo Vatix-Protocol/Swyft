@@ -33,4 +33,8 @@ set_authorized_pool(pool, authorized)  // admin-only
 is_authorized_pool(pool) -> bool
 ```
 
-Implementation: `packages/contracts/fee-collector`.
+Implementation: `packages/contracts/fee-collector` (the legacy/orphaned
+contract tree — see [Contract Package Layout](ARCHITECTURE.md#contract-package-layout)).
+The canonical, deployed contract at `packages/contract/contracts/fee-collector`
+does not yet implement this authorization model; it is currently a stub. This
+model has not been ported to the canonical tree yet.
