@@ -56,9 +56,25 @@ export function resolveRpcUrl(mevEnabled: boolean): string {
   return TESTNET_FALLBACK_RPC;
 }
 
+/**
+ * Returns true when a valid MEV-protected RPC endpoint is configured.
+ * Exported for use in non-hook contexts (e.g. server-side validation).
+ *
+ * @internal — exported for testing only.
+ */
+export function isMevEndpointConfigured(): boolean {
+  return isValidRpcUrl(process.env.NEXT_PUBLIC_MEV_PROTECTED_RPC_URL);
+}
+
 export interface MevProtectionState {
-  /** Whether MEV protection is currently enabled. */
+  /** Whether MEV protection is currently enabled by the user. */
   enabled: boolean;
+  /**
+   * Whether a valid MEV-protected RPC endpoint is configured.
+   * When `enabled` is true but `available` is false, the UI should
+   * warn the user that MEV protection cannot be provided.
+   */
+  available: boolean;
   /**
    * Toggle MEV protection on/off and persist the preference to
    * `localStorage`. Idempotent — calling with the current value is a no-op.
@@ -69,6 +85,11 @@ export interface MevProtectionState {
    * Always a valid http(s) URL — never an empty string or undefined.
    */
   rpcUrl: string;
+  /**
+   * The raw MEV-protected RPC URL from the environment, or undefined
+   * if not set / invalid. Passed to mev-submission for direct RPC calls.
+   */
+  mevRpcUrl: string | undefined;
 }
 
 /**
@@ -102,9 +123,14 @@ export function useMevProtection(): MevProtectionState {
     }
   };
 
+  const mevUrl = process.env.NEXT_PUBLIC_MEV_PROTECTED_RPC_URL;
+  const available = isValidRpcUrl(mevUrl);
+
   return {
     enabled,
+    available,
     toggle,
     rpcUrl: resolveRpcUrl(enabled),
+    mevRpcUrl: available ? mevUrl : undefined,
   };
 }

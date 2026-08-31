@@ -3,8 +3,10 @@ import {
   Contract,
   xdr,
   scValToNative,
-  Transaction,
-  FeeBumpTransaction,
+  Account,
+  TransactionBuilder,
+  Networks,
+  BASE_FEE,
 } from '@stellar/stellar-sdk';
 import {
   PoolState,
@@ -33,13 +35,24 @@ async function callContract(
   const op = contract.call(method, ...args);
 
   try {
-    // stellar-sdk's simulateTransaction requires a built Transaction or FeeBumpTransaction.
-    // The Operation returned by contract.call() is cast here because the stub simulation
-    // path only needs the operation XDR; replace with a fully-built transaction once
-    // the Soroban signing flow is wired up.
-    const result = await server.simulateTransaction(
-      op as unknown as Transaction | FeeBumpTransaction
+    // Build a proper Transaction envelope from the contract operation.
+    // simulateTransaction ignores the source account for read-only calls,
+    // so a zero-balance placeholder is sufficient here. The key requirement
+    // is that the Transaction is structurally valid (has an operation, fee,
+    // and network passphrase).
+    const placeholderAccount = new Account(
+      'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+      '0',
     );
+    const tx = new TransactionBuilder(placeholderAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(op)
+      .setTimeout(30)
+      .build();
+
+    const result = await server.simulateTransaction(tx);
 
     if (rpc.Api.isSimulationError(result)) {
       throw new SwyftRpcError(`Simulation failed for ${method}: ${result.error}`);

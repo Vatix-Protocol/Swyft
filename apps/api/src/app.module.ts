@@ -1,5 +1,6 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -35,6 +36,10 @@ import { infraConfig } from './config/infra.config';
       // Do not throw on extra keys; only the declared vars are validated.
       ignoreEnvVars: false,
     }),
+    // Registered once here so any module can inject @Cron/@Interval/@Timeout
+    // schedulers without re-registering the global scheduler (which throws
+    // if bound more than once in the same Nest application graph).
+    ScheduleModule.forRoot(),
     CacheModule,
     PrismaModule,
     MetricsModule,

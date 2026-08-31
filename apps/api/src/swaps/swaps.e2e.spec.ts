@@ -36,9 +36,11 @@ const mockPoolDetail = {
     decimals: 6,
   },
   feeTier: 3000,
-  currentSqrtPrice: '79228162514264337593543950336', // price = 1
+  // Encodes a human price (token1 per token0) of 1, accounting for the
+  // 7 vs 6 decimals difference between token0 and token1 above.
+  currentSqrtPrice: '25054144837504793750611689472', // price = 1
   currentTick: 0,
-  totalLiquidity: '1000000000000000000',
+  totalLiquidity: '5000000000000000000000000',
   tvl: '5000000',
   volume24h: '1200000',
   volume7d: '0',
@@ -50,13 +52,16 @@ const mockPoolDetail = {
 describe('Swaps E2E (mocked RPC)', () => {
   let app: INestApplication;
   let mockRepo: jest.Mocked<SwapsRepository>;
-  let mockPools: { findPoolById: jest.Mock };
+  let mockPools: { findPoolById: jest.Mock; getPoolTicks: jest.Mock };
 
   beforeEach(async () => {
     mockRepo = {
       listSwaps: jest.fn(),
     } as unknown as jest.Mocked<SwapsRepository>;
-    mockPools = { findPoolById: jest.fn().mockResolvedValue(mockPoolDetail) };
+    mockPools = {
+      findPoolById: jest.fn().mockResolvedValue(mockPoolDetail),
+      getPoolTicks: jest.fn().mockResolvedValue([]),
+    };
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       controllers: [SwapsController],
@@ -193,10 +198,10 @@ describe('Swaps E2E (mocked RPC)', () => {
         .expect(201);
 
       expect(res.body).toEqual({
-        amountOut: '99.7000000',
+        amountOut: '99.699999',
         priceImpact: 0,
-        lpFee: '0.3000000',
-        minimumReceived: '99.2015000',
+        lpFee: '0.3',
+        minimumReceived: '99.201499',
         executionPrice: '0.9970000',
       });
     });

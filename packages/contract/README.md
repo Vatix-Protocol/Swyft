@@ -14,26 +14,21 @@ Soroban smart contracts for the Swyft concentrated-liquidity DEX on Stellar.
 | `fee-collector`  | `fee_collector`  | Aggregates and distributes protocol fees           |
 | `oracle-adapter` | `oracle_adapter` | Wraps an upstream price oracle                     |
 
-## Router ↔ CL-Pool swap protocol
+### Pool liquidity lifecycle
 
-The `router` executes single-hop exact-input swaps by calling the `cl-pool`
-contract directly. Integrators building on the router should be aware of the
-interface contract:
+The `pool` contract moves real tokens on every liquidity change:
 
-- Direction is derived on-chain from the pool's token ordering, exposed via
-  `cl-pool` getters `get_token_0` / `get_token_1`. `zero_for_one` is true when
-  `token_in == token_0`.
-- `cl-pool.swap` is an **exact-input-only** swap with signature
-  `swap(sender, zero_for_one, amount_in, sqrt_price_limit_x96) -> (i128, i128)`
-  returning signed token deltas, *not* a `SwapResult` struct. The router maps
-  those `(i128, i128)` deltas into `SwapResult { amount_in, amount_out }`.
-- The party funding the swap is also the recipient of the output: `cl-pool.swap`
-  moves both token legs to/from a single `sender`. The router therefore uses its
-  `recipient` argument as the pool's `sender`.
-- Because `cl-pool.swap` is exact-input only, the router's `exact_output_single`
-  reverts with `RouterError::ExactOutputUnsupported` rather than silently
-  executing an unrelated swap. Exact-output routing requires pool-side exact-
-  output support (not yet present in `cl-pool` v1).
+-  `pool.mint(sender, position_id, tick_lower, tick_upper, amount)` requires auth from
+  `sender` and transfers the quoted `amount_0`/`amount_1` **from the sender into the
+  pool contract** before recording the position. `sender` must hold sufficient
+  balances of both pool tokens.
+-  `pool.burn(sender, position_id, tick_lower, tick_upper, amount)` requires auth from
+  `sender` and transfers the redeemed `amount_0`/`amount_1` **from the pool contract
+  back to `sender`**.
+
+The returned amounts are the exact token deltas, so integrators (SDK, indexer, LP UI)
+can rely on wallet/contract balances moving in lockstep with quotes — the contract does
+not silently report liquidity it never funded.
 
 ## Prerequisites
 

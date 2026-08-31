@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Env, Map, Symbol,
+    contract, contractimpl, contracttype, symbol_short, token, Address, Env, Map, Symbol,
 };
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -277,6 +277,9 @@ impl Pool {
     /// current tick is inside the range), and the caller's position record.
     ///
     /// # Arguments
+    /// * `sender` - Address of the LP funding the position. Must authorise this call
+    ///   and hold sufficient balances of `token_0`/`token_1`; the minted amounts are
+    ///   transferred from the sender into the pool contract.
     /// * `position_id` - Unique identifier for the LP position (e.g. NFT token id).
     /// * `tick_lower` - Lower bound of the price range (inclusive, must be aligned to tick spacing).
     /// * `tick_upper` - Upper bound of the price range (exclusive, must be aligned to tick spacing).
@@ -292,11 +295,13 @@ impl Pool {
     /// Panics with `PoolError::Overflow` on arithmetic overflow.
     pub fn mint(
         env: Env,
+        sender: Address,
         position_id: u64,
         tick_lower: i32,
         tick_upper: i32,
         amount: u128,
     ) -> MintResult {
+        sender.require_auth();
         if amount == 0 {
             panic_with_pool_error(&env, PoolError::ZeroLiquidity);
         }
@@ -344,6 +349,21 @@ impl Pool {
         let amount_1 = get_amount_1(amount, sqrt_lower, sqrt_upper, state.sqrt_price_x96);
 
         env.storage().instance().set(&KEY_STATE, &state);
+        // Transfer the funding tokens from the LP into the pool contract.
+        if amount_0 > 0 {
+            token::Client::new(&env, &state.token_0).transfer(
+                &sender,
+                &env.current_contract_address(),
+                &(amount_0 as i128),
+            );
+        }
+        if amount_1 > 0 {
+            token::Client::new(&env, &state.token_1).transfer(
+                &sender,
+                &env.current_contract_address(),
+                &(amount_1 as i128),
+            );
+        }
         env.events().publish(
             (symbol_short!("mint"),),
             (position_id, tick_lower, tick_upper, amount, amount_0, amount_1),
@@ -351,12 +371,17 @@ impl Pool {
         MintResult { amount_0, amount_1 }
     }
 
-    /// Remove liquidity between [tick_lower, tick_upper].
+    /// Remove liquidity between [tick_lower, tick_upper] and return the released
+    /// tokens to the position owner.
     ///
     /// Decrements tick accumulators, updates the bitmap, reduces active liquidity
-    /// when the current tick is inside the range, and shrinks or removes the position.
+    /// when the current tick is inside the range, shrinks or removes the position,
+    /// and transfers the redeemed `amount_0`/`amount_1` from the pool contract back
+    /// to the caller.
     ///
     /// # Arguments
+    /// * `sender` - Address of the position owner. Must authorise this call and is
+    ///   the recipient of the redeemed tokens.
     /// * `position_id` - Unique identifier for the LP position.
     /// * `tick_lower` - Lower bound of the price range.
     /// * `tick_upper` - Upper bound of the price range.
@@ -371,11 +396,13 @@ impl Pool {
     /// Panics with `PoolError::InsufficientLiquidity` if `amount` exceeds position liquidity.
     pub fn burn(
         env: Env,
+        sender: Address,
         position_id: u64,
         tick_lower: i32,
         tick_upper: i32,
         amount: u128,
     ) -> BurnResult {
+        sender.require_auth();
         if amount == 0 {
             panic_with_pool_error(&env, PoolError::ZeroLiquidity);
         }
@@ -419,6 +446,21 @@ impl Pool {
         let amount_1 = get_amount_1(amount, sqrt_lower, sqrt_upper, state.sqrt_price_x96);
 
         env.storage().instance().set(&KEY_STATE, &state);
+        // Transfer the redeemed tokens from the pool contract back to the LP.
+        if amount_0 > 0 {
+            token::Client::new(&env, &state.token_0).transfer(
+                &env.current_contract_address(),
+                &sender,
+                &(amount_0 as i128),
+            );
+        }
+        if amount_1 > 0 {
+            token::Client::new(&env, &state.token_1).transfer(
+                &env.current_contract_address(),
+                &sender,
+                &(amount_1 as i128),
+            );
+        }
         env.events().publish(
             (symbol_short!("burn"),),
             (position_id, tick_lower, tick_upper, amount, amount_0, amount_1),

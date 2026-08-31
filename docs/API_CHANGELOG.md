@@ -46,6 +46,7 @@ When proposing a breaking API change:
 | `/pools/:id/ticks` | GET | Get liquidity ticks for a pool |
 | `/positions` | GET | List positions (paginated) |
 | `/swaps` | GET | List swaps (paginated) |
+| `/swaps/quote` | POST | Get a swap quote estimate for a pool |
 | `/tokens` | GET | List tokens |
 | `/search` | GET | Search pools, tokens, or positions |
 | `/indexer/status` | GET | Indexer synchronization status |
