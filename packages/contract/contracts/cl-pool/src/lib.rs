@@ -535,6 +535,22 @@ impl ClPool {
             .get(&DataKey::Position(position_id))
     }
 
+    /// Returns the contract address of the pool's token 0 (the lower-sorted token).
+    ///
+    /// Used by the router to determine the swap direction (`zero_for_one`) before
+    /// invoking [`Self::swap`].
+    pub fn get_token_0(env: Env) -> Address {
+        env.storage().instance().get(&DataKey::Token0).unwrap()
+    }
+
+    /// Returns the contract address of the pool's token 1 (the higher-sorted token).
+    ///
+    /// Used by the router to determine the swap direction (`zero_for_one`) before
+    /// invoking [`Self::swap`].
+    pub fn get_token_1(env: Env) -> Address {
+        env.storage().instance().get(&DataKey::Token1).unwrap()
+    }
+
     pub fn get_sqrt_price(env: Env) -> u128 {
         env.storage()
             .instance()

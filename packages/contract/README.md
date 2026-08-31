@@ -10,6 +10,7 @@ Soroban smart contracts for the Swyft concentrated-liquidity DEX on Stellar.
 | `pool-factory`   | `pool_factory`   | Deploys and tracks CL pool instances               |
 | `router`         | `router`         | Routes swaps across pools                          |
 | `position-nft`   | `position_nft`   | Mints/tracks LP position NFTs                      |
+| `cl-pool`        | `cl_pool`        | Concentrated-liquidity pool (tick-based swaps)     |
 | `fee-collector`  | `fee_collector`  | Aggregates and distributes protocol fees           |
 | `oracle-adapter` | `oracle_adapter` | Wraps an upstream price oracle                     |
 
