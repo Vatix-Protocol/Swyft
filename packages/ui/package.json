@@ -17,7 +17,7 @@
     "@radix-ui/react-visually-hidden": "^1.0.3"
   },
   "devDependencies": {
-    "@testing-library/react": "^16.3.0",
+    "@testing-library/react": "^16.3.3",
     "@types/react": "^19",
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^25.0.1",
