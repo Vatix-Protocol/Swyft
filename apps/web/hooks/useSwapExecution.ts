@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { signTransaction } from '@stellar/freighter-api';
-import { buildSwapTx, toRawAmount, toStellarAddress } from '@swyft/sdk';
-import type { SwapQuote } from '@swyft/sdk';
+import { buildSwapTx, buildExactOutputSwapTx, toRawAmount, toStellarAddress } from '@swyft/sdk';
+import type { SwapQuote, ExactOutputQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
-import { API_BASE, getNetworkPassphrase } from '@/lib/constants';
+import { API_BASE, ROUTER_ADDRESS, getNetworkPassphrase } from '@/lib/constants';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { useTransactionStatus } from '@/context/TransactionStatusContext';
+import { submitTransaction, MevSubmissionError } from '@/lib/mev-submission';
+import { useMevProtection } from './useMevProtection';
 
 export type SwapStatus = 'idle' | 'signing' | 'submitting' | 'success' | 'error';
 export type SwapError = 'rejected' | 'slippage' | 'network' | null;
@@ -29,6 +31,17 @@ interface ExecuteParams {
   walletAddress: string;
 }
 
+interface ExecuteExactOutputParams {
+  /** Pool fee tier to route through (see {@link ExactOutputQuote}). */
+  fee: number;
+  tokenIn: Token;
+  tokenOut: Token;
+  /** Exact amount of `tokenOut` desired. */
+  amountOut: string;
+  quote: ExactOutputQuote;
+  walletAddress: string;
+}
+
 const ERROR_MESSAGES: Record<Exclude<SwapError, null>, string> = {
   rejected: 'Swap rejected in wallet',
   slippage: 'Price moved beyond slippage tolerance',
@@ -38,6 +51,7 @@ const ERROR_MESSAGES: Record<Exclude<SwapError, null>, string> = {
 export function useSwapExecution() {
   const { network } = useNetworkContext();
   const { reportTx } = useTransactionStatus();
+  const { enabled: mevEnabled, mevRpcUrl } = useMevProtection();
   const labelRef = useRef('Swap');
   const [result, setResult] = useState<SwapResult>({
     status: 'idle',
@@ -104,6 +118,85 @@ export function useSwapExecution() {
 
       setResult({ status: 'submitting', error: null, txHash: null, detail: null });
 
+      try {
+        const { hash } = await submitTransaction({
+          signedXdr,
+          apiBase: API_BASE,
+          mevEnabled,
+          mevRpcUrl,
+        });
+        setResult({ status: 'success', error: null, txHash: hash, detail: null });
+      } catch (submitErr) {
+        const error: SwapError =
+          submitErr instanceof MevSubmissionError && submitErr.code === 'SLIPPAGE_EXCEEDED'
+            ? 'slippage'
+            : 'network';
+        const detail =
+          submitErr instanceof MevSubmissionError
+            ? submitErr.detail
+              ? `${submitErr.message} (${submitErr.detail})`
+              : submitErr.message
+            : submitErr instanceof Error
+              ? submitErr.message
+              : null;
+        setResult({ status: 'error', error, txHash: null, detail });
+        return;
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
+        // User rejected in wallet — close silently
+        setResult({ status: 'idle', error: null, txHash: null, detail: null });
+        return;
+      }
+      setResult({ status: 'error', error: 'network', txHash: null, detail: msg || null });
+    }
+  }
+
+  async function executeExactOutput(params: ExecuteExactOutputParams) {
+    const { fee, tokenIn, tokenOut, amountOut, quote, walletAddress } = params;
+
+    if (!ROUTER_ADDRESS) {
+      setResult({
+        status: 'error',
+        error: 'network',
+        txHash: null,
+        detail: 'Exact-output swaps are unavailable: router address is not configured',
+      });
+      return;
+    }
+
+    labelRef.current = `${tokenIn.symbol} → ${tokenOut.symbol} swap`;
+    setResult({ status: 'signing', error: null, txHash: null, detail: null });
+
+    try {
+      const { xdr } = buildExactOutputSwapTx({
+        routerId: toStellarAddress(ROUTER_ADDRESS),
+        tokenInId: toStellarAddress(tokenIn.id),
+        tokenOutId: toStellarAddress(tokenOut.id),
+        fee,
+        amountOut: toRawAmount(amountOut),
+        amountInMax: toRawAmount(quote.maximumIn),
+        ownerAddress: toStellarAddress(walletAddress),
+      });
+
+      const signResult = await signTransaction(xdr, {
+        networkPassphrase: getNetworkPassphrase(network),
+      });
+      const signedXdr =
+        typeof signResult === 'string'
+          ? signResult
+          : 'signedTxXdr' in signResult
+            ? (signResult as { signedTxXdr: string }).signedTxXdr
+            : null;
+
+      if (!signedXdr) {
+        setResult({ status: 'idle', error: null, txHash: null, detail: null });
+        return;
+      }
+
+      setResult({ status: 'submitting', error: null, txHash: null, detail: null });
+
       const res = await fetch(`${API_BASE}/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -117,8 +210,6 @@ export function useSwapExecution() {
           extras?: { result_codes?: unknown };
         };
         const error: SwapError = body.code === 'SLIPPAGE_EXCEEDED' ? 'slippage' : 'network';
-        // Surface the Horizon/RPC detail so it reaches TransactionStatusIndicator
-        // instead of only being visible in a network trace.
         const detail =
           typeof body.message === 'string'
             ? body.extras?.result_codes
@@ -134,7 +225,6 @@ export function useSwapExecution() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
-        // User rejected in wallet — close silently
         setResult({ status: 'idle', error: null, txHash: null, detail: null });
         return;
       }
@@ -142,5 +232,5 @@ export function useSwapExecution() {
     }
   }
 
-  return { ...result, execute, reset };
+  return { ...result, execute, executeExactOutput, reset };
 }

@@ -46,15 +46,14 @@ function mapApiCandleToCandle(c: ApiCandle): Candle {
   };
 }
 
+/** Derives the WS base from the API host (apps/api, :3001), not the Next.js host. */
 function getWsBase(): string {
-  if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_WS_URL) {
+  if (process.env.NEXT_PUBLIC_WS_URL) {
     return process.env.NEXT_PUBLIC_WS_URL;
   }
 
-  const protocol =
-    typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
-  return `${protocol}://${host}`;
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+  return apiUrl.replace(/^http/, 'ws');
 }
 
 export function usePriceCandles(tokenA: string | null, tokenB: string | null, interval: Interval) {

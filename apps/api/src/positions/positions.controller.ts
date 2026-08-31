@@ -16,8 +16,10 @@ import {
 import { CurrentWallet } from '../auth/current-wallet.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { BulkPositionsDto } from './dto/bulk-positions.dto';
+import { GetLpActivityQueryDto } from './dto/get-lp-activity-query.dto';
 import { GetPositionsQueryDto } from './dto/get-positions-query.dto';
 import {
+  LpActivityListResponse,
   PositionsListResponse,
   PositionsService,
   WalletPositions,
@@ -43,6 +45,26 @@ export class PositionsController {
     @Query() query: GetPositionsQueryDto,
   ): Promise<PositionsListResponse> {
     return this.positionsService.getPositions(walletAddress, query);
+  }
+
+  @Get('activity')
+  @ApiOperation({
+    summary:
+      'List LP activity (mints, burns, fee collections) for the authenticated wallet',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Paginated list of real, indexed LP activity events',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized — valid JWT required',
+  })
+  getLpActivity(
+    @CurrentWallet() walletAddress: string,
+    @Query() query: GetLpActivityQueryDto,
+  ): Promise<LpActivityListResponse> {
+    return this.positionsService.getLpActivity(walletAddress, query);
   }
 
   @Post('bulk')

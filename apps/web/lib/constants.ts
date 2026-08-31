@@ -39,20 +39,20 @@ export const FEE_APR_DOC_URL =
   'https://github.com/Vatix-Protocol/Swyft/blob/main/docs/FEE_APR_CALCULATION.md';
 
 /**
- * Returns the API base URL (with the `/v1` suffix) for the given network.
- *
- * Resolution order per network:
- *   1. NEXT_PUBLIC_API_URL_TESTNET / NEXT_PUBLIC_API_URL_PUBLIC (per-network override)
- *   2. NEXT_PUBLIC_API_URL (shared fallback)
- *   3. http://localhost:3001 (local dev default)
- *
- * Each network must be able to point at its own API deployment: the runtime
- * network switcher routes quotes, indexer data, LP positions, and wallet
- * flows through this URL, so a PUBLIC/mainnet build must set
- * NEXT_PUBLIC_API_URL_PUBLIC or mainnet traffic silently uses the shared
- * (usually testnet/localhost) URL. A blank override (e.g. `VAR=` in .env) is
- * treated as unset so it falls through instead of yielding a broken `/v1` URL.
+ * Router contract address used for exact-output swaps (`exact_output_single`).
+ * Must be set for the "exact output" swap mode to be available; when unset
+ * the widget falls back to exact-input only.
  */
+export const ROUTER_ADDRESS = process.env.NEXT_PUBLIC_ROUTER_ADDRESS ?? '';
+
+/** Per-network API base URLs. The environment variable overrides the default
+ *  for the build-time network; the other network uses its own default. */
+const API_BASE_MAP: Record<StellarNetwork, string> = {
+  TESTNET: `${process.env.NEXT_PUBLIC_API_URL_TESTNET ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/v1`,
+  PUBLIC: `${process.env.NEXT_PUBLIC_API_URL_PUBLIC ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/v1`,
+};
+
+/** Returns the API base URL for the given network. */
 export function getApiBase(network: StellarNetwork): string {
   const override =
     (network === 'TESTNET'

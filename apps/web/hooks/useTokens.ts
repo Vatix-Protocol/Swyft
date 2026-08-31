@@ -18,26 +18,29 @@ export function useTokens() {
     setLoading(true);
     setError(null);
 
-    apiFetch(`${API_BASE}/pools`)
-      .then((r) => r.json())
-      .then((data: { items?: Array<{ token0: string; token1: string }> }) => {
-        if (cancelled) return;
-        const seen = new Set<string>();
-        const list: Token[] = [];
-        for (const pool of data.items ?? []) {
-          for (const raw of [pool.token0, pool.token1]) {
-            if (seen.has(raw)) continue;
-            seen.add(raw);
-            list.push({
-              id: raw,
-              symbol: raw.length > 8 ? `${raw.slice(0, 4)}…` : raw,
-              name: raw,
-              logoUrl: null,
-            });
-          }
-        }
-        setTokens(list);
+    apiFetch(`${API_BASE}/tokens?limit=100`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to load tokens (${r.status})`);
+        return r.json();
       })
+      .then(
+        (data: {
+          contractAddress?: string;
+          symbol: string;
+          name: string;
+          logoUri: string | null;
+        }[] | { items?: Array<{ contractAddress: string; symbol: string; name: string; logoUri: string | null }> }) => {
+          if (cancelled) return;
+          const items = Array.isArray(data) ? data : data.items ?? [];
+          const list: Token[] = items.map((t) => ({
+            id: t.contractAddress ?? '',
+            symbol: t.symbol,
+            name: t.name,
+            logoUrl: t.logoUri ?? null,
+          }));
+          setTokens(list);
+        }
+      )
       .catch((err: unknown) => {
         if (!cancelled) {
           setTokens([]);
@@ -71,41 +74,53 @@ export function useRecentTokens() {
   return { recentIds: get(), pushRecent: push };
 }
 
-export function usePoolId(tokenInId: string | null, tokenOutId: string | null) {
+export function usePoolId(
+  tokenInId: string | null,
+  tokenOutId: string | null,
+  feeTier?: number | null
+) {
   const [poolId, setPoolId] = useState<string | null>(null);
   const [poolExists, setPoolExists] = useState<boolean | null>(null);
+  const [feeTier, setFeeTier] = useState<number | null>(null);
 
   useEffect(() => {
     if (!tokenInId || !tokenOutId) {
       setPoolId(null);
       setPoolExists(null);
+      setFeeTier(null);
       return;
     }
     let cancelled = false;
 
     apiFetch(`${API_BASE}/pools`)
       .then((r) => r.json())
-      .then((data: { items?: Array<{ id: string; token0: string; token1: string }> }) => {
-        if (cancelled) return;
-        const match = (data.items ?? []).find(
-          (p) =>
-            (p.token0 === tokenInId && p.token1 === tokenOutId) ||
-            (p.token0 === tokenOutId && p.token1 === tokenInId)
-        );
-        setPoolId(match?.id ?? null);
-        setPoolExists(!!match);
-      })
+      .then(
+        (data: {
+          items?: Array<{ id: string; token0: string; token1: string; feeTier?: number }>;
+        }) => {
+          if (cancelled) return;
+          const match = (data.items ?? []).find(
+            (p) =>
+              (p.token0 === tokenInId && p.token1 === tokenOutId) ||
+              (p.token0 === tokenOutId && p.token1 === tokenInId)
+          );
+          setPoolId(match?.id ?? null);
+          setPoolExists(!!match);
+          setFeeTier(match?.feeTier ?? null);
+        }
+      )
       .catch(() => {
         if (!cancelled) {
           setPoolId(null);
           setPoolExists(null);
+          setFeeTier(null);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [tokenInId, tokenOutId]);
+  }, [tokenInId, tokenOutId, feeTier]);
 
-  return { poolId, poolExists };
+  return { poolId, poolExists, feeTier };
 }

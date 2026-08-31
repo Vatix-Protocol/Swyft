@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { SwapWidget } from './SwapWidget';
 
 // ── Module mocks ────────────────────────────────────────────────────────────
@@ -24,25 +24,46 @@ const mockUseTokens = vi.fn(() => ({
 vi.mock('@/hooks/useTokens', () => ({
   useTokens: (...args: unknown[]) => mockUseTokens(...args),
   useRecentTokens: () => ({ recentIds: [], pushRecent: vi.fn() }),
-  usePoolId: () => ({ poolId: 'CPOOL', poolExists: true }),
+  usePoolId: () => ({ poolId: 'CPOOL', poolExists: true, feeTier: 30 }),
 }));
 
+const mockQuote = {
+  amountOut: '95',
+  priceImpact: 0.5,
+  lpFee: '0.3',
+  protocolFee: '0',
+  minimumReceived: '94.5',
+  executionPrice: '0.95',
+};
+
 vi.mock('@/hooks/useSwapQuote', () => ({
-  useSwapQuote: vi.fn(() => ({ quote: null, loading: false })),
+  useSwapQuote: vi.fn(() => ({ quote: mockQuote, loading: false })),
 }));
 
 vi.mock('@/hooks/useWalletBalances', () => ({
   useWalletBalances: () => ({}),
 }));
 
-vi.mock('@/components/SwapConfirmModal', () => ({
-  SwapConfirmModal: () => <div data-testid="swap-confirm-modal">Confirm</div>,
+// SwapConfirmModal is rendered for real (not mocked away) so that the
+// network-mismatch banner and retry logic it owns are exercised by these
+// tests. Its own dependencies that reach the network / wallet extension are
+// mocked instead.
+const mockGetNetwork = vi.fn();
+vi.mock('@stellar/freighter-api', () => ({
+  getNetwork: (...args: unknown[]) => mockGetNetwork(...args),
+  signTransaction: vi.fn().mockResolvedValue('signed-xdr'),
 }));
+
+global.fetch = vi.fn().mockResolvedValue({
+  ok: true,
+  json: async () => ({ hash: 'tx-hash' }),
+}) as unknown as typeof fetch;
 
 vi.mock('@swyft/ui', () => ({
   SwapInput: ({
     label,
     amount,
+    onAmountChange,
   }: {
     label: string;
     amount: string;
@@ -54,7 +75,11 @@ vi.mock('@swyft/ui', () => ({
   }) => (
     <div data-testid={`swap-input-${label.replace(/\s+/g, '-').toLowerCase()}`}>
       <span>{label}</span>
-      <span>{amount}</span>
+      <input
+        aria-label={label}
+        value={amount}
+        onChange={(e) => onAmountChange?.(e.target.value)}
+      />
     </div>
   ),
   PriceImpactBadge: ({ impact }: { impact: number }) => (
@@ -309,6 +334,95 @@ describe('SwapWidget', () => {
       const card = container.firstChild as HTMLElement;
       expect(card.className).toContain('w-full');
       expect(card.className).toContain('md:w-[448px]');
+    });
+  });
+
+  // ── Confirmation modal (real SwapConfirmModal, not mocked away) ──────────
+  //
+  // These tests exercise the actual SwapConfirmModal that SwapWidget renders
+  // on swap — including the network-mismatch banner and retry logic — rather
+  // than a stub, so a regression in that wiring shows up here.
+
+  describe('confirmation modal', () => {
+    async function selectPairAndEnterAmount() {
+      renderWidget(connectedWallet);
+
+      const [payPicker, receivePicker] = screen.getAllByRole('button', { name: /Select/ });
+      fireEvent.click(payPicker);
+      fireEvent.click(screen.getByRole('button', { name: 'USDC' }));
+      fireEvent.click(receivePicker);
+      fireEvent.click(screen.getByRole('button', { name: 'XLM' }));
+
+      const payInput = screen.getByLabelText('You pay');
+      fireEvent.change(payInput, { target: { value: '100' } });
+    }
+
+    beforeEach(() => {
+      mockGetNetwork.mockResolvedValue({ network: 'TESTNET' });
+    });
+
+    it('opens the real SwapConfirmModal (not a stub) when the swap button is clicked', async () => {
+      await selectPairAndEnterAmount();
+
+      const swapButton = screen.getByRole('button', { name: 'Swap' });
+      expect(swapButton).not.toBeDisabled();
+      fireEvent.click(swapButton);
+
+      expect(await screen.findByRole('dialog', { name: 'Confirm swap' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Confirm swap' })).toBeInTheDocument();
+      // Confirms the real modal renders its own fee breakdown from the quote,
+      // not a "Confirm" placeholder from a mock.
+      expect(screen.getByText('Price impact')).toBeInTheDocument();
+      expect(screen.getByText('Min. received')).toBeInTheDocument();
+    });
+
+    it('shows the network-mismatch banner and disables confirm when the wallet is on a different network', async () => {
+      mockGetNetwork.mockResolvedValue({ network: 'PUBLIC' });
+      await selectPairAndEnterAmount();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Swap' }));
+      await screen.findByRole('dialog', { name: 'Confirm swap' });
+
+      await waitFor(() =>
+        expect(screen.getByText(/wallet is on a different Stellar network/i)).toBeInTheDocument()
+      );
+
+      const confirmButton = screen.getByRole('button', { name: 'Confirm swap' });
+      expect(confirmButton).toBeDisabled();
+    });
+
+    it('retries the swap after a network error via the modal\'s own retry button', async () => {
+      (global.fetch as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ ok: false, json: async () => ({ message: 'tx failed' }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ hash: 'retry-hash' }) });
+
+      await selectPairAndEnterAmount();
+      fireEvent.click(screen.getByRole('button', { name: 'Swap' }));
+      await screen.findByRole('dialog', { name: 'Confirm swap' });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm swap' }));
+
+      await screen.findByText(/Network error/i);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+      await waitFor(() => expect(screen.getByText('Swap confirmed')).toBeInTheDocument());
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('closes the modal via the Done button after a successful swap', async () => {
+      await selectPairAndEnterAmount();
+      fireEvent.click(screen.getByRole('button', { name: 'Swap' }));
+      await screen.findByRole('dialog', { name: 'Confirm swap' });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm swap' }));
+      await waitFor(() => expect(screen.getByText('Swap confirmed')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: 'Confirm swap' })).not.toBeInTheDocument()
+      );
     });
   });
 });
