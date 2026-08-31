@@ -9,8 +9,8 @@ export class SwapQuoteResponseDto {
 
   @ApiProperty({
     description:
-      'Estimated price impact in percent. This is a spot-price estimate ' +
-      '(no tick-crossing depth simulation), so it is always 0 for now.',
+      'Estimated price impact in percent, computed from a tick-crossing ' +
+      "simulation of the pool's liquidity depth.",
     example: 0,
   })
   priceImpact: number;

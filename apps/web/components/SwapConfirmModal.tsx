@@ -2,35 +2,42 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { getNetwork } from '@stellar/freighter-api';
-import type { SwapQuote } from '@swyft/sdk';
+import type { SwapQuote, ExactOutputQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
 import { PriceImpactBadge } from '@swyft/ui';
 import { useSwapExecution } from '@/hooks/useSwapExecution';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { getExplorerTxUrl } from '@/lib/constants';
 
-interface Props {
-  poolId: string;
-  tokenIn: Token;
-  tokenOut: Token;
-  amountIn: string;
-  quote: SwapQuote;
-  walletAddress: string;
-  onClose: () => void;
-  onSuccess: () => void;
-}
+type Props =
+  | {
+      mode?: 'exactIn';
+      poolId: string;
+      tokenIn: Token;
+      tokenOut: Token;
+      amountIn: string;
+      quote: SwapQuote;
+      walletAddress: string;
+      onClose: () => void;
+      onSuccess: () => void;
+    }
+  | {
+      mode: 'exactOut';
+      /** Pool fee tier to route through, required by `exact_output_single`. */
+      fee: number;
+      tokenIn: Token;
+      tokenOut: Token;
+      amountOut: string;
+      quote: ExactOutputQuote;
+      walletAddress: string;
+      onClose: () => void;
+      onSuccess: () => void;
+    };
 
-export function SwapConfirmModal({
-  poolId,
-  tokenIn,
-  tokenOut,
-  amountIn,
-  quote,
-  walletAddress,
-  onClose,
-  onSuccess,
-}: Props) {
-  const { status, error, txHash, execute, reset } = useSwapExecution();
+export function SwapConfirmModal(props: Props) {
+  const { tokenIn, tokenOut, walletAddress, onClose, onSuccess } = props;
+  const mode = props.mode ?? 'exactIn';
+  const { status, error, txHash, execute, executeExactOutput, reset } = useSwapExecution();
   const { network } = useNetworkContext();
   const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -75,13 +82,35 @@ export function SwapConfirmModal({
     if (e.target === overlayRef.current && !isBusy) onClose();
   }
 
+  function submit() {
+    if (props.mode === 'exactOut') {
+      executeExactOutput({
+        fee: props.fee,
+        tokenIn,
+        tokenOut,
+        amountOut: props.amountOut,
+        quote: props.quote,
+        walletAddress,
+      });
+    } else {
+      execute({
+        poolId: props.poolId,
+        tokenIn,
+        tokenOut,
+        amountIn: props.amountIn,
+        quote: props.quote,
+        walletAddress,
+      });
+    }
+  }
+
   function handleConfirm() {
-    execute({ poolId, tokenIn, tokenOut, amountIn, quote, walletAddress });
+    submit();
   }
 
   function handleRetry() {
     reset();
-    execute({ poolId, tokenIn, tokenOut, amountIn, quote, walletAddress });
+    submit();
   }
 
   return (
@@ -126,13 +155,17 @@ export function SwapConfirmModal({
             <div className="flex items-center justify-between rounded-xl bg-zinc-50 px-4 py-3 dark:bg-zinc-800/50">
               <span className="text-sm text-zinc-500 dark:text-zinc-400">You pay</span>
               <span className="text-sm font-semibold text-zinc-900 dark:text-white">
-                {parseFloat(amountIn).toFixed(6)} {tokenIn.symbol}
+                {props.mode === 'exactOut' ? '≈' : ''}
+                {parseFloat(props.mode === 'exactOut' ? props.quote.amountIn : props.amountIn).toFixed(6)}{' '}
+                {tokenIn.symbol}
               </span>
             </div>
             <div className="flex items-center justify-between rounded-xl bg-zinc-50 px-4 py-3 dark:bg-zinc-800/50">
               <span className="text-sm text-zinc-500 dark:text-zinc-400">You receive</span>
               <span className="text-sm font-semibold text-zinc-900 dark:text-white">
-                ≈{parseFloat(quote.amountOut).toFixed(6)} {tokenOut.symbol}
+                {props.mode === 'exactOut' ? '' : '≈'}
+                {parseFloat(props.mode === 'exactOut' ? props.amountOut : props.quote.amountOut).toFixed(6)}{' '}
+                {tokenOut.symbol}
               </span>
             </div>
           </div>
@@ -142,30 +175,40 @@ export function SwapConfirmModal({
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
               <span>Rate</span>
               <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                1 {tokenIn.symbol} = {parseFloat(quote.executionPrice).toFixed(6)} {tokenOut.symbol}
+                1 {tokenIn.symbol} = {parseFloat(props.quote.executionPrice).toFixed(6)}{' '}
+                {tokenOut.symbol}
               </span>
             </div>
-            <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
-              <span>Min. received</span>
-              <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                {parseFloat(quote.minimumReceived).toFixed(6)} {tokenOut.symbol}
-              </span>
-            </div>
+            {props.mode === 'exactOut' ? (
+              <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
+                <span>Max. spent</span>
+                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                  {parseFloat(props.quote.maximumIn).toFixed(6)} {tokenIn.symbol}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
+                <span>Min. received</span>
+                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                  {parseFloat(props.quote.minimumReceived).toFixed(6)} {tokenOut.symbol}
+                </span>
+              </div>
+            )}
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
               <span>Price impact</span>
-              <PriceImpactBadge impact={quote.priceImpact} />
+              <PriceImpactBadge impact={props.quote.priceImpact} />
             </div>
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
               <span>LP fee</span>
               <span>
-                {parseFloat(quote.lpFee).toFixed(7)} {tokenIn.symbol}
+                {parseFloat(props.quote.lpFee).toFixed(7)} {tokenIn.symbol}
               </span>
             </div>
-            {parseFloat(quote.protocolFee) > 0 && (
+            {parseFloat(props.quote.protocolFee) > 0 && (
               <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
                 <span>Protocol fee</span>
                 <span>
-                  {parseFloat(quote.protocolFee).toFixed(7)} {tokenIn.symbol}
+                  {parseFloat(props.quote.protocolFee).toFixed(7)} {tokenIn.symbol}
                 </span>
               </div>
             )}

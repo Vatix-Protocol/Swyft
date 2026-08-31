@@ -28,6 +28,7 @@ const mockPools = [
     token1Address: 'TOKENB',
     feeTier: 3000,
     liquidity: '1000000000',
+    currentSqrtPrice: '79228162514264337593543950336', // price = 1
   },
 ];
 
@@ -48,10 +49,13 @@ const mockFindManyPools = jest.fn().mockResolvedValue(mockPools);
 const mockFindManySwaps = jest.fn();
 const mockFindManyPositions = jest.fn().mockResolvedValue(mockPositions);
 
+const mockFindUniqueToken = jest.fn().mockResolvedValue({ decimals: 0 });
+
 const mockPrismaService = {
   pool: { findMany: mockFindManyPools, update: mockPoolUpdate },
   swap: { findMany: mockFindManySwaps },
   position: { findMany: mockFindManyPositions },
+  token: { findUnique: mockFindUniqueToken },
 };
 
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
@@ -305,8 +309,9 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
 
   it('computes feeApr from actual swap feeAmount fields (not feeTier * volume)', () => {
     // fees24h = (3000 + 6000) * priceA(1) = 9000
-    // tvl = liquidity(1000000000) * (priceA+priceB)/2 = 1000000000
-    // feeApr = (9000 / 1000000000) * 365 * 100 ≈ 0.3285
+    // tvl = reserve0(1000000000) * priceA(1) + reserve1(1000000000) * priceB(1) = 2000000000
+    //   (reserve0 = liquidity/sqrtPrice, reserve1 = liquidity*sqrtPrice, sqrtPrice=1)
+    // feeApr = (9000 / 2000000000) * 365 * 100 ≈ 0.164
     const updateCall = mockPoolUpdate.mock.calls[0][0];
     const feeApr = Number(updateCall.data.feeApr);
     expect(feeApr).toBeGreaterThan(0);
@@ -315,11 +320,11 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
     // The feeAmount-based value (9000) differs from the volume estimate (13500).
     const volumeBasedEstimate = 4500000 * (3000 / 1_000_000);
     expect(feeApr).not.toBeCloseTo(
-      (volumeBasedEstimate / 1000000000) * 365 * 100,
+      (volumeBasedEstimate / 2000000000) * 365 * 100,
       5,
     );
     // Verify the actual value matches fees24h / tvl * 365 * 100
-    const expectedFeeApr = (9000 / 1000000000) * 365 * 100;
+    const expectedFeeApr = (9000 / 2000000000) * 365 * 100;
     expect(feeApr).toBeCloseTo(expectedFeeApr, 5);
   });
 

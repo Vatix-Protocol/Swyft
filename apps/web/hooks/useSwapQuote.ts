@@ -1,19 +1,18 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { EMPTY_QUOTE, type SwapQuote } from '@swyft/sdk';
+import type { SwapQuote } from '@swyft/sdk';
 import { API_BASE } from '@/lib/constants';
 import { apiFetch } from '@/lib/api-fetch';
 
+/** Derives the WS base from the API host (apps/api, :3001), not the Next.js host. */
 function getWsBase(): string {
-  if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_WS_URL) {
+  if (process.env.NEXT_PUBLIC_WS_URL) {
     return process.env.NEXT_PUBLIC_WS_URL;
   }
 
-  const protocol =
-    typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
-  return `${protocol}://${host}`;
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+  return apiUrl.replace(/^http/, 'ws');
 }
 
 const DEBOUNCE_MS = 350;
@@ -26,24 +25,19 @@ interface Params {
   slippageBps: number;
 }
 
-interface FetchQuoteArgs {
+interface QuoteRequestParams {
   poolId: string;
   tokenInId: string;
   tokenOutId: string;
   amountIn: string;
   slippageBps: number;
-  signal?: AbortSignal;
 }
 
-/** Calls the API's POST /swaps/quote, backed by real pool depth. */
-async function fetchSwapQuote({
-  poolId,
-  tokenInId,
-  tokenOutId,
-  amountIn,
-  slippageBps,
-  signal,
-}: FetchQuoteArgs): Promise<SwapQuote> {
+/** Fetches a real, depth-aware swap quote from POST /v1/swaps/quote. */
+async function fetchQuote(
+  { poolId, tokenInId, tokenOutId, amountIn, slippageBps }: QuoteRequestParams,
+  signal?: AbortSignal
+): Promise<SwapQuote | null> {
   const res = await apiFetch(`${API_BASE}/swaps/quote`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -56,27 +50,9 @@ async function fetchSwapQuote({
     }),
     signal,
   });
-
-  if (!res.ok) {
-    throw new Error(`Failed to fetch swap quote: ${res.status}`);
-  }
-
-  const data = (await res.json()) as {
-    amountOut: string;
-    priceImpact: number;
-    lpFee: string;
-    minimumReceived: string;
-    executionPrice: string;
-  };
-
-  return {
-    amountOut: data.amountOut,
-    priceImpact: data.priceImpact,
-    lpFee: data.lpFee,
-    protocolFee: '0',
-    minimumReceived: data.minimumReceived,
-    executionPrice: data.executionPrice,
-  };
+  if (!res.ok) return null;
+  const data = (await res.json()) as Omit<SwapQuote, 'protocolFee'>;
+  return { ...data, protocolFee: '0' };
 }
 
 export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippageBps }: Params) {
@@ -104,24 +80,15 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
     debounceRef.current = setTimeout(() => {
       const controller = new AbortController();
       abortControllerRef.current = controller;
-
-      fetchSwapQuote({
-        poolId,
-        tokenInId,
-        tokenOutId,
-        amountIn,
-        slippageBps,
-        signal: controller.signal,
-      })
+      fetchQuote({ poolId, tokenInId, tokenOutId, amountIn, slippageBps }, controller.signal)
         .then((result) => {
           if (currentSequence === sequenceRef.current) {
             setQuote(result);
           }
         })
-        .catch((err: unknown) => {
-          if (err instanceof DOMException && err.name === 'AbortError') return;
+        .catch(() => {
           if (currentSequence === sequenceRef.current) {
-            setQuote(EMPTY_QUOTE);
+            setQuote(null);
           }
         })
         .finally(() => {
@@ -177,19 +144,9 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
           if (msg.event !== 'price' || msg.data?.poolId !== poolId) return;
           if (!poolId || !tokenInId || !tokenOutId) return;
           if (!amountIn || parseFloat(amountIn) <= 0) return;
-
-          // Re-fetch from the API on live price events too, so the quote
-          // reflects real depth rather than the hardcoded-reserve helper.
-          const currentSequence = ++sequenceRef.current;
-          fetchSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippageBps })
-            .then((result) => {
-              if (currentSequence === sequenceRef.current) {
-                setQuote(result);
-              }
-            })
-            .catch(() => {
-              // Keep the last known-good quote on transient fetch errors.
-            });
+          fetchQuote({ poolId, tokenInId, tokenOutId, amountIn, slippageBps })
+            .then((result) => setQuote(result))
+            .catch(() => setQuote(null));
         } catch {
           // ignore malformed messages
         }
