@@ -1,0 +1,28 @@
+name: Daily Database Backup
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # 02:00 UTC daily
+  workflow_dispatch:        # allow manual trigger
+
+jobs:
+  backup:
+    name: Backup PostgreSQL to S3
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Run backup script
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          BACKUP_S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+          BACKUP_RETAIN_DAYS: '30'
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.BACKUP_AWS_REGION }}
+        run: pnpm --filter api db:backup

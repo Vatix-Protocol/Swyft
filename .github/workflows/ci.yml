@@ -1,0 +1,202 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm --filter web lint
+
+      - name: Test
+        run: pnpm --filter web test
+
+      - name: Build
+        run: pnpm --filter web build
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: swyft
+        options: >-
+          --health-cmd "pg_isready -U postgres -d swyft"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-test-secret
+      NODE_ENV: test
+      STELLAR_RPC_URL: ${{ secrets.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org' }}
+      HORIZON_URL: ${{ secrets.HORIZON_URL || 'https://horizon-testnet.stellar.org' }}
+      STELLAR_NETWORK: testnet
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Apply database migrations
+        run: pnpm db:migrate:deploy
+
+      - name: Lint
+        run: pnpm --filter api lint
+
+      - name: Unit tests
+        run: pnpm --filter api test
+
+      - name: E2E tests
+        run: pnpm --filter api test:e2e
+
+      - name: Build
+        run: pnpm --filter api build
+
+  sdk:
+    name: SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check
+        run: pnpm --filter @swyft/sdk build:check
+
+      - name: Test
+        run: pnpm --filter @swyft/sdk test
+
+      - name: Build
+        run: pnpm --filter @swyft/sdk build
+
+  ui:
+    name: UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm --filter @swyft/ui test
+
+  contracts:
+    name: Contracts
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/contract
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install JS dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Address drift check
+        working-directory: .
+        run: pnpm --filter contracts test:drift
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/contract -> target
+
+      - name: cargo check
+        run: cargo check --workspace
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: cargo build (release wasm)
+        run: cargo build --workspace --release --target wasm32-unknown-unknown

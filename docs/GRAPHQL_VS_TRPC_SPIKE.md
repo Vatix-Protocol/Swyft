@@ -20,10 +20,15 @@ Swyft currently uses REST between `apps/api` and `apps/web`, with types shared m
 - Pros: flexible querying for clients, strong tooling (codegen, introspection), good fit if multiple heterogeneous clients (web, mobile, third parties) need different data shapes.
 - Cons: higher setup/maintenance cost (schema, resolvers, N+1 handling), overkill if Swyft only has one first-party web client, steeper learning curve for contributors.
 
-## Recommendation (draft, for discussion)
-Given Swyft is a TypeScript monorepo with one first-party web client and REST is already used for external/webhook-style integrations, tRPC is likely the better fit for internal `apps/web` <-> `apps/api` calls, while keeping REST for any public/external-facing endpoints. GraphQL is probably not justified unless a second consumer (e.g. mobile) with divergent data needs shows up.
+## Decision: REST-only (2026-08-31)
 
-## Next steps
-- [ ] Confirm whether any external/third-party consumers exist today that would be broken by moving internal calls off REST.
-- [ ] Prototype one tRPC router alongside existing REST routes to measure DX/migration cost.
-- [ ] Revisit this doc once a decision is made and link the follow-up PR here.
+Formalized in `docs/ADR-001-API-STRATEGY.md` (Accepted). Swyft stays on REST
+(+ WebSocket for realtime) for the `apps/api` <-> `apps/web` boundary and for
+external/third-party consumers. Neither tRPC nor GraphQL is adopted. See
+`docs/TRPC-IMPLEMENTATION.md` for the archived tRPC blueprint, kept for
+reference only.
+
+## Next steps (closed)
+- [x] Confirm whether any external/third-party consumers exist today that would be broken by moving internal calls off REST. — Yes: `@swyft/sdk` and any external integrator hit the REST surface directly; REST stays to avoid breaking them.
+- [x] Prototype one tRPC router alongside existing REST routes to measure DX/migration cost. — Skipped: REST-only was chosen without a prototype: single first-party web client plus existing external REST consumers don't justify the added operational surface of a second API layer.
+- [x] Revisit this doc once a decision is made and link the follow-up PR here. — Decision recorded in ADR-001; this spike is now closed.
