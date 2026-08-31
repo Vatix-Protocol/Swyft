@@ -91,7 +91,7 @@
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "jest": "^30.0.0",
+    "jest": "^30.5.0",
     "rimraf": "^6.0.1",
     "ts-jest": "^29.2.5",
     "tsup": "^8.4.0",
