@@ -54,5 +54,10 @@ const API_BASE_MAP: Record<StellarNetwork, string> = {
 
 /** Returns the API base URL for the given network. */
 export function getApiBase(network: StellarNetwork): string {
-  return API_BASE_MAP[network];
+  const override =
+    (network === 'TESTNET'
+      ? process.env.NEXT_PUBLIC_API_URL_TESTNET
+      : process.env.NEXT_PUBLIC_API_URL_PUBLIC) || undefined;
+  const base = override ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+  return `${base}/v1`;
 }
