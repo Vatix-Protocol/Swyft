@@ -56,8 +56,18 @@ export function resolveRpcUrl(mevEnabled: boolean): string {
   return TESTNET_FALLBACK_RPC;
 }
 
+/**
+ * Returns true when a valid MEV-protected RPC endpoint is configured.
+ * Exported for use in non-hook contexts (e.g. server-side validation).
+ *
+ * @internal — exported for testing only.
+ */
+export function isMevEndpointConfigured(): boolean {
+  return isValidRpcUrl(process.env.NEXT_PUBLIC_MEV_PROTECTED_RPC_URL);
+}
+
 export interface MevProtectionState {
-  /** Whether MEV protection is currently enabled. */
+  /** Whether MEV protection is currently enabled by the user. */
   enabled: boolean;
   /**
    * Whether a valid MEV-protected RPC endpoint is configured.
