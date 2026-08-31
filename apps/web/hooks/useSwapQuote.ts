@@ -62,7 +62,8 @@ export function useSwapQuote({ poolId, tokenInId, tokenOutId, amountIn, slippage
   const abortControllerRef = useRef<AbortController | null>(null);
   const sequenceRef = useRef(0);
 
-  // Recalculate quote whenever inputs change (debounced)
+  // Recalculate quote whenever inputs change (debounced), sourced from the
+  // API's POST /swaps/quote (real pool depth), not local stub math.
   useEffect(() => {
     if (!poolId || !tokenInId || !tokenOutId || !amountIn || parseFloat(amountIn) <= 0) {
       setQuote(null);

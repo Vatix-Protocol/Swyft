@@ -10,6 +10,7 @@ const NAV_LINKS = [
   { href: '/', label: 'Swap' },
   { href: '/history', label: 'History' },
   { href: '/portfolio', label: 'Portfolio' },
+  { href: '/settings', label: 'Settings' },
 ];
 
 export function Navbar() {

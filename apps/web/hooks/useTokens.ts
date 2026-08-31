@@ -74,7 +74,11 @@ export function useRecentTokens() {
   return { recentIds: get(), pushRecent: push };
 }
 
-export function usePoolId(tokenInId: string | null, tokenOutId: string | null) {
+export function usePoolId(
+  tokenInId: string | null,
+  tokenOutId: string | null,
+  feeTier?: number | null
+) {
   const [poolId, setPoolId] = useState<string | null>(null);
   const [poolExists, setPoolExists] = useState<boolean | null>(null);
   const [feeTier, setFeeTier] = useState<number | null>(null);
@@ -116,7 +120,7 @@ export function usePoolId(tokenInId: string | null, tokenOutId: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [tokenInId, tokenOutId]);
+  }, [tokenInId, tokenOutId, feeTier]);
 
   return { poolId, poolExists, feeTier };
 }
