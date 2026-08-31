@@ -78,4 +78,10 @@ export type {
   XdrBase64,
 } from './swap';
 
+export type {
+  ExactInputSingleParams,
+  SwapResult,
+  RouterError,
+} from './router-types';
+
 export { config } from './config';
