@@ -9,16 +9,21 @@ import {
   RemoveAmountsParams,
   ValidationError,
 } from '../liquidity';
+import {
+  getAmountsForLiquidity,
+  tickToSqrtPriceX96,
+  Q96,
+} from '../position-math';
 
 // Valid Soroban contract addresses for testing (must start with C)
 const VALID_POOL_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
 const VALID_OWNER = 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ';
 
 // ---------------------------------------------------------------------------
-// estimateRemoveAmounts
+// estimateRemoveAmounts — tests for tick-math implementation
 // ---------------------------------------------------------------------------
 
-describe('estimateRemoveAmounts', () => {
+describe('estimateRemoveAmounts (tick-math implementation)', () => {
   const LIQUIDITY = '1000000';
   const TICK_LOWER = -100;
   const TICK_UPPER = 100;
@@ -31,10 +36,70 @@ describe('estimateRemoveAmounts', () => {
     upperTick: TICK_UPPER,
   };
 
+  /**
+   * Helper: convert result strings to bigints for comparison with getAmountsForLiquidity.
+   * This verifies the implementation matches the on-chain tick math.
+   */
+  function verifyAgainstTickMath(
+    result: ReturnType<typeof estimateRemoveAmounts>,
+    pct: number,
+    liq: bigint,
+    currentPrice: number,
+    lowerTick: number,
+    upperTick: number
+  ) {
+    // Recompute using the tick-math reference
+    const liquidityToRemove = (liq * BigInt(Math.floor(pct * 100))) / BigInt(10000);
+    const sqrtPriceX96 = BigInt(Math.floor(Math.sqrt(currentPrice) * Number(Q96)));
+    const sqrtLowerX96 = tickToSqrtPriceX96(lowerTick);
+    const sqrtUpperX96 = tickToSqrtPriceX96(upperTick);
+    
+    const { amount0: expected0, amount1: expected1 } = getAmountsForLiquidity({
+      sqrtPriceX96,
+      sqrtPriceLowerX96: sqrtLowerX96,
+      sqrtPriceUpperX96: sqrtUpperX96,
+      liquidity: liquidityToRemove,
+    });
+
+    // Convert to decimals for comparison (with tolerance for rounding)
+    const divisor = 1n << 96n;
+    const expected0Decimal = Number((expected0 * 10000000n) / divisor) / 10000000;
+    const expected1Decimal = Number((expected1 * 10000000n) / divisor) / 10000000;
+
+    const result0 = parseFloat(result.amount0);
+    const result1 = parseFloat(result.amount1);
+
+    // Allow small tolerance for floating-point rounding
+    expect(Math.abs(result0 - expected0Decimal)).toBeLessThan(0.0001);
+    expect(Math.abs(result1 - expected1Decimal)).toBeLessThan(0.0001);
+  }
+
   it('returns non-negative amounts when price is within range', () => {
     const result = estimateRemoveAmounts(base);
     expect(parseFloat(result.amount0)).toBeGreaterThanOrEqual(0);
     expect(parseFloat(result.amount1)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('matches on-chain tick-math for simple equal-price range', () => {
+    // When lower and upper ticks are symmetric around price 1.0,
+    // and price is at 1.0, we should get both token amounts
+    const result = estimateRemoveAmounts(base);
+    verifyAgainstTickMath(result, 100, BigInt(LIQUIDITY), 1.0, TICK_LOWER, TICK_UPPER);
+  });
+
+  it('matches on-chain tick-math for price below range', () => {
+    const result = estimateRemoveAmounts({ ...base, currentPrice: 0.0001 });
+    verifyAgainstTickMath(result, 100, BigInt(LIQUIDITY), 0.0001, TICK_LOWER, TICK_UPPER);
+  });
+
+  it('matches on-chain tick-math for price above range', () => {
+    const result = estimateRemoveAmounts({ ...base, currentPrice: 10000 });
+    verifyAgainstTickMath(result, 100, BigInt(LIQUIDITY), 10000, TICK_LOWER, TICK_UPPER);
+  });
+
+  it('matches on-chain tick-math for partial removal (50%)', () => {
+    const result = estimateRemoveAmounts({ ...base, pct: 50 });
+    verifyAgainstTickMath(result, 50, BigInt(LIQUIDITY), 1.0, TICK_LOWER, TICK_UPPER);
   });
 
   it('returns only amount0 when price is below lower tick', () => {
