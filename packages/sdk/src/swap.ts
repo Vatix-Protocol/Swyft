@@ -60,11 +60,12 @@ export const DEFAULT_SWAP_DEADLINE_SECONDS = 600;
  * Parameters for building an exact-input single-hop swap transaction.
  *
  * @remarks
- * This interface is intended for a simplified swap builder and does not
- * include advanced route construction or multi-hop trade details.
+ * This interface invokes the router contract's exact_input_single method,
+ * which enforces deadline and slippage protections before executing the swap.
+ * This is the only safe entrypoint for production swaps.
  */
 export interface SwapTxParams {
-  /** On-chain pool contract address used to execute the swap. */
+  /** On-chain router contract address (must start with 'C'). */
   readonly poolId: StellarAddress;
   /** Contract address of the token being sold. */
   readonly tokenInId: StellarAddress;
@@ -79,12 +80,20 @@ export interface SwapTxParams {
   /** Slippage tolerance in basis points (e.g., 50 = 0.5%). Defaults to 50. */
   readonly slippageBps?: number;
   /**
+   * Pool fee tier to route through (e.g., 3000 = 0.3%). Defaults to 3000.
+   *
+   * @remarks
+   * This is passed to router.exact_input_single so it can resolve the correct pool
+   * from the factory registry.
+   */
+  readonly feeTier?: number;
+  /**
    * Unix timestamp (seconds) after which the swap must no longer execute.
    * Defaults to `now + {@link DEFAULT_SWAP_DEADLINE_SECONDS}`.
    *
    * The deadline is enforced two ways:
-   * - It is passed as an explicit `deadline` argument to the pool contract's
-   *   `swap` invocation, so the contract can reject stale calls itself.
+   * - It is passed as an explicit `deadline` argument to the router contract's
+   *   `exact_input_single` method, so the contract can reject stale calls itself.
    * - It is also set as the transaction's `maxTime` precondition, so Stellar
    *   Core rejects submission of an expired envelope outright (`txTOO_LATE`)
    *   even before the contract call is evaluated.
@@ -133,8 +142,11 @@ export class SwapValidationError extends Error {
 /**
  * Builds an unsigned swap transaction XDR from provided swap parameters.
  *
- * Constructs a real Soroban transaction that invokes the swap method on a router
- * contract. The transaction is built with a placeholder source account and must be
+ * Constructs a real Soroban transaction that invokes the exact_input_single method
+ * on the router contract. The router enforces deadline and slippage protections,
+ * making this the only safe entrypoint for production swaps.
+ *
+ * The transaction is built with a placeholder source account and must be
  * properly signed before submission.
  *
  * The swap carries a deadline (see {@link SwapTxParams.deadline}) to prevent stale
@@ -142,14 +154,14 @@ export class SwapValidationError extends Error {
  * transaction's `maxTime` precondition, so an expired swap is rejected at the
  * Stellar protocol level (`txTOO_LATE`) in addition to any contract-side check.
  *
- * @param params - Swap parameters including pool ID, token IDs, amounts, and owner.
+ * @param params - Swap parameters including router ID, token IDs, amounts, and owner.
  * @returns An unsigned swap transaction envelope in base-64 XDR format.
  * @throws {SwapValidationError} If parameters are invalid (invalid addresses, amounts, or an already-expired deadline).
  */
 export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
   if (!isValidStellarAddress(params.poolId)) {
     throw new SwapValidationError(
-      `Invalid poolId: must be a valid Stellar address. Got: ${params.poolId}`
+      `Invalid poolId (router address): must be a valid Stellar contract address. Got: ${params.poolId}`
     );
   }
   if (!isValidStellarAddress(params.tokenInId)) {
@@ -188,6 +200,7 @@ export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
 
   const nowSeconds = Math.floor(Date.now() / 1000);
   const deadline = params.deadline ?? nowSeconds + DEFAULT_SWAP_DEADLINE_SECONDS;
+  const feeTier = params.feeTier ?? 3000; // Default to 0.3% fee tier
 
   if (!Number.isInteger(deadline) || deadline <= nowSeconds) {
     throw new SwapValidationError(
@@ -196,36 +209,39 @@ export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
   }
 
   try {
-    const contract = new Contract(params.poolId);
+    const routerContract = new Contract(params.poolId);
 
-    const amountInScVal = nativeToScVal(params.amountIn, {
-      type: 'i128',
-    });
-    const minOutScVal = nativeToScVal(params.minimumReceived, {
-      type: 'i128',
-    });
-    const tokenInScVal = nativeToScVal(params.tokenInId, {
-      type: 'address',
-    });
-    const tokenOutScVal = nativeToScVal(params.tokenOutId, {
-      type: 'address',
-    });
+    // Build the exact_input_single params struct
+    // The struct fields match ExactInputSingleParams from router contract
+    const tokenInScVal = nativeToScVal(params.tokenInId, { type: 'address' });
+    const tokenOutScVal = nativeToScVal(params.tokenOutId, { type: 'address' });
+    const feeScVal = nativeToScVal(feeTier, { type: 'u32' });
+    const recipientScVal = nativeToScVal(params.ownerAddress, { type: 'address' });
     const deadlineScVal = nativeToScVal(deadline, { type: 'u64' });
+    const amountInScVal = nativeToScVal(params.amountIn, { type: 'i128' });
+    const amountOutMinScVal = nativeToScVal(params.minimumReceived, { type: 'i128' });
+    const sqrtPriceLimitScVal = nativeToScVal('0', { type: 'i128' }); // 0 = no limit
 
-    const swapOp = contract.call(
-      'swap',
+    // Invoke router.exact_input_single with all params
+    // The router SDK client would pass a single struct, but the contract.call()
+    // method requires individual XDR values.
+    const swapOp = routerContract.call(
+      'exact_input_single',
       tokenInScVal,
       tokenOutScVal,
+      feeScVal,
+      recipientScVal,
+      deadlineScVal,
       amountInScVal,
-      minOutScVal,
-      deadlineScVal
+      amountOutMinScVal,
+      sqrtPriceLimitScVal
     );
 
     const sourceKeypair = Keypair.random();
-    const sourceAccount = new Account(sourceKeypair.publicKey(), "0");
+    const sourceAccount = new Account(sourceKeypair.publicKey(), '0');
 
     const txBuilder = new TransactionBuilder(sourceAccount, {
-      fee: "100000",
+      fee: '100000',
       networkPassphrase: config.networkPassphrase,
       timebounds: { minTime: 0, maxTime: deadline },
     });

@@ -51,4 +51,10 @@ export { SwyftRpcError } from './types';
 export { buildSwapTx, toStellarAddress, toRawAmount, toXdrBase64, SwapValidationError } from './swap';
 export type { PoolId, SwapTxParams, SwapUnsignedTx, StellarAddress, RawAmount, XdrBase64 } from './swap';
 
+export type {
+  ExactInputSingleParams,
+  SwapResult,
+  RouterError,
+} from './router-types';
+
 export { config } from './config';
