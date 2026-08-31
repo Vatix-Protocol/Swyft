@@ -3,7 +3,7 @@
 import { useMevProtection } from '../hooks/useMevProtection';
 
 export function MevToggle() {
-  const { enabled, toggle } = useMevProtection();
+  const { enabled, available, toggle } = useMevProtection();
 
   return (
     <div className="flex items-center justify-between gap-3 py-2">
@@ -19,9 +19,17 @@ export function MevToggle() {
       </div>
 
       <div className="flex items-center gap-2">
-        {enabled && (
+        {enabled && available && (
           <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
             Active
+          </span>
+        )}
+        {enabled && !available && (
+          <span
+            className="text-[11px] font-medium text-amber-600 dark:text-amber-400"
+            title="NEXT_PUBLIC_MEV_PROTECTED_RPC_URL is not configured. Swaps will fail while MEV protection is enabled."
+          >
+            Not configured
           </span>
         )}
         <button
@@ -29,7 +37,11 @@ export function MevToggle() {
           aria-checked={enabled}
           onClick={() => toggle(!enabled)}
           className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-emerald-500 ${
-            enabled ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'
+            enabled
+              ? available
+                ? 'bg-emerald-500'
+                : 'bg-amber-500'
+              : 'bg-zinc-300 dark:bg-zinc-600'
           }`}
         >
           <span

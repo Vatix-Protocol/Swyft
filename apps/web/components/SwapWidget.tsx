@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useState } from 'react';
+import { calculateExactOutputQuote } from '@swyft/sdk';
 import { SwapInput, PriceImpactBadge, SlippagePanel, type Token, type TokenPair } from '@swyft/ui';
 import { useTokens, useRecentTokens, usePoolId } from '@/hooks/useTokens';
 import { useSwapQuote } from '@/hooks/useSwapQuote';
 import { useWalletBalances } from '@/hooks/useWalletBalances';
 import { SwapConfirmModal } from '@/components/SwapConfirmModal';
+import { ROUTER_ADDRESS } from '@/lib/constants';
 
 // ---------------------------------------------------------------------------
 // TokenPickerButton
@@ -158,10 +160,15 @@ export function SwapWidget({
   const { recentIds: _recentIds, pushRecent } = useRecentTokens();
   const [pair, setPair] = useState<TokenPair>({ tokenIn: null, tokenOut: null });
   const [amountIn, setAmountIn] = useState('');
+  const [amountOut, setAmountOut] = useState('');
+  const [swapMode, setSwapMode] = useState<'exactIn' | 'exactOut'>('exactIn');
   const [slippageBps, setSlippageBps] = useState(50);
   const [showModal, setShowModal] = useState(false);
 
-  const { poolId, poolExists } = usePoolId(pair.tokenIn?.id ?? null, pair.tokenOut?.id ?? null);
+  const { poolId, poolExists, feeTier } = usePoolId(
+    pair.tokenIn?.id ?? null,
+    pair.tokenOut?.id ?? null
+  );
   const { quote, loading: quoteLoading } = useSwapQuote({
     poolId,
     tokenInId: pair.tokenIn?.id ?? null,
@@ -170,24 +177,49 @@ export function SwapWidget({
     slippageBps,
   });
 
+  // Exact-output mode is only available when a router contract is
+  // configured; otherwise the widget stays exact-input only.
+  const exactOutputAvailable = Boolean(ROUTER_ADDRESS);
+  const exactOutputQuote =
+    swapMode === 'exactOut' && poolId && pair.tokenIn && pair.tokenOut && amountOut
+      ? (() => {
+          try {
+            return calculateExactOutputQuote({
+              poolId,
+              tokenInId: pair.tokenIn.id,
+              tokenOutId: pair.tokenOut.id,
+              amountOut,
+              slippageBps,
+            });
+          } catch {
+            return null;
+          }
+        })()
+      : null;
+
   const tokenIds = [pair.tokenIn?.id, pair.tokenOut?.id].filter(Boolean) as string[];
   const balances = useWalletBalances(wallet.address, tokenIds);
 
   const inBalance = pair.tokenIn ? (balances[pair.tokenIn.id] ?? undefined) : undefined;
   const outBalance = pair.tokenOut ? (balances[pair.tokenOut.id] ?? undefined) : undefined;
 
+  const effectiveAmountIn =
+    swapMode === 'exactOut' ? (exactOutputQuote?.amountIn ?? '') : amountIn;
+
   const insufficient =
-    inBalance !== undefined && parseFloat(amountIn || '0') > parseFloat(inBalance);
+    inBalance !== undefined && parseFloat(effectiveAmountIn || '0') > parseFloat(inBalance);
 
   const swapDisabled =
     !wallet.address ||
     !pair.tokenIn ||
     !pair.tokenOut ||
-    !amountIn ||
-    parseFloat(amountIn) <= 0 ||
     insufficient ||
-    quoteLoading ||
-    !quote;
+    (swapMode === 'exactIn'
+      ? !amountIn || parseFloat(amountIn) <= 0 || quoteLoading || !quote
+      : !amountOut ||
+        parseFloat(amountOut) <= 0 ||
+        !exactOutputQuote ||
+        feeTier == null);
 
   function selectIn(token: Token) {
     const next =
@@ -313,7 +345,21 @@ export function SwapWidget({
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-5 pt-4 sm:pt-5 pb-3">
           <h2 className="text-base font-semibold text-zinc-900 dark:text-white">Swap</h2>
-          <SlippagePanel slippageBps={slippageBps} onChange={setSlippageBps} />
+          <div className="flex items-center gap-2">
+            {exactOutputAvailable && (
+              <button
+                type="button"
+                onClick={() =>
+                  setSwapMode((m) => (m === 'exactIn' ? 'exactOut' : 'exactIn'))
+                }
+                aria-pressed={swapMode === 'exactOut'}
+                className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              >
+                {swapMode === 'exactIn' ? 'Exact input' : 'Exact output'}
+              </button>
+            )}
+            <SlippagePanel slippageBps={slippageBps} onChange={setSlippageBps} />
+          </div>
         </div>
 
         <div className="px-3 sm:px-4 pb-4 flex flex-col gap-2">
@@ -330,9 +376,10 @@ export function SwapWidget({
             <SwapInput
               label="You pay"
               token={pair.tokenIn}
-              amount={amountIn}
+              amount={swapMode === 'exactOut' ? (exactOutputQuote?.amountIn ?? '') : amountIn}
               balance={inBalance}
               onAmountChange={setAmountIn}
+              readOnly={swapMode === 'exactOut'}
               onTokenClick={() => {}}
               aria-invalid={insufficient}
             />
@@ -388,9 +435,16 @@ export function SwapWidget({
             <SwapInput
               label="You receive"
               token={pair.tokenOut}
-              amount={quoteLoading ? '' : (quote?.amountOut ?? '')}
+              amount={
+                swapMode === 'exactOut'
+                  ? amountOut
+                  : quoteLoading
+                    ? ''
+                    : (quote?.amountOut ?? '')
+              }
               balance={outBalance}
-              readOnly
+              onAmountChange={swapMode === 'exactOut' ? setAmountOut : undefined}
+              readOnly={swapMode === 'exactIn'}
               onTokenClick={() => {}}
             />
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -518,7 +572,9 @@ export function SwapWidget({
               'Connect wallet to swap'
             ) : !pair.tokenIn || !pair.tokenOut ? (
               'Select tokens'
-            ) : !amountIn || parseFloat(amountIn) <= 0 ? (
+            ) : swapMode === 'exactIn' && (!amountIn || parseFloat(amountIn) <= 0) ? (
+              'Enter an amount'
+            ) : swapMode === 'exactOut' && (!amountOut || parseFloat(amountOut) <= 0) ? (
               'Enter an amount'
             ) : insufficient ? (
               'Insufficient balance'
@@ -530,22 +586,43 @@ export function SwapWidget({
       </div>
 
       {/* Confirmation modal */}
-      {showModal && quote && !quoteLoading && pair.tokenIn && pair.tokenOut && wallet.address && poolId && (
-        <SwapConfirmModal
-          poolId={poolId}
-          tokenIn={pair.tokenIn}
-          tokenOut={pair.tokenOut}
-          amountIn={amountIn}
-          quote={quote}
-          walletAddress={wallet.address}
-          onClose={() => setShowModal(false)}
-          onSuccess={() => {
-            setShowModal(false);
-            setAmountIn('');
-            onSwapSuccess?.();
-          }}
-        />
-      )}
+      {showModal &&
+        pair.tokenIn &&
+        pair.tokenOut &&
+        wallet.address &&
+        poolId &&
+        (swapMode === 'exactIn' && quote && !quoteLoading ? (
+          <SwapConfirmModal
+            poolId={poolId}
+            tokenIn={pair.tokenIn}
+            tokenOut={pair.tokenOut}
+            amountIn={amountIn}
+            quote={quote}
+            walletAddress={wallet.address}
+            onClose={() => setShowModal(false)}
+            onSuccess={() => {
+              setShowModal(false);
+              setAmountIn('');
+              onSwapSuccess?.();
+            }}
+          />
+        ) : swapMode === 'exactOut' && exactOutputQuote && feeTier != null ? (
+          <SwapConfirmModal
+            mode="exactOut"
+            fee={feeTier}
+            tokenIn={pair.tokenIn}
+            tokenOut={pair.tokenOut}
+            amountOut={amountOut}
+            quote={exactOutputQuote}
+            walletAddress={wallet.address}
+            onClose={() => setShowModal(false)}
+            onSuccess={() => {
+              setShowModal(false);
+              setAmountOut('');
+              onSwapSuccess?.();
+            }}
+          />
+        ) : null)}
     </>
   );
 }

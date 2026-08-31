@@ -1,46 +1,19 @@
 # Swyft Smart Contracts
 
-All 9 Swyft smart contracts compile and build successfully.
+All 8 Swyft smart contracts compile and build successfully. (The `hello-world` sample/placeholder was removed from the workspace; it is not a shipped Swyft contract.)
 
 ## Contracts
 
 | Contract         | Purpose                     | Status |
 | ---------------- | --------------------------- | ------ |
-| `hello-world`    | Example contract            | ✅     |
 | `math-lib`       | Fixed-point math (Q64.96)   | ✅     |
 | `pool`           | Concentrated liquidity pool | ✅     |
 | `pool-factory`   | Pool deployment & registry  | ✅     |
 | `router`         | Single-hop swap routing     | ✅     |
 | `position-nft`   | Liquidity position NFTs     | ✅     |
 | `fee-collector`  | Fee accumulation            | ✅     |
-| `oracle-adapter` | TWAP oracle                 | ✅     |
-| `cl-pool`        | Concentrated-liquidity pool (tick-based swap) | ✅     |
-
-## `cl-pool` concentrated-liquidity swap
-
-`cl-pool::swap` is a production concentrated-liquidity swap. Unlike the
-sibling `pool` contract's placeholder swap, it walks the pool's initialized
-ticks and rebalances active liquidity as the price moves across position
-boundaries:
-
-- Ticks are recorded when liquidity is added/removed (`add_liquidity` /
-  `remove_liquidity`) in a tick map plus a chunked bitmap (`DataKey::Ticks` /
-  `DataKey::Bitmap`) for `O(log)` next-initialized-tick lookups.
-- `swap` is **one price move** that settles segment-by-segment: within each
-  segment active liquidity is constant; when the remaining input would push
-  the price past the next initialized tick, that tick is crossed and active
-  liquidity is adjusted by its `liquidity_net`. Trading continues until the
-  input is exhausted or `sqrt_price_limit_x96` is reached.
-- Tick indices are enforced to a tick spacing derived from the fee tier
-  (500/3000/10000 bps → 10/60/200) and to `[MIN_TICK, MAX_TICK]`.
-- A swap crossing no initialized tick can still move price within the current
-  segment; a swap with **no in-range liquidity panics** with
-  `PoolError::ZeroLiquidity` instead of silently succeeding.
-
-Integrators must pass a valid, strictly-on-the-correct-side `sqrt_price_limit_x96`
-so the swap stops within bounds. Quotes produced by `@swyft/sdk`
-(`getSwapQuote`) model the same initialized-tick-wheel stepping and can be used
-as the off-chain counterpart.
+| `oracle-adapter` | TWAP oracle (per-pool)      | ✅     |
+| `cl-pool`        | Concentrated-liquidity pool | ✅     |
 
 ## Testnet registry
 
@@ -62,11 +35,10 @@ pnpm validate:contracts
 Output:
 
 ```
-Building hello-world... ✓
 Building math-lib... ✓
 Building pool... ✓
 ...
-Passed: 9/9
+Passed: 8/8
 All Swyft contracts validated!
 ```
 
@@ -116,3 +88,15 @@ updated `testnet.json`.
 - [ ] Integrate with Stellar testnet
 - [ ] Security audit preparation
 - [ ] Documentation for contract interfaces
+
+## Oracle / TWAP
+
+`pool` and `cl-pool` record a post-swap observation with their `oracle-adapter`
+instance after every swap (`sqrt_price_x96`, active liquidity, timestamp).
+`get_twap(window_secs)` reads time-weighted average prices from that history.
+
+One adapter registers exactly one pool (the only writer), so each pool gets its
+own instance — `oracleAdapter` for `pool`, `clPoolOracleAdapter` for `cl-pool`.
+Deploy-time wiring: `oracle.initialize(pool)` + `pool.set_oracle(oracle)` (the
+deploy script does both). Swaps work without a wired oracle, but `get_twap`
+then fails loudly instead of returning fabricated prices.

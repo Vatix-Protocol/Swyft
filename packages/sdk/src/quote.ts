@@ -130,6 +130,96 @@ export function calculateSwapQuote(params: SwapQuoteParams): SwapQuote {
   };
 }
 
+/**
+ * Parameters for calculating a simple exact-output quote without pool
+ * state — the inverse of {@link SwapQuoteParams}: the caller specifies the
+ * desired output amount and this returns the required input amount (plus
+ * a maximum input, inflated by the slippage tolerance).
+ */
+export interface ExactOutputQuoteParams {
+  readonly poolId: string;
+  readonly tokenInId: string;
+  readonly tokenOutId: string;
+  readonly amountOut: string;
+  readonly slippageBps: number;
+}
+
+/** Quote result for an exact-output swap. All amounts are strings to preserve precision. */
+export interface ExactOutputQuote {
+  readonly amountIn: string;
+  readonly maximumIn: string;
+  readonly priceImpact: number;
+  readonly lpFee: string;
+  readonly protocolFee: string;
+  readonly executionPrice: string;
+}
+
+/** A zero-value exact-output quote for missing/invalid inputs. */
+export const EMPTY_EXACT_OUTPUT_QUOTE: ExactOutputQuote = {
+  amountIn: '0',
+  maximumIn: '0',
+  priceImpact: 0,
+  lpFee: '0',
+  protocolFee: '0',
+  executionPrice: '0',
+};
+
+/**
+ * Calculates a local exact-output swap quote using the same constant-product
+ * approximation as {@link calculateSwapQuote}, solved for the required input
+ * given a desired output amount.
+ *
+ * @param params - Quote inputs for the exact-output swap.
+ * @returns A quote including required input, price impact, fees, and a
+ *   maximum input inflated by the slippage tolerance.
+ */
+export function calculateExactOutputQuote(params: ExactOutputQuoteParams): ExactOutputQuote {
+  if (
+    !params ||
+    !params.amountOut ||
+    params.amountOut.trim().length === 0 ||
+    !params.tokenInId ||
+    !params.tokenOutId ||
+    params.slippageBps < 0 ||
+    params.slippageBps > 10000
+  ) {
+    return EMPTY_EXACT_OUTPUT_QUOTE;
+  }
+
+  const amountOut = parseFloat(params.amountOut);
+  if (!Number.isFinite(amountOut) || amountOut <= 0) {
+    throw new QuoteValidationError('amountOut must be greater than zero');
+  }
+
+  const reserveIn = 1_000_000;
+  const reserveOut = 1_000_000;
+  const lpFeeBps = 30;
+
+  if (amountOut >= reserveOut) {
+    throw new QuoteValidationError('amountOut exceeds available liquidity');
+  }
+
+  // Inverse of the constant-product formula used in calculateSwapQuote:
+  // amountInAfterFee = reserveIn * amountOut / (reserveOut - amountOut)
+  const amountInAfterFee = (reserveIn * amountOut) / (reserveOut - amountOut);
+  const amountIn = amountInAfterFee / (1 - lpFeeBps / 10_000);
+  const lpFeeAmt = amountIn - amountInAfterFee;
+
+  const spotPrice = reserveOut / reserveIn;
+  const executionPrice = amountOut / amountIn;
+  const priceImpactPct = Math.max(0, ((spotPrice - executionPrice) / spotPrice) * 100);
+  const maximumIn = amountIn * (1 + params.slippageBps / 10_000);
+
+  return {
+    amountIn: amountIn.toFixed(7),
+    maximumIn: maximumIn.toFixed(7),
+    priceImpact: parseFloat(priceImpactPct.toFixed(4)),
+    lpFee: lpFeeAmt.toFixed(7),
+    protocolFee: '0',
+    executionPrice: executionPrice.toFixed(7),
+  };
+}
+
 export function getSwapQuote(params: LocalSwapQuoteParams): LocalSwapQuote {
   const amountIn = toBigIntAmount(params.amountIn);
   if (amountIn <= 0n) {

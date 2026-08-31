@@ -138,11 +138,16 @@ describe('AppController (e2e)', () => {
     await app?.close();
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
+  it('/ (GET) returns a versioned API index, not the Nest scaffold string', async () => {
+    const res = await request(app.getHttpServer()).get('/').expect(200);
+
+    expect(res.text).not.toBe('Hello World!');
+    expect(res.body).toMatchObject({
+      name: 'swyft-api',
+      version: 'v1',
+      docs: '/docs',
+      health: '/health',
+    });
   });
 
   describe('global exception filter wiring', () => {

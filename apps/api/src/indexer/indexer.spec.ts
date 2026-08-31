@@ -681,7 +681,9 @@ describe('IndexerWorker', () => {
       expect(call.create.tick).toBe(42);
     });
 
-    it('projects a swap into the canonical Swap and Pool tables', async () => {
+    it('projects a swap into the canonical Swap and Pool tables when pool exists', async () => {
+      mockPrismaClient.pool.findUnique.mockResolvedValueOnce({ id: data.poolId });
+
       const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
       await handler(makeJob(data));
 
@@ -694,10 +696,10 @@ describe('IndexerWorker', () => {
           }),
         }),
       );
-      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+      expect(mockPrismaClient.pool.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: data.poolId },
-          update: expect.objectContaining({
+          data: expect.objectContaining({
             currentSqrtPrice: data.sqrtPriceX96,
             currentTick: data.tick,
             liquidity: data.liquidity,
@@ -706,27 +708,21 @@ describe('IndexerWorker', () => {
       );
     });
 
-    it('creates the pool when a swap arrives before its pool.created event', async () => {
+    it('skips pool state update when swap arrives before pool.created event', async () => {
+      // pool.findUnique returns null — pool does not exist yet
+      mockPrismaClient.pool.findUnique.mockResolvedValueOnce(null);
+
       const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
       await handler(makeJob(data));
 
-      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: data.poolId },
-          create: expect.objectContaining({
-            id: data.poolId,
-            currentSqrtPrice: data.sqrtPriceX96,
-            currentTick: data.tick,
-            liquidity: data.liquidity,
-          }),
-        }),
-      );
+      // Swap row should still be persisted
+      expect(mockPrismaClient.swap.upsert).toHaveBeenCalled();
+      // Pool should NOT be created with unknown token addresses
+      expect(mockPrismaClient.pool.update).not.toHaveBeenCalled();
     });
 
-    it('does not throw when the pool does not exist yet (first state update)', async () => {
-      // Simulate Prisma's real behavior for `update` on a missing row, to
-      // document why `upsert` (not `update`) is required here.
-      mockPrismaClient.pool.upsert.mockResolvedValueOnce({});
+    it('does not throw when the pool does not exist yet', async () => {
+      mockPrismaClient.pool.findUnique.mockResolvedValueOnce(null);
 
       const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
       await expect(handler(makeJob(data))).resolves.not.toThrow();

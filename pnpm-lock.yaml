@@ -84,6 +84,9 @@ importers:
       '@stellar/stellar-sdk':
         specifier: ^13.1.0
         version: 13.3.0
+      '@swyft/sdk':
+        specifier: file:../../packages/sdk
+        version: file:packages/sdk
       bullmq:
         specifier: ^5.34.8
         version: 5.81.1
@@ -11950,3 +11953,14 @@ packages:
     resolution: {directory: packages/config, type: directory}
     name: '@swyft/config'
     dev: true
+
+  file:packages/sdk:
+    resolution: {directory: packages/sdk, type: directory}
+    name: '@swyft/sdk'
+    dependencies:
+      '@stellar/stellar-sdk': 13.3.0
+    transitivePeerDependencies:
+      - bare-url
+      - debug
+      - supports-color
+    dev: false
