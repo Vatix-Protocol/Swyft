@@ -13,3 +13,5 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+oracle-adapter = { path = "../oracle-adapter" }
+position-nft = { path = "../position-nft" }

@@ -56,11 +56,22 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      # NEXT_PUBLIC_* vars are inlined into the client bundle at build time, so
+      # they must be build args (runtime `environment:` is too late). Set
+      # NEXT_PUBLIC_API_URL_PUBLIC to the production API URL for mainnet builds.
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+        NEXT_PUBLIC_API_URL_TESTNET: ${NEXT_PUBLIC_API_URL_TESTNET:-}
+        NEXT_PUBLIC_API_URL_PUBLIC: ${NEXT_PUBLIC_API_URL_PUBLIC:-}
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
       NODE_ENV: ${NODE_ENV:-production}
+      # Also exposed at runtime for server-side reads (client bundle uses the
+      # build args above).
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      NEXT_PUBLIC_API_URL_TESTNET: ${NEXT_PUBLIC_API_URL_TESTNET:-}
+      NEXT_PUBLIC_API_URL_PUBLIC: ${NEXT_PUBLIC_API_URL_PUBLIC:-}
     depends_on:
       api:
         condition: service_healthy

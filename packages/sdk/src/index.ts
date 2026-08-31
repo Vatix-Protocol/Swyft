@@ -1,13 +1,17 @@
 export {
   calculateSwapQuote,
+  calculateExactOutputQuote,
   getSwapQuote,
   EMPTY_QUOTE,
+  EMPTY_EXACT_OUTPUT_QUOTE,
   isEmptyQuote,
   QuoteValidationError,
 } from './quote';
 export type {
   SwapQuoteParams,
   SwapQuote,
+  ExactOutputQuoteParams,
+  ExactOutputQuote,
   LocalSwapQuoteParams,
   LocalSwapQuote,
   PoolStateWithTicks,
@@ -16,6 +20,9 @@ export type {
 export {
   buildBurnTx,
   buildCollectTx,
+  buildAddLiquidityTx,
+  buildRerangeTx,
+  detectPoolType,
   estimateRemoveAmounts,
   estimateRemoveAmountsAsync,
   ValidationError,
@@ -23,9 +30,14 @@ export {
 export type {
   BurnTxParams,
   CollectTxParams,
+  AddLiquidityTxParams,
+  RerangeTxParams,
+  PoolType,
   UnsignedTx,
   BurnUnsignedTx,
   CollectUnsignedTx,
+  AddLiquidityUnsignedTx,
+  RerangeUnsignedTx,
   RemoveAmountsResult,
   RemoveAmountsParams,
 } from './liquidity';
@@ -48,7 +60,28 @@ export type {
 } from './types';
 export { SwyftRpcError } from './types';
 
-export { buildSwapTx, toStellarAddress, toRawAmount, toXdrBase64, SwapValidationError } from './swap';
-export type { PoolId, SwapTxParams, SwapUnsignedTx, StellarAddress, RawAmount, XdrBase64 } from './swap';
+export {
+  buildSwapTx,
+  buildExactOutputSwapTx,
+  toStellarAddress,
+  toRawAmount,
+  toXdrBase64,
+  SwapValidationError,
+} from './swap';
+export type {
+  PoolId,
+  SwapTxParams,
+  ExactOutputSwapTxParams,
+  SwapUnsignedTx,
+  StellarAddress,
+  RawAmount,
+  XdrBase64,
+} from './swap';
+
+export type {
+  ExactInputSingleParams,
+  SwapResult,
+  RouterError,
+} from './router-types';
 
 export { config } from './config';

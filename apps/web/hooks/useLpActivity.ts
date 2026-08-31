@@ -23,16 +23,6 @@ export interface LpActivityListResponse {
   total: number;
 }
 
-interface RawPosition {
-  id: string;
-  poolId: string;
-  token0: string;
-  token1: string;
-  liquidity: string;
-  ownerWallet: string;
-  createdAt: number;
-}
-
 export function useLpActivity(
   walletAddress: string | null,
   authToken: string | null,
@@ -46,13 +36,12 @@ export function useLpActivity(
       if (!walletAddress || !authToken) return { items: [], total: 0 };
 
       const params = new URLSearchParams({
-        wallet: walletAddress,
         page: page.toString(),
         limit: limit.toString(),
       });
       if (poolId) params.set('pool', poolId);
 
-      const response = await fetch(`${API_BASE}/positions?${params}`, {
+      const response = await fetch(`${API_BASE}/positions/activity?${params}`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
 
@@ -62,23 +51,7 @@ export function useLpActivity(
 
       const data = await response.json();
 
-      // Transform positions into LP activity entries
-      // This is a placeholder - the actual API should return LP activity directly
-      // For now, we'll derive activity from position data
-      const activities: LpActivity[] = (data.items || []).map((pos: RawPosition) => ({
-        id: pos.id,
-        type: 'mint' as LpActivityType,
-        poolId: pos.poolId,
-        token0Symbol: pos.token0,
-        token1Symbol: pos.token1,
-        amount0: pos.liquidity,
-        amount1: '0',
-        txHash: pos.id, // Placeholder - should be actual tx hash
-        walletAddress: pos.ownerWallet,
-        timestamp: pos.createdAt,
-      }));
-
-      return { items: activities, total: data.total || 0 };
+      return { items: data.items ?? [], total: data.total ?? 0 };
     },
     enabled: !!walletAddress && !!authToken,
     refetchInterval: 30000, // Auto-refresh every 30 seconds

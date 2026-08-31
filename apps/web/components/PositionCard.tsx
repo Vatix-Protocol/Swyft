@@ -33,9 +33,10 @@ interface Props {
   onCollectFees: (id: string) => void;
   collecting: boolean;
   loading?: boolean;
+  authRequired?: boolean;
 }
 
-export function PositionCard({ position: p, onCollectFees, collecting, loading = false }: Props) {
+export function PositionCard({ position: p, onCollectFees, collecting, loading = false, authRequired = false }: Props) {
   const rs = rangeStatus(p);
   const t0 = shortSymbol(p.token0);
   const t1 = shortSymbol(p.token1);
@@ -136,7 +137,7 @@ export function PositionCard({ position: p, onCollectFees, collecting, loading =
           <button
             type="button"
             onClick={() => onCollectFees(p.id)}
-            disabled={collecting || !hasFees || loading}
+            disabled={collecting || loading}
             className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {collecting ? (
@@ -144,6 +145,8 @@ export function PositionCard({ position: p, onCollectFees, collecting, loading =
                 <span className="inline-block h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 Collecting…
               </span>
+            ) : authRequired ? (
+              'Connect wallet'
             ) : (
               'Collect fees'
             )}
@@ -163,6 +166,14 @@ export function PositionCard({ position: p, onCollectFees, collecting, loading =
             }`}
           >
             Remove
+          </Link>
+          <Link
+            href={`/positions/${p.id}/rerange`}
+            className={`flex-1 min-h-[44px] flex items-center justify-center rounded-xl border border-amber-200 dark:border-amber-900 py-2 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950 transition-colors text-center ${
+              loading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''
+            }`}
+          >
+            Rerange
           </Link>
         </div>
       )}

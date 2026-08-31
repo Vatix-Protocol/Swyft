@@ -69,7 +69,10 @@ export function useRemoveLiquidity(position: PositionSnapshot | null, authToken:
    * @param pct - Percentage to remove (1–100).
    */
   async function removeLiquidity(pct: number) {
-    if (!position || !authToken) return;
+    if (!position || !authToken) {
+      setState({ status: 'error', txError: 'network', txHash: null });
+      return;
+    }
     setState({ status: 'signing', txError: null, txHash: null });
 
     try {
@@ -108,7 +111,10 @@ export function useRemoveLiquidity(position: PositionSnapshot | null, authToken:
 
   /** Collects uncollected fees from the position without removing liquidity. */
   async function collectFees() {
-    if (!position || !authToken) return;
+    if (!position || !authToken) {
+      setState({ status: 'error', txError: 'network', txHash: null });
+      return;
+    }
     setState({ status: 'signing', txError: null, txHash: null });
 
     try {

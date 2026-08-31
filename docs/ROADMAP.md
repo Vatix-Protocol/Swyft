@@ -30,7 +30,7 @@ This document outlines the planned development phases for Swyft — a concentrat
 - [ ] Multi-hop router
 - [ ] Position NFT with on-chain metadata
 - [ ] Fee collector with configurable protocol split
-- [ ] TWAP oracle adapter
+- [x] TWAP oracle adapter (pools record post-swap observations; `get_twap` serves time-weighted prices)
 - [ ] 100% unit test coverage
 - [ ] Testnet deployment + verification
 
@@ -56,10 +56,13 @@ This document outlines the planned development phases for Swyft — a concentrat
 **Goal:** Fully functional dApp UI.
 
 - [ ] Swap interface (single-hop and multi-hop)
-- [ ] LP management (add/remove/rerange liquidity)
+- [x] LP management (add/remove/rerange liquidity)
 - [ ] Pool browser with TVL, APR, volume charts
 - [ ] Portfolio dashboard (positions, unclaimed fees)
-- [ ] Freighter + xBull wallet integration
+- [x] Freighter wallet integration
+- [ ] xBull wallet integration (useWallet accepts a `WalletKind` but xBull
+      is not wired up yet; connecting with it fails fast with
+      `UNSUPPORTED_WALLET` — Freighter-only until this ships)
 - [ ] Mobile-responsive layout
 - [ ] Light / dark mode
 

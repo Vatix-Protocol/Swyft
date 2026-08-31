@@ -6,7 +6,6 @@ const fs = require('fs');
 const { computeWasmHash, detectDrift } = require('../packages/contract/scripts/check-address-drift.js');
 
 const contracts = [
-  'hello-world',
   'math-lib',
   'pool',
   'pool-factory',
@@ -18,7 +17,7 @@ const contracts = [
 ];
 
 // Maps a contract's folder name to its key in deployments/testnet.json.
-// hello-world has no entry — deploy-testnet.sh never deploys it to testnet.
+// hello-world is not present here — deploy-testnet.sh never deploys it to testnet.
 const manifestKeyByContract = {
   'math-lib': 'mathLib',
   pool: 'pool',

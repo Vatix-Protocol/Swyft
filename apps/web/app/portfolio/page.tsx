@@ -8,23 +8,25 @@ import { usePortfolio } from '@/hooks/usePortfolio';
 import { PositionCard } from '@/components/PositionCard';
 import { WalletButton } from '@/components/WalletButton';
 import { API_BASE, getNetworkPassphrase } from '@/lib/constants';
+import { getAuthToken, authenticateWallet } from '@/lib/auth';
 import { signTransaction } from '@stellar/freighter-api';
 import { buildCollectTx } from '@swyft/sdk';
 import Link from 'next/link';
-
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('swyft_auth_token');
-}
 
 export default function PortfolioPage() {
   const router = useRouter();
   const { address } = useWalletContext();
   const { network } = useNetworkContext();
-  const authToken = getAuthToken();
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authenticating, setAuthenticating] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const { active, closed, loading, refresh, totalValueUsd } = usePortfolio(authToken);
   const [showClosed, setShowClosed] = useState(false);
   const [collectingId, setCollectingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAuthToken(getAuthToken());
+  }, [address]);
 
   useEffect(() => {
     if (!address && !loading) {
@@ -32,9 +34,27 @@ export default function PortfolioPage() {
     }
   }, [address, loading, router]);
 
+  const handleAuthenticate = useCallback(async () => {
+    if (!address) return;
+    setAuthenticating(true);
+    setAuthError(null);
+    try {
+      const token = await authenticateWallet(address);
+      setAuthToken(token);
+    } catch {
+      setAuthError('Failed to authenticate wallet. Please try again.');
+    } finally {
+      setAuthenticating(false);
+    }
+  }, [address]);
+
   const handleCollectFees = useCallback(
     async (positionId: string) => {
-      if (!authToken) return;
+      if (!authToken) {
+        // Redirect to home to connect wallet
+        router.replace('/');
+        return;
+      }
       const position = active.find((p) => p.id === positionId);
       if (!position) return;
 
@@ -103,6 +123,24 @@ export default function PortfolioPage() {
           {active.length} active position{active.length !== 1 ? 's' : ''}
         </p>
       </div>
+
+      {/* Authenticate CTA — shown when the wallet is connected but no JWT is stored */}
+      {!authToken && (
+        <div className="mb-6 flex flex-col items-center gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-5 text-center dark:border-indigo-900 dark:bg-indigo-950/40">
+          <p className="text-sm text-zinc-700 dark:text-zinc-200">
+            Authenticate your wallet to view and manage your positions.
+          </p>
+          <button
+            type="button"
+            onClick={handleAuthenticate}
+            disabled={authenticating}
+            className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {authenticating ? 'Authenticating…' : 'Authenticate wallet'}
+          </button>
+          {authError && <p className="text-xs text-red-500">{authError}</p>}
+        </div>
+      )}
 
       {/* Controls */}
       <div className="flex items-center justify-between mb-4">
@@ -199,6 +237,7 @@ export default function PortfolioPage() {
               position={p}
               onCollectFees={handleCollectFees}
               collecting={collectingId === p.id}
+              authRequired={!authToken}
             />
           ))}
         </div>

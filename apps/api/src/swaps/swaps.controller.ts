@@ -39,17 +39,17 @@ export class SwapsController {
   @ApiOperation({
     summary: 'Get a swap quote estimate for a pool',
     description:
-      "Returns an estimated output amount, fee, and minimum received for a given input amount, based on the pool's current spot price. This is a spot-price estimate, not a full tick-crossing simulation, so priceImpact is always 0.",
+      "Returns an estimated output amount, fee, and minimum received for a given input amount, computed by walking the pool's tick ladder from its current price (accounts for liquidity depth, so priceImpact reflects the actual trade).",
   })
   @ApiBody({
     type: SwapQuoteRequestDto,
     examples: {
       default: {
-        summary: 'Swap 250.5 USDC for WETH with a 0.5% slippage tolerance',
+        summary: 'Swap 250.5 USDC for XLM with a 0.5% slippage tolerance',
         value: {
           poolId: 'cltest123456789012345678',
-          tokenIn: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-          tokenOut: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+          tokenIn: 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA',
+          tokenOut: 'CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA',
           amountIn: '250.5',
           slippageBps: 50,
         },

@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
 import { StatsWorker } from './stats.worker';
 import { StatsScheduler, STATS_QUEUE } from './stats.scheduler';
 import { createStatsQueue } from './stats.queue';
@@ -11,7 +10,7 @@ import { UsdPriceFeedService } from './usd-price-feed.service';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 
 @Module({
-  imports: [ScheduleModule.forRoot(), WebhooksModule],
+  imports: [WebhooksModule],
   providers: [
     StatsWorker,
     StatsScheduler,
