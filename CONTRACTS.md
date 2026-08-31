@@ -12,8 +12,8 @@ All 8 Swyft smart contracts compile and build successfully. (The `hello-world` s
 | `router`         | Single-hop swap routing     | ✅     |
 | `position-nft`   | Liquidity position NFTs     | ✅     |
 | `fee-collector`  | Fee accumulation            | ✅     |
-| `oracle-adapter` | TWAP oracle                 | ✅     |
-| `cl-pool`        | Additional pool logic       | ✅     |
+| `oracle-adapter` | TWAP oracle (per-pool)      | ✅     |
+| `cl-pool`        | Concentrated-liquidity pool | ✅     |
 
 ## Testnet registry
 
@@ -88,3 +88,15 @@ updated `testnet.json`.
 - [ ] Integrate with Stellar testnet
 - [ ] Security audit preparation
 - [ ] Documentation for contract interfaces
+
+## Oracle / TWAP
+
+`pool` and `cl-pool` record a post-swap observation with their `oracle-adapter`
+instance after every swap (`sqrt_price_x96`, active liquidity, timestamp).
+`get_twap(window_secs)` reads time-weighted average prices from that history.
+
+One adapter registers exactly one pool (the only writer), so each pool gets its
+own instance — `oracleAdapter` for `pool`, `clPoolOracleAdapter` for `cl-pool`.
+Deploy-time wiring: `oracle.initialize(pool)` + `pool.set_oracle(oracle)` (the
+deploy script does both). Swaps work without a wired oracle, but `get_twap`
+then fails loudly instead of returning fabricated prices.

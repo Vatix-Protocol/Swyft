@@ -7,7 +7,8 @@ indexer pipeline and into the NestJS REST/WebSocket API.
 
 ```
 Stellar Network
-      │
+      │  contracts: every pool swap also writes an
+      │  observation to its oracle-adapter instance
       ▼
 Horizon Node  (https://horizon-testnet.stellar.org)
       │  REST effects endpoint (polled every 5 s)
@@ -78,6 +79,7 @@ pool, swap, token, and search routes remain public.
 | `PriceService` | `src/price/price.service.ts` | Real-time price broadcasts over WebSocket |
 | `CacheService` | `src/cache/cache.service.ts` | Redis wrapper — ledger checkpoint, pub/sub, response cache |
 | `PrismaService` | `src/prisma/prisma.service.ts` | Shared Prisma client |
+| `OracleAdapter` (contract) | `packages/contract/contracts/oracle-adapter` | Per-pool circular-buffer TWAP oracle; `pool`/`cl-pool` write a post-swap observation on every swap, `get_twap(window_secs)` serves time-weighted average prices |
 
 ## Ledger Checkpoint
 

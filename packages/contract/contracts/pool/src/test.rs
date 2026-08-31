@@ -2,8 +2,9 @@
 use soroban_sdk::{testutils::Address as _, token, Address, Env};
 
 use crate::{Pool, PoolClient, Q96};
+use oracle_adapter::{OracleAdapter, OracleAdapterClient};
 
-fn setup() -> (Env, Address, Address, Address, Address) {
+fn setup() -> (Env, Address, Address, Address) {
     let env = Env::default();
     env.mock_all_auths();
     let contract_id = env.register(Pool, ());
@@ -175,10 +176,10 @@ fn test_fees_accumulate_with_active_liquidity() {
     let client = PoolClient::new(&env, &id);
     client.mint(&lp, &1u64, &-60, &60, &1_000_000u128);
 
-    client.accrue_fees(&1_000u128, &2_000u128);
+    // fee = amount/1000 = 1_000_000 > liquidity, so fee_growth is non-zero.
+    client.swap(&t0, &t1, &1_000_000_000u128, &true, &0u128);
     let state = client.get_state();
     assert!(state.fee_growth_global_0_x128 > 0);
-    assert!(state.fee_growth_global_1_x128 > 0);
 }
 
 #[test]
@@ -187,7 +188,7 @@ fn test_fees_do_not_accumulate_without_liquidity() {
     init_pool(&env, &id, &t0, &t1);
     let client = PoolClient::new(&env, &id);
 
-    client.accrue_fees(&1_000u128, &2_000u128);
+    client.swap(&t0, &t1, &1_000_000u128, &true, &0u128);
     let state = client.get_state();
     assert_eq!(state.fee_growth_global_0_x128, 0);
     assert_eq!(state.fee_growth_global_1_x128, 0);
@@ -242,6 +243,21 @@ fn test_set_price_updates_tick() {
     assert!(state.tick > 0);
 }
 
+#[test]
+fn test_swap_moves_price() {
+    let (env, id, t0, t1) = setup();
+    let client = PoolClient::new(&env, &id);
+    client.initialize(&t0, &t1, &Q96, &3000u32);
+    client.mint(&1u64, &-60, &60, &1_000_000u128);
+
+    client.swap(&t0, &t1, &1_000_000u128, &true, &0u128);
+    let state = client.get_state();
+    assert!(
+        state.sqrt_price_x96 < Q96,
+        "selling token0 must decrease the sqrt price"
+    );
+}
+
 // ── NFT position lifecycle (simulated) ───────────────────────────────────────
 
 #[test]
@@ -261,10 +277,11 @@ fn test_full_lp_lifecycle() {
     assert_eq!(token_0_client.balance(&id) as u128, mint_res.amount_0);
     assert_eq!(token_1_client.balance(&id) as u128, mint_res.amount_1);
 
-    // 2. Simulate swap fees
-    client.accrue_fees(&3_000u128, &6_000u128);
-    let state_after_fees = client.get_state();
-    assert!(state_after_fees.fee_growth_global_0_x128 > 0);
+    // 2. Swap — records an oracle observation and moves the price slightly
+    // (small enough that the tick stays inside the position range).
+    client.swap(&t0, &t1, &1_000u128, &true, &0u128);
+    let state_after_swap = client.get_state();
+    assert!(state_after_swap.sqrt_price_x96 < Q96);
 
     // 3. Remove full liquidity
     let burn_res = client.burn(&lp, &1u64, &-60, &60, &1_000_000u128);

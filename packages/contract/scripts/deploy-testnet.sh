@@ -218,7 +218,33 @@ CL_POOL_ID=$(deploy_contract     "clPool"        "cl_pool"        "name")
 ROUTER_ID=$(deploy_contract      "router"        "router"         "name")
 POSITION_NFT_ID=$(deploy_contract "positionNft"  "position_nft"   "name")
 FEE_COLLECTOR_ID=$(deploy_contract "feeCollector" "fee_collector"  "name")
+# Each pool gets its own oracle-adapter instance — one adapter registers a
+# single pool (the only address allowed to write observations).
 ORACLE_ADAPTER_ID=$(deploy_contract "oracleAdapter" "oracle_adapter" "name")
+CL_POOL_ORACLE_ADAPTER_ID=$(deploy_contract "clPoolOracleAdapter" "oracle_adapter" "name")
+
+# ── Oracle wiring ──────────────────────────────────────────────────────────────
+# Wire each pool to its adapter: oracle.initialize(pool) registers the pool as
+# the only writer, and pool.set_oracle(adapter) makes the pool record a
+# post-swap observation on every swap. Do this before the pools serve swaps.
+log "Wiring oracle adapters to pools..."
+invoke() {
+  # invoke <contract_id> <fn> <arg-name> <arg-value>
+  stellar contract invoke \
+    --id "$1" \
+    --source "$IDENTITY" \
+    --network "$NETWORK" \
+    --rpc-url "$RPC_URL" \
+    --network-passphrase "$NETWORK_PASSPHRASE" \
+    -- "$2" --"$3" "$4" \
+    || fail "Oracle wiring step failed: $1.$2($3=$4)"
+}
+
+invoke "$ORACLE_ADAPTER_ID" "initialize" "pool" "$POOL_ID"
+invoke "$POOL_ID" "set_oracle" "oracle" "$ORACLE_ADAPTER_ID"
+invoke "$CL_POOL_ORACLE_ADAPTER_ID" "initialize" "pool" "$CL_POOL_ID"
+invoke "$CL_POOL_ID" "set_oracle" "oracle" "$CL_POOL_ORACLE_ADAPTER_ID"
+ok "Oracle adapters wired to pool and cl-pool."
 
 # ── Write final manifest ──────────────────────────────────────────────────────
 

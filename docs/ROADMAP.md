@@ -30,7 +30,7 @@ This document outlines the planned development phases for Swyft — a concentrat
 - [ ] Multi-hop router
 - [ ] Position NFT with on-chain metadata
 - [ ] Fee collector with configurable protocol split
-- [ ] TWAP oracle adapter
+- [x] TWAP oracle adapter (pools record post-swap observations; `get_twap` serves time-weighted prices)
 - [ ] 100% unit test coverage
 - [ ] Testnet deployment + verification
 
