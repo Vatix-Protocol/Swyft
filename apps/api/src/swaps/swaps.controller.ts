@@ -39,7 +39,7 @@ export class SwapsController {
   @ApiOperation({
     summary: 'Get a swap quote estimate for a pool',
     description:
-      "Returns an estimated output amount, fee, and minimum received for a given input amount, based on the pool's current spot price. This is a spot-price estimate, not a full tick-crossing simulation, so priceImpact is always 0.",
+      "Returns an estimated output amount, fee, and minimum received for a given input amount, computed by walking the pool's tick ladder from its current price (accounts for liquidity depth, so priceImpact reflects the actual trade).",
   })
   @ApiBody({
     type: SwapQuoteRequestDto,
