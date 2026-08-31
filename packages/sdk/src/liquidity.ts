@@ -1,5 +1,6 @@
 import { Account, Contract, Keypair, TransactionBuilder, nativeToScVal } from "@stellar/stellar-sdk";
 import { config } from "./config";
+import { getAmountsForLiquidity, tickToSqrtPriceX96, Q96 } from "./position-math";
 
 export interface BurnTxParams {
   readonly positionId: string;
@@ -159,10 +160,15 @@ export interface RemoveAmountsParams {
 /**
  * Estimates token amounts returned for a given liquidity removal percentage.
  *
+ * Uses Q64.96 fixed-point tick math (mirrors on-chain calculation) for precision.
+ * Converts current price to Q64.96 sqrt price, applies tick-to-sqrt-price conversion,
+ * and computes amounts using getAmountsForLiquidity.
+ *
  * @param params - The removal parameters.
  * @returns Estimated token amounts as fixed-point strings (7 decimals).
  * @throws {RangeError} If `pct` is outside the 0–100 range.
  * @throws {RangeError} If `liquidity` cannot be parsed as a finite number.
+ * @throws {RangeError} If `lowerTick` or `upperTick` are outside valid bounds.
  *
  * @example
  * ```ts
@@ -189,28 +195,44 @@ export function estimateRemoveAmounts({
   if (!Number.isFinite(liq)) {
     throw new RangeError('liquidity must be a finite number');
   }
-  const fraction = pct / 100;
 
-  // Simplified geometric approximation — replace with full tick math in SDK v1
-  const sqrtPrice = Math.sqrt(currentPrice);
-  const sqrtLower = Math.sqrt(Math.pow(1.0001, lowerTick));
-  const sqrtUpper = Math.sqrt(Math.pow(1.0001, upperTick));
-
-  let amount0 = 0;
-  let amount1 = 0;
-
-  if (sqrtPrice <= sqrtLower) {
-    amount0 = liq * fraction * (1 / sqrtLower - 1 / sqrtUpper);
-  } else if (sqrtPrice >= sqrtUpper) {
-    amount1 = liq * fraction * (sqrtUpper - sqrtLower);
-  } else {
-    amount0 = liq * fraction * (1 / sqrtPrice - 1 / sqrtUpper);
-    amount1 = liq * fraction * (sqrtPrice - sqrtLower);
+  // Convert liquidity percentage to absolute amount
+  const liquidityToRemove = BigInt(Math.floor(liq * (pct / 100)));
+  if (liquidityToRemove === 0n) {
+    return { amount0: '0.0000000', amount1: '0.0000000' };
   }
 
+  // Convert current price to Q64.96 sqrt price: sqrtPrice = sqrt(price) * Q96
+  // Since we store price as a number, we compute: sqrtPrice = sqrt(price) * 2^96
+  const sqrtPriceX96 = BigInt(Math.floor(Math.sqrt(currentPrice) * Number(Q96)));
+
+  // Convert ticks to Q64.96 sqrt prices
+  const sqrtPriceLowerX96 = tickToSqrtPriceX96(lowerTick);
+  const sqrtPriceUpperX96 = tickToSqrtPriceX96(upperTick);
+
+  // Compute amounts using on-chain-equivalent math
+  const { amount0, amount1 } = getAmountsForLiquidity({
+    sqrtPriceX96,
+    sqrtPriceLowerX96,
+    sqrtPriceUpperX96,
+    liquidity: liquidityToRemove,
+  });
+
+  // Convert from Q64.96 (bigint) back to decimal strings (7 decimals)
+  // Q64.96 result / 2^96 = Q0 (regular decimal)
+  // Q96 = 2^96 = 79228162514264337593543950336n
+  const divisor = 1n << 96n; // 2^96
+  const DECIMALS = 10_000_000n; // 10^7 for 7 decimal places
+
+  const amount0Scaled = (amount0 * DECIMALS) / divisor;
+  const amount1Scaled = (amount1 * DECIMALS) / divisor;
+
+  const amount0Decimal = Number(amount0Scaled) / Number(DECIMALS);
+  const amount1Decimal = Number(amount1Scaled) / Number(DECIMALS);
+
   return {
-    amount0: Math.max(0, amount0).toFixed(7),
-    amount1: Math.max(0, amount1).toFixed(7),
+    amount0: Math.max(0, amount0Decimal).toFixed(7),
+    amount1: Math.max(0, amount1Decimal).toFixed(7),
   };
 }
 
