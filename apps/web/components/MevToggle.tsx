@@ -10,7 +10,7 @@ export function MevToggle() {
       <div className="flex items-center gap-1.5">
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">MEV Protection</span>
         <span
-          title="Hides your transaction details until finalized, protecting against front-running. Trade-off: slightly slower confirmation (~5–10s)."
+          title="Routes your swap through a dedicated MEV-protected RPC endpoint instead of the standard path, which can reduce certain front-running exposure. This does not hide your transaction from the network or any mempool. Trade-off: slightly slower confirmation (~5–10s)."
           className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400 text-[10px] cursor-help select-none"
           aria-label="What is MEV protection?"
         >
