@@ -81,6 +81,36 @@ pool, swap, token, and search routes remain public.
 | `PrismaService` | `src/prisma/prisma.service.ts` | Shared Prisma client |
 | `OracleAdapter` (contract) | `packages/contract/contracts/oracle-adapter` | Per-pool circular-buffer TWAP oracle; `pool`/`cl-pool` write a post-swap observation on every swap, `get_twap(window_secs)` serves time-weighted average prices |
 
+## Contract Package Layout
+
+There are **two** Rust workspaces under `packages/` and they are not the same
+tree — do not assume one is a copy of the other:
+
+| Path | Status | Cargo workspace | Members |
+|---|---|---|---|
+| `packages/contract/` (singular) | **Canonical** — this is what the app, deployments, and docs build against | `packages/contract/Cargo.toml` | `math-lib`, `pool`, `pool-factory`, `router`, `position-nft`, `fee-collector`, `oracle-adapter`, `cl-pool` |
+| `packages/contracts/` (plural) | **Legacy / orphaned** — not referenced by `README.md`, `docs/ARCHITECTURE.md`, deployment configs, or CI; has its own disconnected `Cargo.toml` (`workspace.package.repository` still points at a stale fork) | `packages/contracts/Cargo.toml` | `fee-collector`, `router` |
+
+The two `fee-collector` and `router` contracts under `packages/contracts/`
+have **diverged** from their `packages/contract/contracts/` counterparts —
+they are not duplicates with identical content, they implement different
+logic. Notably, `packages/contracts/fee-collector` contains the full
+authorization model (admin/authorized-pool registry, fee-switch gating)
+described in `docs/FEE_COLLECTOR_AUTH.md`, while `packages/contract/contracts/fee-collector`
+(the contract actually wired into the workspace, deployments, and CI) is
+currently a minimal stub (`name`/`initialize`/`get_treasury` only) and does
+**not** yet implement that authorization model. This divergence is tracked as
+a known gap — do not treat `docs/FEE_COLLECTOR_AUTH.md` as a description of
+the shipped `packages/contract/contracts/fee-collector` behavior until the
+logic is ported over.
+
+**Guidance for contributors:** treat `packages/contract/` (singular) as the
+only actively maintained contract tree. Changes intended to ship should go
+there. `packages/contracts/` (plural) is kept only as a reference for logic
+that has not yet been ported/reconciled into the canonical tree; do not build
+new features on top of it, since it is not compiled, tested, or deployed by
+anything in this repo.
+
 ## Ledger Checkpoint
 
 `HorizonService` and `IndexerWorker` both write to the Redis key
