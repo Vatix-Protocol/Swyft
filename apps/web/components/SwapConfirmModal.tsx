@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getNetwork } from '@stellar/freighter-api';
 import type { SwapQuote, ExactOutputQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
@@ -43,24 +43,30 @@ export function SwapConfirmModal(props: Props) {
 
   // A wallet can be on a different network than the app (e.g. switched in
   // the extension after connecting). Signing/submitting would then fail, so
-  // re-check right before allowing a confirm.
+  // re-check on mount, whenever the window regains focus (the user may have
+  // just switched networks in the extension), and again right before
+  // allowing a confirm.
   const [networkMismatch, setNetworkMismatch] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const result = await getNetwork();
-        const walletNetwork = 'network' in result ? result.network : result;
-        if (!cancelled) setNetworkMismatch((walletNetwork as string).toUpperCase() !== network);
-      } catch {
-        // If we can't determine the wallet's network, don't block the user —
-        // sign/submit will surface a real error if it's actually mismatched.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+
+  const checkNetwork = useCallback(async (): Promise<boolean> => {
+    try {
+      const result = await getNetwork();
+      const walletNetwork = 'network' in result ? result.network : result;
+      const mismatch = (walletNetwork as string).toUpperCase() !== network;
+      setNetworkMismatch(mismatch);
+      return mismatch;
+    } catch {
+      // If we can't determine the wallet's network, don't block the user —
+      // sign/submit will surface a real error if it's actually mismatched.
+      return false;
+    }
   }, [network]);
+
+  useEffect(() => {
+    void checkNetwork();
+    window.addEventListener('focus', checkNetwork);
+    return () => window.removeEventListener('focus', checkNetwork);
+  }, [checkNetwork]);
 
   // Trap focus / close on Escape
   useEffect(() => {
@@ -104,7 +110,11 @@ export function SwapConfirmModal(props: Props) {
     }
   }
 
-  function handleConfirm() {
+  async function handleConfirm() {
+    // The last check can go stale if the user switches networks in the
+    // wallet extension without triggering a window focus event — re-verify
+    // right before signing so a mismatched network is never sent to the wallet.
+    if (await checkNetwork()) return;
     submit();
   }
 
