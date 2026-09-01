@@ -320,8 +320,16 @@ export function useAddLiquidity() {
         setState((s) => ({
           ...s,
           txStatus: 'success',
+          // Real Horizon-confirmed transaction hash — never fabricated.
           txHash: data.hash,
-          positionNftId: `pos-${Date.now().toString(36)}`,
+          // The `/transactions` endpoint only echoes back `{ hash }`; it does
+          // not (yet) surface the Soroban contract's return value or events,
+          // so there is no genuine position NFT id available here. This used
+          // to be a fabricated `pos-<timestamp>` placeholder — do not
+          // reintroduce that. Leave it `null` until the API/indexer surfaces
+          // the real id (e.g. by decoding the mint/add_liquidity return value
+          // or looking the new position up once indexed).
+          positionNftId: null,
         }));
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'unknown';
