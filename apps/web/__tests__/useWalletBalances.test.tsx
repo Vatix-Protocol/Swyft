@@ -48,6 +48,23 @@ describe('useWalletBalances', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('requests GET /balances with the URL-encoded wallet address', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({}),
+    });
+    global.fetch = fetchMock;
+
+    renderHook(() => useHarness('G-wallet address/with?odd chars', ['token-a']), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [requestedUrl] = fetchMock.mock.calls[0];
+    expect(requestedUrl).toContain('/balances?address=');
+    expect(requestedUrl).toContain(encodeURIComponent('G-wallet address/with?odd chars'));
+  });
+
   it('does not fetch when there is no address', () => {
     global.fetch = vi.fn();
 
