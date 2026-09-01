@@ -1,9 +1,11 @@
 # ADR-001: API Strategy — GraphQL vs tRPC vs REST
 
 **Date:** 2026-07-26  
-**Status:** Proposed — never accepted; `docs/TRPC-IMPLEMENTATION.md` is
-archived pending a decision here.  
-**Context:** Issue #548, #511
+**Status:** Accepted (2026-08-31) — **REST-only**. The tRPC hybrid proposed
+below was never implemented (no `@trpc/*` dependency, no `apps/api/src/trpc/`
+in the tree) and is superseded by this decision. `docs/TRPC-IMPLEMENTATION.md`
+remains archived for reference only.  
+**Context:** Issue #548, #511, #861
 
 ## Problem
 
@@ -65,12 +67,13 @@ Swyft currently uses a REST API (NestJS) for pools, swaps, and other queries. As
 - Requires tRPC client on frontend
 - If frontend/backend are separate teams with different languages, breaks type safety promise
 
-## Recommendation: **REST + tRPC (Hybrid)**
+## Recommendation (superseded): ~~REST + tRPC (Hybrid)~~
 
-**Primary:** Keep REST as public API for mobile/third-party integrations.  
-**Secondary:** Add tRPC as internal/web-only layer for type-safe web frontend.
+The hybrid below was the original proposal. It was never implemented, and is
+superseded by the **REST-only** decision recorded above — see the updated
+Decision section.
 
-**Rationale:**
+**Original rationale (kept for history):**
 1. REST remains stable for backward compatibility and external clients
 2. tRPC handles web-specific needs (pools list, price feeds, auth) with zero serialization overhead
 3. Type safety on web reduces bugs without disrupting mobile teams
@@ -90,26 +93,32 @@ Swyft currently uses a REST API (NestJS) for pools, swaps, and other queries. As
 
 ## Implementation Path
 
-### Phase 1: Spike (Prototype, this issue)
-- [ ] Bootstrap tRPC in NestJS context
-- [ ] Create `poolsRouter` with `list()` procedure
-- [ ] Test type inference on web client
-- [ ] Document patterns for future routers
+### Phase 1: Spike (Prototype, this issue) — **will not do**
+- [x] ~~Bootstrap tRPC in NestJS context~~ — not needed, REST-only decided
+- [x] ~~Create `poolsRouter` with `list()` procedure~~ — not needed, REST-only decided
+- [x] ~~Test type inference on web client~~ — not needed, REST-only decided
+- [x] ~~Document patterns for future routers~~ — not needed, REST-only decided
 
-### Phase 2: Hardening (separate issue)
-- [ ] Add auth middleware (JWT verification via context)
-- [ ] Implement response caching (Redis via `headers()` context)
-- [ ] Batch optimization (handle N pool IDs in single tRPC call)
-- [ ] Error boundary (normalize DB/Horizon errors)
+### Phase 2: Hardening (separate issue) — **will not do**
+- [x] ~~Add auth middleware (JWT verification via context)~~ — N/A, REST-only
+- [x] ~~Implement response caching (Redis via `headers()` context)~~ — N/A, REST-only
+- [x] ~~Batch optimization (handle N pool IDs in single tRPC call)~~ — N/A, REST-only
+- [x] ~~Error boundary (normalize DB/Horizon errors)~~ — N/A, REST-only
 
-### Phase 3: Rollout (separate issue)
-- [ ] Migrate web component fetch → tRPC client
-- [ ] Add tRPC hooks (useQuery, useMutation)
-- [ ] Deprecation window for REST (maintain 6mo minimum)
+### Phase 3: Rollout (separate issue) — **will not do**
+- [x] ~~Migrate web component fetch → tRPC client~~ — N/A, REST-only
+- [x] ~~Add tRPC hooks (useQuery, useMutation)~~ — N/A, REST-only
+- [x] ~~Deprecation window for REST (maintain 6mo minimum)~~ — N/A, REST stays primary/only API
 
 ## Decision
 
-**Approved:** Proceed with tRPC prototype for pools list query. REST remains primary public API. If prototype meets acceptance criteria (type safety, zero-overhead serialization, <500 LOC setup), commit to Phase 2.
+**Accepted (2026-08-31): REST-only.** `apps/api` continues to expose REST (+
+WebSocket for realtime) as the sole internal and external API surface. No
+tRPC or GraphQL layer is added. This closes the open spike in
+`docs/GRAPHQL_VS_TRPC_SPIKE.md` and formally supersedes the tentative hybrid
+recommendation above, which was never implemented. `docs/TRPC-IMPLEMENTATION.md`
+stays archived as a reference blueprint only, and should not be picked back
+up without a new ADR reopening this decision.
 
 ---
 
