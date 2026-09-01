@@ -197,31 +197,30 @@ export function useSwapExecution() {
 
       setResult({ status: 'submitting', error: null, txHash: null, detail: null });
 
-      const res = await fetch(`${API_BASE}/transactions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ xdr: signedXdr }),
-      });
-
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as {
-          code?: string;
-          message?: string;
-          extras?: { result_codes?: unknown };
-        };
-        const error: SwapError = body.code === 'SLIPPAGE_EXCEEDED' ? 'slippage' : 'network';
+      try {
+        const { hash } = await submitTransaction({
+          signedXdr,
+          apiBase: API_BASE,
+          mevEnabled,
+          mevRpcUrl,
+        });
+        setResult({ status: 'success', error: null, txHash: hash, detail: null });
+      } catch (submitErr) {
+        const error: SwapError =
+          submitErr instanceof MevSubmissionError && submitErr.code === 'SLIPPAGE_EXCEEDED'
+            ? 'slippage'
+            : 'network';
         const detail =
-          typeof body.message === 'string'
-            ? body.extras?.result_codes
-              ? `${body.message} (${JSON.stringify(body.extras.result_codes)})`
-              : body.message
-            : null;
+          submitErr instanceof MevSubmissionError
+            ? submitErr.detail
+              ? `${submitErr.message} (${submitErr.detail})`
+              : submitErr.message
+            : submitErr instanceof Error
+              ? submitErr.message
+              : null;
         setResult({ status: 'error', error, txHash: null, detail });
         return;
       }
-
-      const data = (await res.json()) as { hash: string };
-      setResult({ status: 'success', error: null, txHash: data.hash, detail: null });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
