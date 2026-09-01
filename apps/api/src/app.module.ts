@@ -23,6 +23,7 @@ import { StatsModule } from './stats/stats.module';
 import { TokensModule } from './tokens/tokens.module';
 import { SearchModule } from './search/search.module';
 import { TransactionsModule } from './transactions/transactions.module';
+import { BalancesModule } from './balances/balances.module';
 import { stellarConfig } from './config/stellar.config';
 import { infraConfig } from './config/infra.config';
 
@@ -59,6 +60,7 @@ import { infraConfig } from './config/infra.config';
     SearchModule,
     TokensModule,
     TransactionsModule,
+    BalancesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

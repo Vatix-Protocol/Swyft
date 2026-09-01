@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/constants';
+import { apiFetch } from '@/lib/api-fetch';
 import { useTransactionStatus } from '@/context/TransactionStatusContext';
 
 /**
@@ -21,7 +22,10 @@ export function useWalletBalances(address: string | null, tokenIds: string[]) {
     queryKey: ['walletBalances', address, tokenIdsKey],
     queryFn: async () => {
       if (!address) throw new Error('Wallet address required');
-      const res = await fetch(`${API_BASE}/balances?address=${encodeURIComponent(address)}`);
+      // GET /v1/balances is behind ApiKeyGuard like the other read-only
+      // market-data endpoints, so this must go through apiFetch to attach
+      // X-Api-Key when one is configured.
+      const res = await apiFetch(`${API_BASE}/balances?address=${encodeURIComponent(address)}`);
       if (!res.ok) throw new Error('Failed to fetch balances');
       return res.json();
     },

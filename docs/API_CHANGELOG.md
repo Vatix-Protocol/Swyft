@@ -48,6 +48,7 @@ When proposing a breaking API change:
 | `/swaps` | GET | List swaps (paginated) |
 | `/swaps/quote` | POST | Get a swap quote estimate for a pool |
 | `/tokens` | GET | List tokens |
+| `/balances` | GET | Get on-chain token balances for a wallet address |
 | `/search` | GET | Search pools, tokens, or positions |
 | `/indexer/status` | GET | Indexer synchronization status |
 | `/health` | GET | API health check |

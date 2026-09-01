@@ -40,6 +40,9 @@ export const SWAGGER_TAGS = {
 
   /** Transaction relay endpoints. */
   TRANSACTIONS: 'transactions',
+
+  /** Wallet on-chain token balance endpoints. */
+  BALANCES: 'balances',
 } as const;
 
 /** Valid Swagger tag values supported by the Swyft API. */
