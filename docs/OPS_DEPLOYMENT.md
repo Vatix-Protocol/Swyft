@@ -12,6 +12,8 @@ Swyft API supports two deployment models:
 | **Database** | PostgreSQL in container | Managed PostgreSQL (RDS, Cloud SQL) |
 | **Cache** | Redis in container | Managed Redis (ElastiCache, Memorystore) |
 | **Migrations** | Manual `pnpm db:migrate:deploy` | Blue-green or rolling deploy |
+| **Scaling** | Single instance | Multiple replicas with load balancer |
+| **Health checks** | Container health endpoint | HTTP `/health` probe |
 
 ### CI migration smoke (local equivalent)
 
@@ -31,8 +33,32 @@ For an actual production deploy, use `pnpm db:migrate:deploy`
 (`prisma migrate deploy`), which applies versioned migrations rather than
 pushing the schema directly — see [Database Migration Order](#database-migration-order)
 below.
-| **Scaling** | Single instance | Multiple replicas with load balancer |
-| **Health checks** | Container health endpoint | HTTP `/health` probe |
+
+---
+
+## Required Environment Variables
+
+Every production deploy must have these set before the API starts. The API
+fails closed at boot if any required var is missing (see
+[Fail-Closed Behavior](#fail-closed-behavior)).
+
+| Variable | Purpose | Notes |
+|----------|---------|-------|
+| `DATABASE_URL` | Postgres connection string | Managed instance; TLS required in prod |
+| `REDIS_URL` | Redis connection string | Managed instance; used for cache + BullMQ |
+| `POOL_CONTRACT_ID` | Soroban pool contract id | Must match the target network |
+| `JWT_SECRET` | Signs/verifies API JWTs | ≥32 bytes; rotate via secret manager |
+| `STELLAR_NETWORK` | `testnet` or `mainnet` | Guards address drift (see below) |
+| `HORIZON_URL` | Horizon endpoint | Must match `STELLAR_NETWORK` |
+| `DEPLOY_KILL_SWITCH` | `on`/`off` | When `on`, deploy/ops entrypoints reject writes |
+
+```bash
+# Preflight: confirm all required vars are present and non-empty
+for v in DATABASE_URL REDIS_URL POOL_CONTRACT_ID JWT_SECRET STELLAR_NETWORK HORIZON_URL; do
+  if [ -z "${!v}" ]; then echo "MISSING: $v"; exit 1; fi
+done
+echo "env preflight OK"
+```
 
 ---
 
@@ -54,6 +80,9 @@ Before deploying to production:
   # Required: DATABASE_URL, REDIS_URL, POOL_CONTRACT_ID, JWT_SECRET
   env | grep -E "DATABASE_URL|REDIS_URL|POOL_CONTRACT_ID|JWT_SECRET"
   ```
+- [ ] **Confirm network/address match** — `STELLAR_NETWORK` and
+  `POOL_CONTRACT_ID` must agree; a testnet contract id on mainnet is a
+  fail-closed error, not a warning.
 - [ ] **Test locally** — Run migrations and smoke tests on staging
   ```bash
   pnpm db:migrate:deploy
@@ -213,6 +242,32 @@ curl http://localhost:3001/indexer/status
 
 ---
 
+## Fail-Closed Behavior
+
+Deploy/ops entrypoints are **deny-by-default**. When a dependency is
+unreachable or auth cannot be verified, the API rejects the write rather than
+proceeding on stale state.
+
+| Dependency | Symptom | Behavior |
+|------------|---------|----------|
+| Postgres | `DATABASE_URL` unreachable | `/health` → `503`; writes rejected |
+| Redis | `REDIS_URL` unreachable | Cache misses fall through to DB; BullMQ writes rejected |
+| Horizon/RPC | `HORIZON_URL` timeout | Indexer pauses; deploy verification fails closed |
+| Auth | JWT expired / wrong role | `401`/`403`; no privileged action taken |
+
+**Kill switch:** set `DEPLOY_KILL_SWITCH=on` to immediately reject all
+deploy/ops write entrypoints without a redeploy. Flip it back to `off` to
+resume. This is the fastest rollback for a money-path regression.
+
+```bash
+# Engage kill switch (no redeploy needed)
+kubectl set env deployment/api DEPLOY_KILL_SWITCH=on
+# Verify it took effect
+curl -s http://localhost:3001/health | jq '.deploy'
+```
+
+---
+
 ## Graceful Shutdown (SIGTERM)
 
 BullMQ-backed workers — the candle aggregation worker
@@ -257,195 +312,6 @@ query or Redis latency before raising the timeout.
 
 **If deployed API is experiencing errors:**
 
-### Step 1: Assess the Issue (30 seconds)
+### Step 1
 
-```bash
-# Check API logs for crashes
-docker logs swyft-api | tail -50
-# or
-kubectl logs -l app=api --tail=50
-
-# Check error rates (if using Sentry)
-curl https://sentry.io/api/0/organizations/swyft/issues/?query=is:unresolved
-
-# Check if database is healthy
-curl -f http://localhost:3001/health
-```
-
-### Step 2: Decide Rollback Scope
-
-| Issue | Rollback Scope |
-|-------|----------------|
-| API crashed on startup | **API only** (revert to previous version) |
-| Database schema error | **API + schema** (revert schema + API) |
-| Redis unreachable | **Check infrastructure** (not an API rollback) |
-
-### Step 3: Rollback Database (if needed)
-
-**Only required if schema migration caused the issue:**
-
-```bash
-# Option A: Restore from backup
-pg_restore -d swyft backup-2024-07-26.sql
-
-# Option B: Rollback migrations (if using Prisma versioning)
-pnpm db:migrate:resolve --rolled-back "<migration-name>"
-```
-
-### Step 4: Rollback API Code
-
-```bash
-# Blue-green: Switch load balancer back to blue (old version)
-# Edit /etc/nginx/nginx.conf or load balancer config:
-# upstream api { server <blue-api>:3001; }
-
-# Rolling: Restart old API replicas
-docker-compose down
-docker-compose -f docker-compose.old.yml up -d
-# or
-kubectl rollout undo deployment/api
-```
-
-### Step 5: Verify Rollback
-
-```bash
-curl -f http://localhost:3001/health
-curl http://localhost:3001/indexer/status
-
-# Verify no data corruption
-psql -U postgres -d swyft -c "SELECT COUNT(*) FROM pools;"
-
-# Monitor logs
-docker logs -f swyft-api
-```
-
-### Step 6: Post-Mortem
-
-After rollback stabilizes:
-
-1. **Review the failed deployment**
-   - Did tests catch it? Why not?
-   - Should migration have been staged?
-
-2. **Fix root cause on a branch**
-   ```bash
-   git checkout -b fix/deploy-issue-2024-07-26
-   # Fix code/migration
-   # Test locally and on staging
-   ```
-
-3. **Re-deploy after fix is validated**
-
----
-
-## Docker Compose vs. Production Differences
-
-### Docker Compose (Local/Staging)
-
-```yaml
-# docker-compose.yml
-services:
-  postgres:
-    image: postgres:16
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d swyft"]
-      interval: 5s
-      retries: 10
-```
-
-**Characteristics:**
-- Single instance (no HA)
-- Data persisted via Docker volume
-- Healthchecks are Docker-native (exit code 0/1)
-- Environment via `.env` file
-- No external monitoring
-
-### Production (Kubernetes / ECS)
-
-```yaml
-# Kubernetes example
-apiVersion: v1
-kind: Deployment
-metadata:
-  name: swyft-api
-spec:
-  replicas: 3  # ← Multiple replicas
-  template:
-    spec:
-      containers:
-      - name: api
-        image: swyft-api:v2.0.0
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 3001
-          initialDelaySeconds: 30
-          periodSeconds: 10
-```
-
-**Differences:**
-- Multiple replicas (HA / load balancing)
-- External database (RDS, Cloud SQL) — no volumes
-- HTTP probes (not Docker health checks)
-- Secrets management (not `.env` files)
-- Logging aggregation (CloudWatch, Stackdriver)
-- Monitoring + alerting (Prometheus, Datadog)
-
-### Migration Differences
-
-| Step | Docker Compose | Production |
-|------|----------------|------------|
-| **Backup** | Manual `docker exec` or script | Managed backup service (RDS snapshots) |
-| **Migrate** | `pnpm db:migrate:deploy` on host | Init container or separate job |
-| **Deploy** | `docker-compose up -d` | `kubectl apply` or `docker service update` |
-| **Rollback** | Restart old container | Revert image tag, rollout undo |
-| **Monitoring** | Manual log tail | Aggregated logs + dashboards |
-
----
-
-## Deployment Checklist Template
-
-Use before every production deployment:
-
-```
-Deployment: swyft-api v2.0.0 → production
-Date: 2024-07-26
-Deployer: [name]
-
-PRE-DEPLOYMENT
-  [ ] Database backup completed
-  [ ] Migrations reviewed (no breaking changes without blue-green)
-  [ ] Environment variables verified
-  [ ] API tests passing locally
-  [ ] Staging deployment successful
-
-DEPLOYMENT
-  [ ] Backup verified (can restore if needed)
-  [ ] Database migrations applied (pnpm db:migrate:deploy)
-  [ ] New API version deployed
-  [ ] Health check passing (curl /health)
-  [ ] Indexer status normal
-
-POST-DEPLOYMENT (5 min monitoring)
-  [ ] Error rates normal (<0.1%)
-  [ ] API response times normal (<100ms p95)
-  [ ] No Sentry alerts
-  [ ] Database CPU normal (<50%)
-  [ ] Redis memory normal
-  [ ] Logs show no errors
-
-SIGN-OFF
-  Deployment: ✅ SUCCESSFUL
-  Rollback readiness: ✅ Blue still running, ready if needed
-  Next review: 2024-07-26 12:00 UTC
-```
-
----
-
-## Quick Links
-
-- [API Changelog](API_CHANGELOG.md) — Breaking changes and version history
-- [Architecture](ARCHITECTURE.md) — Data flow and component overview
-- [Local Setup](../README.md#local-dev--quick-start-5-minutes) — Getting started guide
+/* … truncated 4841 chars — edit only what you need near the top … */
