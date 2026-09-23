@@ -16,11 +16,48 @@ export const TTL = {
   STATS: 300,       // pool stats aggregation runs every 5 min; match its window
 } as const;
 
+/** Stable error codes for cache entrypoints (safe to surface to callers/logs). */
+export const CACHE_ERROR = {
+  DEPENDENCY_UNAVAILABLE: 'CACHE_DEPENDENCY_UNAVAILABLE',
+  FETCH_FAILED: 'CACHE_FETCH_FAILED',
+} as const;
+
+export type CacheErrorCode = (typeof CACHE_ERROR)[keyof typeof CACHE_ERROR];
+
+export class CacheError extends Error {
+  constructor(
+    readonly code: CacheErrorCode,
+    message: string,
+    readonly correlationId?: string,
+  ) {
+    super(message);
+    this.name = 'CacheError';
+  }
+}
+
+export interface CacheFetchOptions {
+  /** TTL (seconds) applied to the freshly fetched value. */
+  ttlSeconds?: number;
+  /** Correlation id propagated to logs/errors for tracing. */
+  correlationId?: string;
+  /**
+   * Fail-closed mode for money-path reads/writes: when the cache dependency is
+   * unavailable, throw instead of silently returning stale/incorrect data.
+   */
+  failClosed?: boolean;
+}
+
 @Injectable()
 export class CacheService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CacheService.name);
   private client: Redis | null = null;
   private available = false;
+
+  /**
+   * In-flight single-flight map: coalesces concurrent cache misses for the same
+   * key so only one upstream fetch runs (stampede protection).
+   */
+  private readonly inflight = new Map<string, Promise<unknown>>();
 
   onModuleInit() {
     const url = process.env.REDIS_URL ?? 'redis://localhost:6379';
@@ -78,6 +115,64 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Read-through with single-flight coalescing.
+   *
+   * Concurrent misses for the same key share one upstream `fetcher` call, so a
+   * burst of requests cannot stampede the DB/RPC. The result is written back to
+   * Redis (best-effort) and returned to every waiter.
+   *
+   * Fail-closed: when `failClosed` is set and the cache dependency is
+   * unavailable, a `CacheError` is thrown instead of silently fetching/returning
+   * potentially stale liquidity/trading/settlement data.
+   */
+  async getOrFetch<T>(
+    key: string,
+    fetcher: () => Promise<T>,
+    options: CacheFetchOptions = {},
+  ): Promise<T> {
+    const { ttlSeconds, correlationId, failClosed = false } = options;
+
+    if (failClosed && !this.available) {
+      throw new CacheError(
+        CACHE_ERROR.DEPENDENCY_UNAVAILABLE,
+        `Cache dependency unavailable for key=${key}`,
+        correlationId,
+      );
+    }
+
+    const cached = await this.get<T>(key);
+    if (cached !== null) return cached;
+
+    const existing = this.inflight.get(key) as Promise<T> | undefined;
+    if (existing) {
+      this.logger.debug(`cache coalesce key=${key}`);
+      return existing;
+    }
+
+    const pending = (async (): Promise<T> => {
+      try {
+        const value = await fetcher();
+        await this.set(key, value, ttlSeconds);
+        return value;
+      } catch (err) {
+        if (failClosed) {
+          throw new CacheError(
+            CACHE_ERROR.FETCH_FAILED,
+            `Upstream fetch failed for key=${key}`,
+            correlationId,
+          );
+        }
+        throw err;
+      } finally {
+        this.inflight.delete(key);
+      }
+    })();
+
+    this.inflight.set(key, pending);
+    return pending;
   }
 
   async ping(): Promise<boolean> {
