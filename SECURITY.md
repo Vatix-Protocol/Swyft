@@ -1,109 +1,62 @@
 # Security Policy
 
-## Scope
-
-This policy covers the Swyft monorepo, including:
-
-- **DEX / Soroban smart contracts** (`packages/contract/`) — pool, router, position NFT, and factory contracts
-- **Backend API** (`apps/api/`) — NestJS REST + WebSocket surface, including auth, webhooks, and admin routes
-- **Indexer** (`apps/api/src/horizon/`, `apps/api/src/indexer/`) — Horizon polling, BullMQ workers, and the ledger checkpoint that feeds pool/swap/position state into Postgres
-- **TypeScript SDK** (`packages/sdk/`)
-- **Next.js frontend** (`apps/web/`)
-
-> **Important:** Swyft contracts are **unaudited**. Do not deploy to mainnet or use with real funds until a security audit has been completed and published.
-
-### Out of scope
-
-The following are **not** eligible for a disclosure report under this policy:
-
-- Third-party infrastructure we don't control (Stellar Horizon, Soroban RPC, wallet browser extensions such as Freighter/xBull, hosting/CDN providers)
-- Issues that require physical access to a user's device, a compromised wallet, or a compromised local machine
-- Social engineering, phishing, or spam targeting maintainers or contributors
-- Denial of service achieved purely through volumetric/traffic flooding (rather than an application-level flaw)
-- Vulnerabilities in outdated forks, unmerged branches, or dependencies with no available upstream fix
-- Missing security headers or best-practice suggestions with no demonstrated exploit path
-- Automated scanner output submitted without manual verification of impact
-
----
-
-## Supported Versions
-
-| Component | Supported |
-|---|---|
-| `main` branch | ✅ Yes |
-| Tagged releases | ✅ Yes |
-| Other branches | ❌ No |
-
----
-
 ## Reporting a Vulnerability
 
-**Please do not open public GitHub issues for security vulnerabilities.** Public disclosure before a fix is available puts users at risk.
+Please report suspected vulnerabilities privately via GitHub Security Advisories
+(https://github.com/Vatix-Protocol/monorepo/security/advisories/new) or by emailing
+security@vatix.example. Do not open public issues for security reports. We aim to
+acknowledge reports within 72 hours.
 
-### How to report
+## Scope
 
-Send a report by email to the maintainer via GitHub. You can find the contact by navigating to the [repository owner's profile](https://github.com/Vatix-Protocol) and using the email listed there, or by opening a **private** [GitHub Security Advisory](https://github.com/Vatix-Protocol/Swyft/security/advisories/new).
+This policy covers the Swyft packages in this monorepo, including the API service,
+contracts, and deployment registries. The server and on-chain contracts remain the
+source of truth for balances, swaps, and admin actions; clients are never trusted to
+enforce policy.
 
-### What to include
+## Testnet Registry Wasm Hash Redeploy Discipline
 
-A useful report includes:
+The testnet deployment registry (`packages/contract/deployments/testnet.json`) records
+the wasm hashes that are live on testnet. It is a security-relevant artifact and is
+governed by the following invariants:
 
-1. **Description** — what is vulnerable and what the potential impact is
-2. **Reproduction steps** — a minimal example that demonstrates the issue
-3. **Affected component** — which package, contract, or endpoint is affected
-4. **Suggested fix** (optional) — if you have one
+1. **Source of truth.** `testnet.json` is the single source of truth for testnet wasm
+   hashes. No other file, script, or environment variable may override it at runtime.
+2. **Immutability of deployed hashes.** A hash that has been recorded for a deployed
+   contract is immutable. Redeploying a contract requires a new entry (new contract id
+   or an explicit, reviewed supersede) rather than silently mutating an existing hash.
+3. **Testnet vs mainnet separation.** Testnet and mainnet registries are distinct
+   files and must never be cross-read. A testnet hash must never be promoted to mainnet
+   without the mainnet readiness checklist.
+4. **Address drift detection.** Any mismatch between the registry hash and the hash
+   reported by the chain (RPC) is treated as drift and fails closed: reads surface a
+   stable error code, and writes are rejected until the registry is reconciled.
 
-### What to expect
+### Authorization
 
-| Step | Timeline |
-|---|---|
-| Acknowledgement | Within 48 hours |
-| Initial assessment | Within 5 business days |
-| Fix or mitigation | Depends on severity — critical issues are prioritised immediately |
-| Public disclosure | After a fix is merged and released |
+Registry reads and validation are available to authenticated callers. Any mutation or
+redeploy entrypoint is deny-by-default: it requires an explicit privileged role and is
+rate-limited. Untrusted clients cannot mutate the registry or bypass policy.
 
----
+### Idempotency and Fail-Closed Behavior
 
-## Severity Classification
+Redeploy requests carry a correlation id and are idempotent: concurrent or replayed
+requests with the same id resolve to a single applied change. If a dependency (RPC,
+DB, or Redis) is unavailable, writes fail closed — the registry is left unchanged and
+the caller receives a stable error code rather than a partial or optimistic update.
 
-We follow the [CVSS v3.1](https://www.first.org/cvss/v3.1/specification-document) scoring framework:
+### Observability
 
-| Severity | CVSS Score | Examples |
-|---|---|---|
-| Critical | 9.0–10.0 | Fund drainage, permanent contract lock |
-| High | 7.0–8.9 | Privilege escalation, fee manipulation |
-| Medium | 4.0–6.9 | Denial of service, info disclosure |
-| Low | 0.1–3.9 | Minor logic errors, non-exploitable edge cases |
+Registry validation and redeploy paths emit metrics and structured logs (including the
+correlation id) without leaking secrets. Money-path operations are instrumented so
+failures are actionable.
 
----
+### Rollback
 
-## Smart Contract Specific Guidance
+Redeploy changes are feature-flagged. Disabling the flag restores the previous registry
+behavior without requiring a code revert; the rollback procedure is documented in the
+corresponding PR description.
 
-Soroban contracts present unique risks. When reporting contract vulnerabilities, please consider:
+## Secrets
 
-- **Reentrancy** — cross-contract call ordering
-- **Arithmetic overflow/underflow** — fixed-point math edge cases
-- **Access control** — admin function exposure
-- **Oracle manipulation** — TWAP price manipulation vectors
-- **Tick arithmetic** — off-by-one errors in concentrated liquidity math
-- **Storage exhaustion** — unbounded storage writes
-
----
-
-## Disclosure Policy
-
-Swyft follows **coordinated disclosure**:
-
-1. Researcher reports privately.
-2. Maintainer confirms and assesses the issue.
-3. Fix is developed and tested.
-4. Fix is merged and a release is tagged.
-5. Public advisory is published with credit to the reporter (unless they prefer to remain anonymous).
-
-We will not take legal action against security researchers who follow this policy and act in good faith.
-
----
-
-## Bug Bounty
-
-There is no formal bug bounty programme at this time. We will publicly acknowledge researchers who responsibly disclose valid vulnerabilities.
+No secrets, tokens, or credentials are committed to this repository or written to logs.
