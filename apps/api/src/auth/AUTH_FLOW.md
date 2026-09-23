@@ -1,8 +1,20 @@
 # Swyft API Authentication Flow
 
+This document describes how Swyft authenticates a Stellar wallet and issues a
+session JWT. The server is the source of truth for nonce issuance, signature
+verification, and session authorization.
+
 ## Overview
 
-Swyft uses a **Freighter-based wallet authentication** flow with **nonce verification** to enable stateless, replay-attack-resistant login without storing user credentials.
+Swyft uses a **Freighter-based wallet authentication** flow with **nonce
+verification** to enable stateless, replay-attack-resistant login without
+storing user credentials.
+
+1. Client requests a nonce for a wallet address.
+2. Server issues a nonce, stores it with a short TTL, and returns it.
+3. Client signs the nonce with the wallet key and submits the signature.
+4. Server verifies the signature and **atomically consumes** the nonce.
+5. Server issues a session JWT bound to the wallet address.
 
 ## Architecture
 
@@ -36,6 +48,34 @@ User                    Freighter Wallet            Swyft API
   │                           │                          │
   │◄──────────────────────────────── Pool data ──────────┤
 ```
+
+## Nonce lifecycle (single-use)
+
+A nonce is valid for exactly one successful verification. The consume step is
+atomic: the nonce is removed (or marked used) in the same operation that
+validates it, so a nonce can never be verified twice.
+
+Invariants:
+
+- A nonce is bound to the wallet address that requested it.
+- A nonce is single-use: consumed on the first successful signature check.
+- A nonce expires after its TTL and is rejected once expired.
+- Replay or concurrent reuse of a consumed nonce is rejected.
+- Unknown nonces are rejected (deny-by-default).
+
+### Atomic consume
+
+The nonce store must expose a compare-and-delete (or equivalent atomic
+consume) primitive. Verification MUST NOT be implemented as a read followed by
+a separate delete, because two concurrent requests could both read the same
+nonce before either deletes it.
+
+```
+consume(nonce, wallet) -> OK | UNKNOWN | EXPIRED | ALREADY_USED
+```
+
+Only `OK` permits signature verification to proceed. Any other result fails
+the request.
 
 ## Step-by-Step Flow
 
@@ -115,30 +155,24 @@ curl -X POST https://api.example.com/v1/auth/verify \
 **Verification process (internal):**
 
 ```
-1. GET nonce from Redis (auth:nonce:{walletAddress})
-   If null → 401 Unauthorized ("Nonce has expired or does not exist")
+1. Atomically consume the nonce from the store (compare-and-delete)
+   Result must be OK; UNKNOWN/EXPIRED/ALREADY_USED → 401 Unauthorized
 
-2. Compare submitted nonce with stored nonce
-   If mismatch → 401 Unauthorized ("Nonce mismatch")
-
-3. Verify Ed25519 signature using wallet public key
+2. Verify Ed25519 signature using wallet public key
    If invalid → 401 Unauthorized ("Signature is invalid")
 
-4. DELETE nonce from Redis (SINGLE-USE ENFORCEMENT)
-   This is critical: prevents nonce replay attacks
-
-5. Sign JWT with wallet address as subject
+3. Sign JWT with wallet address as subject
    Payload: { sub: walletAddress, walletAddress, iat, exp }
    Algorithm: HS256 (configurable via JWT_SECRET)
    TTL: 15 minutes (configurable via JWT_EXPIRES_IN)
 
-6. Return JWT to client
+4. Return JWT to client
 ```
 
 **Error responses:**
 - `400 Bad Request`: Malformed wallet address
-- `401 Unauthorized`: Nonce expired, mismatched, or invalid signature
-- `500 Internal Server Error`: Redis unavailable
+- `401 Unauthorized`: Nonce unknown, expired, already used, or invalid signature
+- `500 Internal Server Error`: Redis unavailable (fail closed)
 
 ### 4. Use JWT for Authenticated Requests
 
@@ -173,31 +207,33 @@ The `JwtAuthGuard` validates the JWT:
 
 **Problem:** If an attacker captures a nonce+signature pair, they could reuse it multiple times.
 
-**Solution:** Nonce is deleted from Redis immediately after first successful verification.
+**Solution:** The nonce is atomically consumed (compare-and-delete) in the same
+operation that validates it, so it can never be verified twice.
 
 ```typescript
-// AuthService.verifyWallet() line 82
-await this.redis.del(redisKey);
+// AuthService.verifyWallet()
+const result = await this.nonceStore.consume(nonce, walletAddress);
+if (result !== 'OK') throw new UnauthorizedException(result);
 ```
 
 **Result:**
-- First verification: Succeeds, nonce is deleted
-- Second verification (replay): Fails with 401 "Nonce has expired or does not exist"
+- First verification: Succeeds, nonce is consumed
+- Second verification (replay): Fails with 401 `NONCE_ALREADY_USED`
 
 ### 2. Nonce Expiration (Time Window Limit)
 
 **Problem:** A captured nonce could be used to brute-force signatures.
 
-**Solution:** Nonces expire in Redis after 120 seconds.
+**Solution:** Nonces expire in the store after 120 seconds.
 
 ```typescript
-// NonceController.getOrCreateNonce() line 41
-await this.redis.set(redisKey, nonce, 'EX', 120);
+// NonceController.getOrCreateNonce()
+await this.nonceStore.set(redisKey, nonce, 'EX', 120);
 ```
 
 **Result:**
 - User must complete authentication within 120 seconds
-- After 120 seconds, Redis automatically deletes the nonce
+- After 120 seconds, the store automatically deletes the nonce
 - Attacker's window to exploit a captured nonce is limited
 
 ### 3. Signature Verification (Proof of Key Ownership)
@@ -226,6 +262,60 @@ const isValid = keypair.verify(messageBytes, signatureBytes);
 
 ---
 
+## Fail-closed behavior
+
+If the nonce store (Redis/DB) is unavailable, the server MUST reject the
+verification request. It MUST NOT fall back to an in-memory cache, skip the
+nonce check, or issue a session. Auth writes fail closed.
+
+- Store timeout or connection error -> reject with `NONCE_STORE_UNAVAILABLE`.
+- Partial/ambiguous store response -> reject (treat as unavailable).
+- Never log the nonce value, signature, or any secret material.
+
+## Authorization
+
+- The server validates the wallet address format and verifies the signature
+  server-side; client-supplied identity claims are never trusted.
+- The issued JWT is bound to the verified wallet address.
+- Privileged surfaces are deny-by-default: a request without a valid,
+  unexpired session is rejected before any policy check.
+- Untrusted clients cannot bypass the nonce policy by omitting, reusing, or
+  forging nonce fields.
+
+## Error codes
+
+Verification returns stable, typed error codes so clients and ops can react
+consistently. Responses include a correlation id for tracing.
+
+| Code | Meaning |
+| --- | --- |
+| `NONCE_UNKNOWN` | Nonce was never issued or has been evicted. |
+| `NONCE_EXPIRED` | Nonce TTL elapsed before verification. |
+| `NONCE_ALREADY_USED` | Nonce was already consumed (replay/concurrent reuse). |
+| `NONCE_STORE_UNAVAILABLE` | Nonce store unreachable; request failed closed. |
+| `SIGNATURE_INVALID` | Signature did not verify against the wallet. |
+| `WALLET_INVALID` | Wallet address failed server-side validation. |
+
+## Observability
+
+- Emit counters for each error code above (no secret values in labels).
+- Emit a counter for successful verifications on the money path.
+- Log correlation ids, never nonces, signatures, or tokens.
+
+## Edge cases
+
+- **Concurrent requests:** atomic consume guarantees only one succeeds; the
+  loser receives `NONCE_ALREADY_USED`.
+- **Replay:** a consumed nonce is rejected on every subsequent attempt.
+- **Store outage:** verification fails closed with `NONCE_STORE_UNAVAILABLE`.
+- **Expired session / wrong role:** rejected by the JWT guard before policy.
+- **Adversarial input:** malformed addresses/signatures are rejected without
+  touching the nonce store beyond the consume attempt.
+- **Testnet vs mainnet:** nonce keys are namespaced per network to avoid
+  cross-network address drift.
+
+---
+
 ## Implementation Details
 
 ### Relevant Files
@@ -242,9 +332,9 @@ const isValid = keypair.verify(messageBytes, signatureBytes);
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `NONCE_TTL` | 120 seconds | Nonce expiry in Redis |
+| `NONCE_TTL` | 120 seconds | Nonce expiry in the store |
 | `JWT_EXPIRES_IN` | 15 minutes | JWT token lifetime (configurable) |
-| `NONCE_PREFIX` | `auth:nonce:` | Redis key prefix for nonces |
+| `NONCE_PREFIX` | `auth:nonce:` | Store key prefix for nonces |
 | `LEDGER_PRECISION` | 32 bytes | Minimum nonce randomness |
 
 ### Environment Variables
@@ -309,44 +399,45 @@ curl -s -X POST $API_URL/auth/verify \
     \"nonce\": \"$NONCE\",
     \"signature\": \"$SIGNATURE\"
   }" | jq '.error'
-# Expected: "Nonce has expired or does not exist"
+# Expected: NONCE_ALREADY_USED
 ```
 
 ### Unit Tests
 
-See `auth/auth.service.spec.ts` for comprehensive test coverage:
+See `auth/auth.service.spec.ts` and `auth/nonce-single-use.spec.ts` for
+comprehensive test coverage:
 - Successful verification
 - Nonce expiration
 - Signature validation
 - Replay attack prevention
+- Concurrent consume (only one winner)
 - Edge cases (malformed addresses, wrong keys)
 
 ---
 
 ## Troubleshooting
 
-### "Nonce has expired or does not exist"
+### `NONCE_UNKNOWN` / "Nonce has expired or does not exist"
 
 **Cause:** One of:
 1. Nonce was already used (single-use enforcement)
 2. 120+ seconds passed since nonce was generated
-3. Redis connection lost, nonce not stored
+3. Nonce store connection lost, nonce not stored
 
 **Solution:**
 - Request a fresh nonce
-- Verify Redis is running
+- Verify the nonce store is running
 - Check JWT TTL hasn't expired
 
-### "Nonce mismatch"
+### `NONCE_ALREADY_USED`
 
-**Cause:** Submitted nonce doesn't match the stored one.
+**Cause:** The nonce was already consumed (replay or concurrent reuse).
 
 **Solution:**
-- Ensure nonce wasn't tampered with in transit
-- Use HTTPS, not HTTP
-- Check your client code is submitting the exact nonce
+- Request a fresh nonce and retry
+- Ensure only one verification request is in flight per nonce
 
-### "Signature is invalid"
+### `SIGNATURE_INVALID`
 
 **Cause:** One of:
 1. Signature was signed with wrong key
@@ -357,6 +448,23 @@ See `auth/auth.service.spec.ts` for comprehensive test coverage:
 - Verify wallet address matches Freighter's active account
 - Ensure Freighter actually signed the nonce
 - Check signature hasn't been corrupted
+
+### `NONCE_STORE_UNAVAILABLE`
+
+**Cause:** The nonce store (Redis/DB) is unreachable or returned an ambiguous
+response.
+
+**Solution:**
+- Check store connectivity and credentials
+- Auth fails closed by design; retry once the store recovers
+
+---
+
+## Rollback / kill-switch
+
+Any change to the nonce or verification path lands behind a feature flag.
+Disabling the flag restores the previous behavior without a deploy. Rollback
+steps are documented in the PR description.
 
 ---
 
@@ -369,6 +477,7 @@ See `auth/auth.service.spec.ts` for comprehensive test coverage:
 
 ## References
 
+- `apps/api/src/auth/nonce-single-use.spec.ts`
 - [Freighter Docs](https://freighter.app/)
 - [Stellar SDK Docs](https://stellar.org/developers)
 - [JWT Best Practices](https://tools.ietf.org/html/rfc8949)

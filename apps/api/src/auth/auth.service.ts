@@ -3,6 +3,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -29,6 +30,38 @@ export interface VerifyResponse {
   accessToken: string;
 }
 
+/**
+ * Stable, machine-readable error codes for wallet nonce auth failures.
+ * Clients should branch on these codes rather than on human-readable messages.
+ */
+export enum AuthErrorCode {
+  NONCE_UNKNOWN = 'AUTH_NONCE_UNKNOWN',
+  NONCE_EXPIRED = 'AUTH_NONCE_EXPIRED',
+  NONCE_ALREADY_USED = 'AUTH_NONCE_ALREADY_USED',
+  NONCE_MISMATCH = 'AUTH_NONCE_MISMATCH',
+  SIGNATURE_INVALID = 'AUTH_SIGNATURE_INVALID',
+  WALLET_INVALID = 'AUTH_WALLET_INVALID',
+  STORE_UNAVAILABLE = 'AUTH_STORE_UNAVAILABLE',
+}
+
+/**
+ * Lua script that atomically consumes a nonce only when the stored value
+ * matches the expected value. Returns 1 when consumed, 0 when the stored
+ * value is absent or does not match. This closes the check-then-delete race
+ * that would otherwise allow concurrent replay of the same nonce.
+ */
+const CONSUME_NONCE_LUA = `
+local stored = redis.call('GET', KEYS[1])
+if not stored then
+  return 0
+end
+if stored ~= ARGV[1] then
+  return 0
+end
+redis.call('DEL', KEYS[1])
+return 1
+`;
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -54,46 +87,99 @@ export class AuthService {
    * Verifies a Freighter-signed nonce and, on success, issues a JWT.
    *
    * Flow:
-   *  1. Load the stored nonce from Redis.
+   *  1. Load the stored nonce from Redis (fail-closed on store outage).
    *  2. Validate that the submitted nonce matches the stored one.
    *  3. Verify the Ed25519 signature via the Stellar SDK.
-   *  4. Atomically delete the nonce so it cannot be reused.
+   *  4. Atomically consume the nonce so it cannot be reused (single-use).
    *  5. Sign and return a JWT.
+   *
+   * The nonce is only consumed after the signature is verified, and the
+   * consume step is atomic, so concurrent or replayed requests cannot both
+   * succeed with the same nonce.
    */
   async verifyWallet(dto: VerifyWalletDto): Promise<VerifyResponse> {
     const { walletAddress, nonce, signature } = dto;
+    const correlationId = this.newCorrelationId();
 
-    // ── 1. Retrieve stored nonce ──────────────────────────────────────────────
+    // ── 1. Retrieve stored nonce (fail-closed on store outage) ────────────────
     const redisKey = AuthService.NONCE_PREFIX + walletAddress;
-    const storedNonce = await this.redis.get(redisKey);
+    let storedNonce: string | null;
+    try {
+      storedNonce = await this.redis.get(redisKey);
+    } catch (err) {
+      this.logger.error(
+        `Nonce store unavailable during lookup for wallet ${walletAddress} [cid=${correlationId}]: ${(err as Error).message}`,
+      );
+      throw this.storeUnavailable(correlationId);
+    }
 
     if (!storedNonce) {
       this.logger.warn(
-        `Nonce lookup failed for wallet ${walletAddress} — expired or never issued`,
+        `Nonce lookup failed for wallet ${walletAddress} — expired or never issued [cid=${correlationId}]`,
       );
-      throw new UnauthorizedException('Nonce has expired or does not exist');
+      throw this.unauthorized(
+        AuthErrorCode.NONCE_UNKNOWN,
+        'Nonce has expired or does not exist',
+        correlationId,
+      );
     }
 
     // ── 2. Nonce value match ──────────────────────────────────────────────────
     if (storedNonce !== nonce) {
       await this.registerFailedAttempt(walletAddress, redisKey);
-      this.logger.warn(`Nonce mismatch for wallet ${walletAddress}`);
+      this.logger.warn(
+        `Nonce mismatch for wallet ${walletAddress} [cid=${correlationId}]`,
+      );
       // Treat as a 401 rather than 400 — the nonce is present but wrong.
-      throw new UnauthorizedException('Nonce mismatch');
+      throw this.unauthorized(
+        AuthErrorCode.NONCE_MISMATCH,
+        'Nonce mismatch',
+        correlationId,
+      );
     }
 
     // ── 3. Stellar signature verification ────────────────────────────────────
     try {
-      this.assertSignatureValid(walletAddress, nonce, signature);
+      this.assertSignatureValid(walletAddress, nonce, signature, correlationId);
     } catch (err) {
       await this.registerFailedAttempt(walletAddress, redisKey);
       throw err;
     }
 
-    // ── 4. Consume the nonce (single-use guarantee) ───────────────────────────
-    await this.redis.del(redisKey);
+    // ── 4. Atomically consume the nonce (single-use guarantee) ────────────────
+    // The Lua script deletes the key only if it still holds the expected
+    // nonce, so a concurrent request that already consumed it will observe a
+    // 0 result and be rejected as a replay.
+    let consumed: unknown;
+    try {
+      consumed = await this.redis.eval(
+        CONSUME_NONCE_LUA,
+        1,
+        redisKey,
+        nonce,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Nonce store unavailable during consume for wallet ${walletAddress} [cid=${correlationId}]: ${(err as Error).message}`,
+      );
+      throw this.storeUnavailable(correlationId);
+    }
+
+    if (Number(consumed) !== 1) {
+      this.logger.warn(
+        `Nonce replay/concurrent reuse rejected for wallet ${walletAddress} [cid=${correlationId}]`,
+      );
+      throw this.unauthorized(
+        AuthErrorCode.NONCE_ALREADY_USED,
+        'Nonce has already been used',
+        correlationId,
+      );
+    }
+
     await this.redis.del(AuthService.ATTEMPTS_PREFIX + walletAddress);
-    this.logger.log(`Nonce consumed for wallet ${walletAddress}`);
+    this.logger.log(
+      `Nonce consumed for wallet ${walletAddress} [cid=${correlationId}]`,
+    );
 
     // ── 5. Issue JWT ──────────────────────────────────────────────────────────
     const accessToken = this.issueJwt(walletAddress);
@@ -102,6 +188,33 @@ export class AuthService {
   }
 
   // ─── Private helpers ───────────────────────────────────────────────────────
+
+  /** Generates a short correlation id for tracing a single auth attempt. */
+  private newCorrelationId(): string {
+    return Math.random().toString(36).slice(2, 10);
+  }
+
+  /** Builds a 401 with a stable error code and correlation id. */
+  private unauthorized(
+    code: AuthErrorCode,
+    message: string,
+    correlationId: string,
+  ): UnauthorizedException {
+    return new UnauthorizedException({
+      code,
+      message,
+      correlationId,
+    });
+  }
+
+  /** Builds a fail-closed 503 when the nonce store cannot be reached. */
+  private storeUnavailable(correlationId: string): ServiceUnavailableException {
+    return new ServiceUnavailableException({
+      code: AuthErrorCode.STORE_UNAVAILABLE,
+      message: 'Authentication temporarily unavailable',
+      correlationId,
+    });
+  }
 
   /**
    * Increments the failed-attempt counter for a nonce and invalidates the
@@ -147,6 +260,7 @@ export class AuthService {
     walletAddress: string,
     nonce: string,
     signatureB64: string,
+    correlationId: string,
   ): void {
     let keypair: StellarSdk.Keypair;
 
@@ -154,9 +268,11 @@ export class AuthService {
       keypair = StellarSdk.Keypair.fromPublicKey(walletAddress);
     } catch {
       // The DTO regex guards against this, but be defensive.
-      throw new BadRequestException(
-        `walletAddress '${walletAddress}' is not a valid Stellar public key`,
-      );
+      throw new BadRequestException({
+        code: AuthErrorCode.WALLET_INVALID,
+        message: `walletAddress '${walletAddress}' is not a valid Stellar public key`,
+        correlationId,
+      });
     }
 
     let signatureBytes: Buffer;
@@ -166,36 +282,35 @@ export class AuthService {
         throw new Error('Decoded signature length is not 64 bytes');
       }
     } catch {
-      throw new UnauthorizedException(
-        'Signature is not valid base64 or has an unexpected length',
+      throw this.unauthorized(
+        AuthErrorCode.SIGNATURE_INVALID,
+        'Signature is malformed',
+        correlationId,
       );
     }
 
     const messageBytes = Buffer.from(nonce, 'utf8');
-    const isValid = keypair.verify(messageBytes, signatureBytes);
+    const valid = keypair.verify(messageBytes, signatureBytes);
 
-    if (!isValid) {
+    if (!valid) {
       this.logger.warn(
-        `Signature verification failed for wallet ${walletAddress}`,
+        `Signature verification failed for wallet ${walletAddress} [cid=${correlationId}]`,
       );
-      throw new UnauthorizedException('Signature is invalid');
+      throw this.unauthorized(
+        AuthErrorCode.SIGNATURE_INVALID,
+        'Signature verification failed',
+        correlationId,
+      );
     }
   }
 
-  /** Signs a JWT payload with the configured secret, expiry, issuer, and audience. */
+  /** Signs a JWT for the verified wallet address. */
   private issueJwt(walletAddress: string): string {
-    const payload: JwtPayload = { sub: walletAddress, walletAddress };
+    const payload: JwtPayload = {
+      sub: walletAddress,
+      walletAddress,
+    };
 
-    // expiresIn is read from JWT_EXPIRES_IN env; falls back to '15m' if unset.
-    const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN') ?? '15m';
-
-    const issuer = this.configService.get<string>('JWT_ISSUER');
-    const audience = this.configService.get<string>('JWT_AUDIENCE');
-
-    return this.jwtService.sign(payload, {
-      expiresIn: expiresIn as `${number}m`,
-      ...(issuer ? { issuer } : {}),
-      ...(audience ? { audience } : {}),
-    });
+    return this.jwtService.sign(payload);
   }
 }
