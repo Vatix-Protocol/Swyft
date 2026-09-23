@@ -1,5 +1,5 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -26,8 +26,11 @@ import { TicksModule } from './ticks/ticks.module';
 import { FeeCollectorModule } from './fee-collector/fee-collector.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { BalancesModule } from './balances/balances.module';
-import { stellarConfig } from './config/stellar.config';
+import { stellarConfig, resolveStellarConfig, stellarConfigSummary } from './config/stellar.config';
 import { infraConfig } from './config/infra.config';
+import { resolveCorsConfig } from './config/cors.config';
+import { resolveRateLimitConfig, RateLimitConfig } from './config/rate-limit.config';
+import { applySentryRedactionPolicy } from './observability/sentry-redaction';
 
 @Module({
   imports: [
@@ -70,7 +73,28 @@ import { infraConfig } from './config/infra.config';
     BalancesModule,
   ],
 })
-export class AppModule {
+export class AppModule implements NestModule {
+  constructor(private readonly config: ConfigService) {
+    // Apply the SENTRY_REDACTION_POLICY (issue #987) at bootstrap so every
+    // Sentry event/transaction/breadcrumb is scrubbed before it leaves the
+    // process. Deny-by-default: unknown fields are dropped, and the policy is
+    // server-controlled — untrusted clients cannot opt out or widen it.
+    applySentryRedactionPolicy(this.config);
+
+    // Validate the Stellar network selection at bootstrap (issue #988).
+    // Fail-closed: an unset/invalid STELLAR_NETWORK, a mainnet selection
+    // without the STELLAR_MAINNET_ENABLED kill-switch, or a passphrase that
+    // does not match the selected network aborts startup rather than running
+    // against the wrong chain. Only an ops-safe summary is logged.
+    const stellar = resolveStellarConfig(process.env);
+    // eslint-disable-next-line no-console
+    console.log('[stellar-config] resolved', stellarConfigSummary(stellar));
+  }
+
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(LoggingMiddleware).forRoutes('*');
+  }
+
   static corsOptions(config: ConfigService) {
     const { origins, credentials } = resolveCorsConfig({
       ...process.env,

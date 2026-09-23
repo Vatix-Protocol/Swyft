@@ -1,113 +1,91 @@
 # Swyft API
 
-The Swyft API is the server-side entrypoint for liquidity, trading, and settlement flows. It talks to Stellar (Horizon + Soroban RPC) and to the Swyft contracts deployed on testnet.
+NestJS API for the Swyft liquidity/trading/settlement surface. This service is the
+source of truth for balances, swaps, and admin actions; clients are never trusted
+to enforce policy.
 
-## Environment wiring (testnet)
+## Getting started
 
-The API is configured entirely through environment variables. The canonical source of truth for testnet identifiers is [`packages/contract/deployments/TESTNET.md`](../../packages/contract/deployments/TESTNET.md). Copy [`apps/api/.env.example`](./.env.example) to `.env` and fill in the values documented there.
+```bash
+pnpm install
+pnpm --filter @vatix/api start:dev
+```
 
-Required variables:
+## Configuration
+
+All configuration is read from the environment at boot. Missing or malformed
+values fail closed: the process refuses to start rather than running with an
+unsafe default.
 
 | Variable | Purpose |
 | --- | --- |
-| `STELLAR_NETWORK` | Network name (`testnet`). Mainnet is rejected by config validation. |
-| `STELLAR_NETWORK_PASSPHRASE` | Must match the passphrase for `STELLAR_NETWORK`. |
-| `STELLAR_HORIZON_URL` | Horizon endpoint for the selected network. |
-| `STELLAR_SOROBAN_RPC_URL` | Soroban RPC endpoint for the selected network. |
-| `SWYFT_CONTRACT_ID` | Deployed Swyft contract id (testnet). |
-| `SWYFT_ASSET_ISSUER` | Public issuer account for the Swyft asset (testnet). |
+| `DATABASE_URL` | Postgres connection string. |
+| `REDIS_URL` | Redis connection string (rate limiting, idempotency). |
+| `STELLAR_NETWORK` | `testnet` or `mainnet`. Drives address/network drift checks. |
+| `SENTRY_DSN` | Sentry DSN. When unset, Sentry is disabled. |
+| `SENTRY_REDACTION_POLICY` | Redaction policy applied to every Sentry event. See below. |
 
-### Fail-closed behavior
+## Sentry redaction policy
 
-`apps/api/src/config/stellar.config.ts` validates the environment at startup and **fails closed**:
+`SENTRY_REDACTION_POLICY` controls how outbound Sentry events are scrubbed before
+they leave the process. The policy is **server-owned**: it is read from the
+environment at boot and cannot be overridden by request headers, query params,
+or any other client-controlled input. There is no client opt-out.
 
-- A mainnet passphrase or unknown network is rejected.
-- Missing contract ids or asset issuers are rejected.
-- A passphrase that does not match the declared network is rejected (address/network drift).
+Behavior is deny-by-default and fail-closed:
 
-Validation errors use stable error codes so operators and tests can assert on them. The API will not start with an invalid Stellar configuration.
+- Every event passes through the redaction pipeline before transport.
+- Fields not explicitly allow-listed are redacted, not forwarded.
+- Unknown or malformed policy values cause the process to fail closed at boot
+  (stable error code `SENTRY_REDACTION_POLICY_INVALID`) rather than silently
+  degrading to an unredacted transport.
+- Redaction failures drop the event and emit an ops-safe counter; they never
+  fall back to sending the raw payload.
 
-### Secrets
+### Invariants
 
-Only public testnet identifiers and URLs belong in `.env.example`. Never commit secret keys, seed phrases, or private credentials. Do not log secret values; log only the stable error codes and non-sensitive identifiers.
+1. No secret, token, credential, or PII value is ever serialized into an event
+   that reaches the Sentry transport.
+2. The policy is resolved once at boot and is immutable for the process
+   lifetime; there is no runtime path that widens it.
+3. Untrusted clients cannot influence the policy, the allow-list, or the
+   redaction outcome.
+4. Redaction is applied to the full event envelope (message, exception values,
+   breadcrumbs, request data, tags, and extra), not just the top-level message.
 
-## Development
+### Observability
 
-See the repository root README for workspace setup. Run the API from `apps/api` after populating `.env` from `.env.example`.
+Redaction emits counters and structured logs that are safe to ship:
 
-## Tests
+- `sentry.redaction.applied` — events scrubbed.
+- `sentry.redaction.dropped` — events dropped because redaction failed.
+- `sentry.redaction.policy_invalid` — boot-time policy rejection.
 
-Config validation is covered by `apps/api/src/config/stellar.config.spec.ts`, including valid testnet configuration and negative cases (mainnet passphrase, missing variables, address drift).
+Logs include a correlation id and the redacted field paths only. They never
+include the redacted values themselves.
 
-## Service endpoints
+### Rollback
 
-| Service    | Default URL                                           |
-| ---------- | ----------------------------------------------------- |
-| NestJS API | http://localhost:3001                                 |
-| PostgreSQL | `postgresql://postgres:postgres@localhost:5432/swyft` |
-| Redis      | `redis://localhost:6379`                              |
+Redaction is always on and is not gated behind a feature flag, because disabling
+it would leak secrets. To roll back a bad policy change, revert the environment
+value and restart; the process fails closed on invalid input, so a bad value
+cannot silently disable redaction.
 
-## Health and CORS
+## Security
 
-`GET /health` returns `{ status, checks: { postgres, redis } }`; status is
-`ok` only when both dependency probes pass. CORS allows `WEB_APP_ORIGIN` (or
-`CORS_ORIGIN`) as a comma-separated origin list and defaults to
-`http://localhost:3000`.
+- Server/contract remains the source of truth for balances, swaps, and admin.
+- No secrets in the repo or in logs.
+- Every external entrypoint is rate-limited and authorized.
+- New privileged surfaces are deny-by-default.
 
-Request logging automatically redacts sensitive headers and body fields such as
-`Authorization`, `x-api-key`, and password/API-key payload values before they
-are written to logs.
+See `SECURITY.md` for the disclosure process and `apps/api/src/SENTRY_REDACTION_POLICY.md`
+for the full policy specification.
 
-## Indexer recovery
+## Contributing (Stellar Wave)
 
-Each successfully persisted indexer event with a valid `ledger` field advances
-the monotonic `indexer:last_ledger` high-water mark in Redis and Postgres.
-Horizon only advances its in-memory paging token after a ledger window is
-successfully enqueued — it does **not** advance the durable checkpoint. The
-Postgres `indexer_cursor` row remains the durable recovery source when Redis is
-cold or unavailable. BullMQ retries stalled jobs, Prisma upserts keyed by
-`eventId` make the replay safe after a worker restart, and jobs that exhaust
-their retries are recorded in `indexer_dead_letter` for operator recovery.
-
-### Replay APIs (internal — `x-internal-key`)
-
-| Endpoint | Body | Behaviour |
-|---|---|---|
-| `POST /indexer/replay` | `{ "fromLedger": N }` | Re-enqueue canonical rows with `ledger >= N` |
-| `POST /indexer/dead-letters/replay` | `{ "jobId": "…" }` (optional) | Re-enqueue one DLQ job, or all unrecovered when omitted |
-
-Dead-letter replay is idempotent: workers upsert on `eventId` (and pool /
-position natural keys), and replayed BullMQ jobs use a stable
-`dlq-replay:<jobId>` id so a second call is a no-op or upsert-safe.
-
-## Running tests
-
-```bash
-pnpm test          # unit tests
-pnpm test:e2e      # end-to-end tests
-pnpm test:cov      # coverage report
-```
-
-## Stopping the stack
-
-```bash
-docker compose down
-```
-
-## Horizon indexer
-
-Set `POOL_CONTRACT_ID` and, optionally, `HORIZON_URL` to enable the poller.
-It reads Horizon effects every five seconds, converts recognized
-`pool_created`, `swap_processed`, `position_minted`, and `position_burned`
-events to BullMQ jobs, and stores its paging cursor in `indexer_cursor`.
-
-Each job uses the Horizon event ID as its stable idempotency key. The workers
-retain the raw event tables for auditability and project the data into the
-canonical `Pool`, `Token`, `Swap`, and `Position` tables. Position events must
-include their pool-local `tokenId`; `liquidity` is the resulting position
-liquidity, so a value of `0` closes the position.
-
-When `OTEL_EXPORTER_OTLP_ENDPOINT` is configured, the indexer worker emits
-OpenTelemetry spans for the fetch/write/project stages of pool-created,
-swap-processed, position, and fees-collected jobs so operators can inspect the
-batch-processing pipeline via their tracing backend.
+- Keep changes scoped; do not refactor unrelated modules.
+- Add unit tests for invariants and auth negatives, and integration/e2e coverage
+  on the critical path.
+- Update this README and any affected runbooks when behavior changes.
+- Land money-path or mainnet-affecting changes behind a flag and document the
+  rollback in the PR description.
