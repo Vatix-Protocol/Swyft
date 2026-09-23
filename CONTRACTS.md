@@ -42,6 +42,31 @@ All Swyft contracts validated!
 - **Build Tool**: Cargo + Stellar CLI
 - **Workspace**: `packages/contract/Cargo.toml`
 
+## Source of Truth: `pool` vs `cl-pool`
+
+The `pool` contract is the **single source of truth (SoT)** for all pool
+liquidity, tick state, and swap accounting. `cl-pool` is a **derived view**
+over the same pool record: it exposes concentrated-liquidity helpers and
+read-only projections but MUST NOT maintain parallel authoritative state.
+
+Invariants (enforced by the API and contract layers):
+
+- **Authoritative record**: the `pool` record (address, token pair, fee tier,
+  `sqrt_price_x96`, `liquidity`, `tick`) is the only authority for balances,
+  swaps, and admin actions. `cl-pool` never writes balances independently.
+- **Derived fields**: any `cl-pool` field (e.g. tick spacing, price bounds,
+  projected liquidity) is computed from the `pool` SoT and is read-only.
+- **No parallel authority**: there is no second writer for liquidity or price.
+  If `cl-pool` and `pool` ever disagree, `pool` wins and the derived view is
+  recomputed.
+- **Fail-closed reads**: if the `pool` SoT is unavailable, `cl-pool` reads fail
+  closed with a stable error code rather than serving stale/derived state.
+- **API parity**: `apps/api/src/pools` reads `cl-pool` data through the pool
+  repository (SoT path); it does not open an independent data source.
+
+See `SECURITY.md` for the deny-by-default policy on privileged surfaces and
+`README.md` for contributor guidance on the pools module.
+
 ## Concentrated Liquidity Swap Math (Q64.96)
 
 The `pool` contract implements concentrated liquidity swap math using Q64.96
@@ -102,6 +127,7 @@ events or logs.
 - Replaced unsafe panic macros with error functions
 - Fixed arithmetic overflow and panic safety issues
 - Corrected Q64.96 concentrated liquidity swap math and documented invariants
+- Documented `pool` as the single source of truth and `cl-pool` as a derived view
 
 ## Next Steps
 

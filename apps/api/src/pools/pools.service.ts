@@ -268,6 +268,7 @@ export function amount0Delta(
   sqrtPriceA: bigint,
   sqrtPriceB: bigint,
   liquidity: bigint,
+  roundUp: boolean,
 ): bigint {
   if (liquidity <= 0n) {
     throw new ClSwapMathError(
@@ -275,30 +276,38 @@ export function amount0Delta(
       'liquidity must be positive',
     );
   }
-  const [lo, hi] = sqrtPriceA < sqrtPriceB
-    ? [sqrtPriceA, sqrtPriceB]
-    : [sqrtPriceB, sqrtPriceA];
-  if (lo <= 0n) {
+  if (sqrtPriceA <= 0n || sqrtPriceB <= 0n) {
     throw new ClSwapMathError(
       ClSwapErrorCode.INVALID_SQRT_PRICE,
-      'sqrt price must be positive',
+      'sqrt prices must be positive',
     );
   }
-  const numerator = liquidity * (hi - lo) * Q96;
-  const denominator = hi * lo;
-  return (numerator + denominator - 1n) / denominator;
+  const [lower, upper] =
+    sqrtPriceA < sqrtPriceB
+      ? [sqrtPriceA, sqrtPriceB]
+      : [sqrtPriceB, sqrtPriceA];
+  const numerator = liquidity * (upper - lower) * Q96;
+  const denominator = upper * lower;
+  const quotient = numerator / denominator;
+  const remainder = numerator % denominator;
+  if (roundUp && remainder > 0n) {
+    return quotient + 1n;
+  }
+  return quotient;
 }
 
 /**
  * Compute the amount of token1 required to move from sqrtPriceA to
  * sqrtPriceB given liquidity L, per the CL swap invariant:
  *   amount1 = L * (sqrtB - sqrtA) / Q96
- * Rounded up (ceil) so the pool never under-charges the swapper.
+ * All inputs are Q64.96 integers; the result is rounded up (ceil) so the
+ * pool never under-charges the swapper.
  */
 export function amount1Delta(
   sqrtPriceA: bigint,
   sqrtPriceB: bigint,
   liquidity: bigint,
+  roundUp: boolean,
 ): bigint {
   if (liquidity <= 0n) {
     throw new ClSwapMathError(
@@ -306,48 +315,275 @@ export function amount1Delta(
       'liquidity must be positive',
     );
   }
-  const [lo, hi] = sqrtPriceA < sqrtPriceB
-    ? [sqrtPriceA, sqrtPriceB]
-    : [sqrtPriceB, sqrtPriceA];
-  const numerator = liquidity * (hi - lo);
-  return (numerator + Q96 - 1n) / Q96;
+  if (sqrtPriceA <= 0n || sqrtPriceB <= 0n) {
+    throw new ClSwapMathError(
+      ClSwapErrorCode.INVALID_SQRT_PRICE,
+      'sqrt prices must be positive',
+    );
+  }
+  const [lower, upper] =
+    sqrtPriceA < sqrtPriceB
+      ? [sqrtPriceA, sqrtPriceB]
+      : [sqrtPriceB, sqrtPriceA];
+  const numerator = liquidity * (upper - lower);
+  const quotient = numerator / Q96;
+  const remainder = numerator % Q96;
+  if (roundUp && remainder > 0n) {
+    return quotient + 1n;
+  }
+  return quotient;
 }
 
 /**
  * Compute the next sqrt price after swapping a given amount of token0
- * into the pool, bounded by the target sqrt price. Returns the new sqrt
- * price and the amount actually consumed (<= amountIn).
+ * into the pool, per the CL invariant:
+ *   sqrtPriceNext = (L * sqrtPriceCurrent * Q96) / (L * Q96 + amount0In * sqrtPriceCurrent)
+ * Fails closed on non-positive liquidity or amount.
  */
-export function nextSqrtPriceFromAmount0(
-  sqrtPriceX96: bigint,
+export function nextSqrtPriceFromAmount0In(
+  sqrtPriceCurrent: bigint,
   liquidity: bigint,
-  amountIn: bigint,
-  targetSqrtPriceX96: bigint,
-): { sqrtPriceX96: bigint; amountIn: bigint } {
-  if (amountIn <= 0n) {
-    throw new ClSwapMathError(
-      ClSwapErrorCode.INVALID_AMOUNT,
-      'amountIn must be positive',
-    );
-  }
+  amount0In: bigint,
+): bigint {
   if (liquidity <= 0n) {
     throw new ClSwapMathError(
-      ClSwapErrorCode.ZERO_LIQUIDITY,
-      'cannot swap with zero liquidity',
+      ClSwapErrorCode.INVALID_LIQUIDITY,
+      'liquidity must be positive',
     );
   }
-  const numerator = liquidity * Q96;
-  const denominator = numerator + amountIn * sqrtPriceX96;
-  const next = (numerator * sqrtPriceX96) / denominator;
-  if (next <= targetSqrtPriceX96) {
-    return { sqrtPriceX96: targetSqrtPriceX96, amountIn };
+  if (amount0In <= 0n) {
+    throw new ClSwapMathError(
+      ClSwapErrorCode.INVALID_AMOUNT,
+      'amount0In must be positive',
+    );
   }
-  const consumed = amount0Delta(next, sqrtPriceX96, liquidity);
-  return { sqrtPriceX96: next, amountIn: consumed };
+  const numerator = liquidity * sqrtPriceCurrent * Q96;
+  const denominator = liquidity * Q96 + amount0In * sqrtPriceCurrent;
+  return numerator / denominator;
 }
 
 /**
  * Compute the next sqrt price after swapping a given amount of token1
- * into the pool, bounded by th
+ * into the pool, per the CL invariant:
+ *   sqrtPriceNext = sqrtPriceCurrent + (amount1In * Q96) / L
+ * Fails closed on non-positive liquidity or amount.
+ */
+export function nextSqrtPriceFromAmount1In(
+  sqrtPriceCurrent: bigint,
+  liquidity: bigint,
+  amount1In: bigint,
+): bigint {
+  if (liquidity <= 0n) {
+    throw new ClSwapMathError(
+      ClSwapErrorCode.INVALID_LIQUIDITY,
+      'liquidity must be positive',
+    );
+  }
+  if (amount1In <= 0n) {
+    throw new ClSwapMathError(
+      ClSwapErrorCode.INVALID_AMOUNT,
+      'amount1In must be positive',
+    );
+  }
+  return sqrtPriceCurrent + (amount1In * Q96) / liquidity;
+}
 
-/* … truncated 4014 chars — edit only what you need near the top … */
+/**
+ * Compute the amount of token0 out for a given amount of token1 in,
+ * bounded by the target sqrt price. Used for exact-output swaps.
+ */
+export function amount0OutFromAmount1In(
+  sqrtPriceCurrent: bigint,
+  sqrtPriceTarget: bigint,
+  liquidity: bigint,
+): bigint {
+  return amount0Delta(sqrtPriceCurrent, sqrtPriceTarget, liquidity, false);
+}
+
+/**
+ * Compute the amount of token1 out for a given amount of token0 in,
+ * bounded by the target sqrt price. Used for exact-output swaps.
+ */
+export function amount1OutFromAmount0In(
+  sqrtPriceCurrent: bigint,
+  sqrtPriceTarget: bigint,
+  liquidity: bigint,
+): bigint {
+  return amount1Delta(sqrtPriceCurrent, sqrtPriceTarget, liquidity, false);
+}
+
+/**
+ * Validate a CL pool's liquidity is positive. Zero liquidity means the
+ * pool cannot price swaps; callers must fail closed rather than divide
+ * by zero or serve a meaningless price.
+ */
+export function assertPositiveLiquidity(
+  liquidity: bigint,
+  correlationId?: string,
+): void {
+  if (liquidity <= 0n) {
+    throw new ClSwapMathError(
+      ClSwapErrorCode.ZERO_LIQUIDITY,
+      'pool liquidity must be positive',
+      correlationId,
+    );
+  }
+}
+
+/**
+ * Validate a swap amount is positive. Zero or negative amounts are
+ * rejected so untrusted clients cannot grief the pool with no-op swaps.
+ */
+export function assertPositiveAmount(
+  amount: bigint,
+  correlationId?: string,
+): void {
+  if (amount <= 0n) {
+    throw new ClSwapMathError(
+      ClSwapErrorCode.INVALID_AMOUNT,
+      'swap amount must be positive',
+      correlationId,
+    );
+  }
+}
+
+/**
+ * Single source of truth for CL pool state.
+ *
+ * Per CONTRACTS.md, the `pool` record (as returned by PoolsRepository) is
+ * authoritative for liquidity, price, and tick state. The `cl-pool` view
+ * is a *derived* projection of that record and MUST NOT be treated as an
+ * independent authority. This helper builds the derived CL view from the
+ * pool SoT so that every consumer reads the same numbers.
+ */
+export interface ClPoolDerivedView {
+  poolId: string;
+  currentSqrtPrice: string;
+  currentTick: number;
+  totalLiquidity: string;
+  tickSpacing: number;
+  minTick: number;
+  maxTick: number;
+}
+
+export function deriveClPoolView(pool: {
+  id: string;
+  currentSqrtPrice: string;
+  currentTick: number;
+  totalLiquidity: string;
+  tickSpacing: number;
+  minTick: number;
+  maxTick: number;
+}): ClPoolDerivedView {
+  return {
+    poolId: pool.id,
+    currentSqrtPrice: pool.currentSqrtPrice,
+    currentTick: pool.currentTick,
+    totalLiquidity: pool.totalLiquidity,
+    tickSpacing: pool.tickSpacing,
+    minTick: pool.minTick,
+    maxTick: pool.maxTick,
+  };
+}
+
+@Injectable()
+export class PoolsService {
+  private readonly logger = new Logger(PoolsService.name);
+
+  constructor(
+    private readonly poolsRepository: PoolsRepository,
+    private readonly cacheService: CacheService,
+  ) {}
+
+  async listPools(query: GetPoolsQueryDto): Promise<PoolsListResponse> {
+    const cacheKey = `pools:list:${JSON.stringify(query)}`;
+    const cached = await this.cacheService.get<PoolsListResponse>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const listQuery: PoolListQuery = {
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+      orderBy: query.orderBy ?? PoolOrderBy.TVL,
+      search: query.search,
+    };
+
+    const { items, total } = await this.poolsRepository.listPools(listQuery);
+    const totalPages = Math.ceil(total / listQuery.limit);
+
+    const response: PoolsListResponse = {
+      items: items.map((pool) => ({
+        id: pool.id,
+        token0: pool.token0,
+        token1: pool.token1,
+        feeTier: pool.feeTier,
+        tvl: pool.tvl,
+        volume24h: pool.volume24h,
+        feeApr: pool.feeApr,
+        currentPrice: pool.currentPrice,
+      })),
+      page: listQuery.page,
+      limit: listQuery.limit,
+      total,
+      totalPages,
+      orderBy: listQuery.orderBy,
+      search: listQuery.search,
+    };
+
+    await this.cacheService.set(cacheKey, response, TTL.SHORT);
+    return response;
+  }
+
+  async getPoolDetail(id: string): Promise<PoolDetail> {
+    const cacheKey = `pools:detail:${id}`;
+    const cached = await this.cacheService.get<PoolDetail>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const pool = await this.poolsRepository.getPoolById(id);
+    if (!pool) {
+      throw new NotFoundException(`Pool ${id} not found`);
+    }
+
+    const detail: PoolDetail = {
+      id: pool.id,
+      token0: pool.token0,
+      token1: pool.token1,
+      feeTier: pool.feeTier,
+      currentSqrtPrice: pool.currentSqrtPrice,
+      currentTick: pool.currentTick,
+      totalLiquidity: pool.totalLiquidity,
+      tvl: pool.tvl,
+      volume24h: pool.volume24h,
+      volume7d: pool.volume7d,
+      feeApr: pool.feeApr,
+      creationTimestamp: pool.creationTimestamp,
+      recentSwaps: pool.recentSwaps,
+    };
+
+    await this.cacheService.set(cacheKey, detail, TTL.SHORT);
+    return detail;
+  }
+
+  /**
+   * Return the derived CL view for a pool. The pool record is the single
+   * source of truth; this method never reads an independent cl-pool store.
+   */
+  async getClPoolView(id: string): Promise<ClPoolDerivedView> {
+    const pool = await this.poolsRepository.getPoolById(id);
+    if (!pool) {
+      throw new NotFoundException(`Pool ${id} not found`);
+    }
+    return deriveClPoolView(pool);
+  }
+
+  async getTicks(id: string): Promise<TickData[]> {
+    const pool = await this.poolsRepository.getPoolById(id);
+    if (!pool) {
+      throw new NotFoundException(`Pool ${id} not found`);
+    }
+    return this.poolsRepository.getTicks(id);
+  }
+}

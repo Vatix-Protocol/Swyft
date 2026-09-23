@@ -1,100 +1,49 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { PoolListQuery, PoolListResult, PoolSnapshot } from './pool.types';
+import { Pool, ClPoolView } from './pool.types';
 
-type PoolStatePatch = {
-  currentPrice?: string;
-};
-
-export interface TickData {
-  tickIndex: number;
-  liquidityNet: string;
-  liquidityGross: string;
-  feeGrowthOutside0X128: string;
-  feeGrowthOutside1X128: string;
-}
-
+/**
+ * Repository that owns the pool source of truth (SoT).
+ *
+ * Invariant (see CONTRACTS.md): the `pool` record is authoritative for
+ * liquidity and state. Any `cl-pool` data is a *derived view* computed from
+ * the pool SoT and MUST NOT be treated as an independent authority.
+ */
 @Injectable()
 export class PoolsRepository {
-  private readonly pools = new Map<string, PoolSnapshot>();
+  private readonly pools = new Map<string, Pool>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  async findById(poolId: string): Promise<Pool | null> {
+    return this.pools.get(poolId) ?? null;
+  }
 
-  async listActivePools(query: PoolListQuery): Promise<PoolListResult> {
-    const search = query.search?.trim().toLowerCase();
+  async save(pool: Pool): Promise<Pool> {
+    this.pools.set(pool.id, pool);
+    return pool;
+  }
 
-    const filtered = [...this.pools.values()]
-      .filter((pool) => pool.active)
-      .filter((pool) => {
-        if (!search) return true;
-        return (
-          pool.token0.toLowerCase().includes(search) ||
-          pool.token1.toLowerCase().includes(search)
-        );
-      });
+  /**
+   * Derive the cl-pool view from the authoritative pool record.
+   *
+   * This is the single SoT path for cl-pool data: callers must go through the
+   * pool record rather than reading cl-pool state from a parallel source.
+   */
+  async findClPoolView(poolId: string): Promise<ClPoolView | null> {
+    const pool = await this.findById(poolId);
+    if (!pool) {
+      return null;
+    }
+    return this.deriveClPoolView(pool);
+  }
 
-    const sorted = filtered.sort((a, b) => {
-      if (query.orderBy === 'volume') return b.volume24h - a.volume24h;
-      if (query.orderBy === 'apr') return b.feeApr - a.feeApr;
-      return b.tvl - a.tvl;
-    });
-
-    const offset = (query.page - 1) * query.limit;
-    const items = sorted.slice(offset, offset + query.limit);
-
+  private deriveClPoolView(pool: Pool): ClPoolView {
     return {
-      items,
-      total: sorted.length,
+      poolId: pool.id,
+      // cl-pool fields are derived from the pool SoT; no parallel authority.
+      liquidity: pool.liquidity,
+      tickSpacing: pool.tickSpacing,
+      currentTick: pool.currentTick,
+      sqrtPriceX96: pool.sqrtPriceX96,
+      derivedFromPool: true,
     };
-  }
-
-  async upsertPoolState(poolId: string, patch: PoolStatePatch): Promise<void> {
-    const existing = this.pools.get(poolId);
-    if (!existing) return;
-
-    const currentPrice = patch.currentPrice
-      ? Number.parseFloat(patch.currentPrice)
-      : existing.currentPrice;
-
-    this.pools.set(poolId, {
-      ...existing,
-      currentPrice,
-      updatedAt: Date.now(),
-    });
-  }
-
-  async getTicksByPoolId(
-    poolId: string,
-    lowerTick?: number,
-    upperTick?: number,
-  ): Promise<TickData[]> {
-    return this.prisma.tick.findMany({
-      where: {
-        poolId,
-        ...(lowerTick !== undefined || upperTick !== undefined
-          ? {
-              tickIndex: {
-                ...(lowerTick !== undefined && { gte: lowerTick }),
-                ...(upperTick !== undefined && { lte: upperTick }),
-              },
-            }
-          : {}),
-      },
-      orderBy: { tickIndex: 'asc' },
-      select: {
-        tickIndex: true,
-        liquidityNet: true,
-        liquidityGross: true,
-        feeGrowthOutside0X128: true,
-        feeGrowthOutside1X128: true,
-      },
-    });
-  }
-
-  async poolExists(id: string): Promise<boolean> {
-    const count = await this.prisma.pool.count({
-      where: { id },
-    });
-    return count > 0;
   }
 }

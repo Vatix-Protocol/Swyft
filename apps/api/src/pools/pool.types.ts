@@ -40,6 +40,44 @@ export interface GetTicksQuery {
 }
 
 /**
+ * Single source of truth (SoT) for pool state is the `pool` crate record
+ * (see CONTRACTS.md). Concentrated-liquidity (cl-pool) data is a *derived
+ * view* over that record and MUST NOT be treated as an independent authority
+ * for liquidity, swaps, or settlement. The types below make that derivation
+ * explicit so consumers cannot accidentally read cl-pool as a parallel SoT.
+ */
+export type PoolSourceOfTruth = 'pool';
+
+/**
+ * Provenance marker attached to every cl-pool derived value. `source` is
+ * always 'pool' (the authoritative record); `derived` is always true so
+ * callers can assert they are not reading a parallel authority.
+ */
+export interface ClPoolDerivation {
+  source: PoolSourceOfTruth;
+  derived: true;
+  /** Pool record id this cl-pool view was derived from. */
+  poolId: string;
+  /** Epoch ms the derivation was computed from the pool SoT. */
+  derivedAt: number;
+}
+
+/**
+ * cl-pool view of a pool's concentrated-liquidity state. All fields are
+ * derived from the pool SoT record; there is no independent cl-pool store.
+ */
+export interface ClPoolView extends ClPoolDerivation {
+  /** Current sqrt price (X96) as a decimal string, derived from pool SoT. */
+  sqrtPriceX96: string;
+  /** Current tick index, derived from pool SoT. */
+  tick: number;
+  /** Active liquidity, derived from pool SoT. */
+  liquidity: string;
+  /** Tick spacing configured on the pool SoT record. */
+  tickSpacing: number;
+}
+
+/**
  * Stable error codes for LP mint/burn liquidity position operations.
  * Deny-by-default: unknown/unauthorized callers map to LP_UNAUTHORIZED.
  */
