@@ -1,5 +1,12 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IndexerWorker } from './indexer.worker';
 import {
   DeadLetterReplaySummary,
@@ -89,16 +96,29 @@ export class IndexerController {
    * BullMQ queue for reprocessing. Internal/operator use only — guarded by
    * `x-internal-key` since replaying can trigger duplicate webhook deliveries
    * for events that already landed (writes stay idempotent on eventId).
+   *
+   * Idempotency: callers SHOULD send an `x-idempotency-key` header. Concurrent
+   * or replayed requests carrying the same key are deduplicated by the replay
+   * service, so a retried operator request cannot double-enqueue events.
    */
   @Post('replay')
   @UseGuards(InternalKeyGuard)
+  @ApiHeader({
+    name: 'x-idempotency-key',
+    required: false,
+    description:
+      'Optional dedupe key. Concurrent/replayed requests with the same key are collapsed into a single replay.',
+  })
   @ApiOperation({
     summary: 'Replay persisted events from a given ledger onward (internal)',
     description:
       'Re-enqueues canonical event rows. Worker handlers upsert on eventId, so replay is safe if events already landed.',
   })
-  replay(@Body() body: ReplayDto): Promise<ReplaySummary> {
-    return this.replayService.replayFromLedger(body.fromLedger);
+  replay(
+    @Body() body: ReplayDto,
+    @Headers('x-idempotency-key') idempotencyKey?: string,
+  ): Promise<ReplaySummary> {
+    return this.replayService.replayFromLedger(body.fromLedger, idempotencyKey);
   }
 
   /**
