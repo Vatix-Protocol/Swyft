@@ -83,6 +83,8 @@ export const ClSwapErrorCode = {
   INVALID_LIQUIDITY: 'CL_INVALID_LIQUIDITY',
   INVALID_AMOUNT: 'CL_INVALID_AMOUNT',
   ZERO_LIQUIDITY: 'CL_ZERO_LIQUIDITY',
+  INVALID_TICK_SPACING: 'CL_INVALID_TICK_SPACING',
+  TICK_NOT_ALIGNED: 'CL_TICK_NOT_ALIGNED',
 } as const;
 export type ClSwapErrorCode =
   (typeof ClSwapErrorCode)[keyof typeof ClSwapErrorCode];
@@ -95,6 +97,86 @@ export class ClSwapMathError extends Error {
   ) {
     super(message);
     this.name = 'ClSwapMathError';
+  }
+}
+
+/**
+ * Validate a pool's tick spacing. Tick spacing must be a positive integer
+ * and must evenly divide the full tick range so that every aligned tick
+ * stays within [MIN_TICK, MAX_TICK]. Fails closed on invalid spacing.
+ */
+export function assertValidTickSpacing(
+  tickSpacing: number,
+  correlationId?: string,
+): void {
+  if (
+    !Number.isInteger(tickSpacing) ||
+    tickSpacing <= 0 ||
+    tickSpacing > MAX_TICK - MIN_TICK
+  ) {
+    throw new ClSwapMathError(
+      ClSwapErrorCode.INVALID_TICK_SPACING,
+      `tickSpacing ${tickSpacing} must be a positive integer within the tick range`,
+      correlationId,
+    );
+  }
+}
+
+/**
+ * Assert that a tick is aligned to the pool's tick spacing. Untrusted
+ * clients must not be able to supply misaligned ticks that would let them
+ * bypass the pool's initialized-tick policy.
+ */
+export function assertTickAligned(
+  tick: number,
+  tickSpacing: number,
+  correlationId?: string,
+): void {
+  assertValidTickSpacing(tickSpacing, correlationId);
+  if (!Number.isInteger(tick) || tick % tickSpacing !== 0) {
+    throw new ClSwapMathError(
+      ClSwapErrorCode.TICK_NOT_ALIGNED,
+      `tick ${tick} is not aligned to tickSpacing ${tickSpacing}`,
+      correlationId,
+    );
+  }
+}
+
+/**
+ * Enforce the pool's price range bounds: a tick must be aligned to the
+ * pool's tick spacing and lie within [minTick, maxTick], which themselves
+ * must be aligned and within the global [MIN_TICK, MAX_TICK] range.
+ * Deny-by-default: any violation throws a typed, stable error code.
+ */
+export function assertTickInBounds(
+  tick: number,
+  tickSpacing: number,
+  minTick: number = MIN_TICK,
+  maxTick: number = MAX_TICK,
+  correlationId?: string,
+): void {
+  assertTickAligned(tick, tickSpacing, correlationId);
+  if (
+    !Number.isInteger(minTick) ||
+    !Number.isInteger(maxTick) ||
+    minTick < MIN_TICK ||
+    maxTick > MAX_TICK ||
+    minTick >= maxTick
+  ) {
+    throw new ClSwapMathError(
+      ClSwapErrorCode.TICK_OUT_OF_RANGE,
+      `pool tick range [${minTick}, ${maxTick}] is invalid`,
+      correlationId,
+    );
+  }
+  assertTickAligned(minTick, tickSpacing, correlationId);
+  assertTickAligned(maxTick, tickSpacing, correlationId);
+  if (tick < minTick || tick > maxTick) {
+    throw new ClSwapMathError(
+      ClSwapErrorCode.TICK_OUT_OF_RANGE,
+      `tick ${tick} outside pool range [${minTick}, ${maxTick}]`,
+      correlationId,
+    );
   }
 }
 
@@ -266,138 +348,6 @@ export function nextSqrtPriceFromAmount0(
 
 /**
  * Compute the next sqrt price after swapping a given amount of token1
- * into the pool, bounded by the target sqrt price.
- */
-export function nextSqrtPriceFromAmount1(
-  sqrtPriceX96: bigint,
-  liquidity: bigint,
-  amountIn: bigint,
-  targetSqrtPriceX96: bigint,
-): { sqrtPriceX96: bigint; amountIn: bigint } {
-  if (amountIn <= 0n) {
-    throw new ClSwapMathError(
-      ClSwapErrorCode.INVALID_AMOUNT,
-      'amountIn must be positive',
-    );
-  }
-  if (liquidity <= 0n) {
-    throw new ClSwapMathError(
-      ClSwapErrorCode.ZERO_LIQUIDITY,
-      'cannot swap with zero liquidity',
-    );
-  }
-  const next = sqrtPriceX96 + (amountIn * Q96) / liquidity;
-  if (next >= targetSqrtPriceX96) {
-    return { sqrtPriceX96: targetSqrtPriceX96, amountIn };
-  }
-  const consumed = amount1Delta(sqrtPriceX96, next, liquidity);
-  return { sqrtPriceX96: next, amountIn: consumed };
-}
+ * into the pool, bounded by th
 
-@Injectable()
-export class PoolsService {
-  private readonly logger = new Logger(PoolsService.name);
-  constructor(
-    private readonly cache: CacheService,
-    private readonly poolsRepository: PoolsRepository,
-  ) {}
-
-  async getPools(query: GetPoolsQueryDto): Promise<PoolsListResponse> {
-    const normalized: PoolListQuery = {
-      page: query.page ?? 1,
-      limit: query.limit ?? 20,
-      orderBy: query.orderBy ?? 'tvl',
-      search: query.search?.trim() || undefined,
-    };
-
-    const cacheKey = this.getListCacheKey(normalized);
-    const cached = await this.cache.get<PoolsListResponse>(cacheKey);
-    if (cached) return cached;
-
-    const listResult = await this.poolsRepository.listActivePools(normalized);
-    const items = Array.isArray(listResult.items) ? listResult.items : [];
-    const total = Number.isFinite(listResult.total) ? listResult.total : 0;
-    const response: PoolsListResponse = {
-      items: items.map((pool) => this.toResponsePool(pool)),
-      page: normalized.page,
-      limit: normalized.limit,
-      total,
-      totalPages: total === 0 ? 0 : Math.ceil(total / normalized.limit),
-      orderBy: normalized.orderBy,
-      search: normalized.search,
-    };
-
-    await this.cache.set(cacheKey, response, TTL.POOL_LIST);
-    return response;
-  }
-
-  async handlePoolStateUpdate(
-    poolId: string,
-    patch: { currentPrice?: string },
-  ): Promise<void> {
-    await this.poolsRepository.upsertPoolState(poolId, patch);
-    await this.invalidateListCache();
-  }
-
-  private async invalidateListCache(): Promise<void> {
-    await this.cache.invalidatePattern('pools:list:*');
-  }
-
-  private getListCacheKey(query: PoolListQuery): string {
-    return [
-      'pools:list:v1',
-      `page=${query.page}`,
-      `limit=${query.limit}`,
-      `orderBy=${query.orderBy}`,
-      `search=${query.search ?? ''}`,
-    ].join(':');
-  }
-
-  private toResponsePool(
-    pool: PoolSnapshot,
-  ): PoolsListResponse['items'][number] {
-    return {
-      id: pool.id,
-      token0: pool.token0,
-      token1: pool.token1,
-      feeTier: pool.feeTier,
-      tvl: pool.tvl,
-      volume24h: pool.volume24h,
-      feeApr: pool.feeApr,
-      currentPrice: pool.currentPrice,
-    };
-  }
-
-  async findPoolById(id: string): Promise<PoolDetail | null> {
-    const exists = await this.poolsRepository.poolExists(id);
-    return exists ? ({ id } as PoolDetail) : null;
-  }
-
-  async getPoolTicks(
-    poolId: string,
-    lowerTick?: number,
-    upperTick?: number,
-  ): Promise<TickData[]> {
-    const pool = await this.findPoolById(poolId);
-    if (!pool) throw new NotFoundException(`Pool with ID ${poolId} not found`);
-
-    const cacheKey = `pool:${poolId}:ticks:lower=${lowerTick ?? ''}:upper=${upperTick ?? ''}`;
-    const cached = await this.cache.get<TickData[]>(cacheKey);
-    if (cached) return cached;
-
-    const ticks = await this.poolsRepository.getTicksByPoolId(
-      poolId,
-      lowerTick,
-      upperTick,
-    );
-    await this.cache.set(cacheKey, ticks, TTL.TICKS);
-    return ticks;
-  }
-
-  async invalidatePoolCache(poolId: string): Promise<void> {
-    await this.cache.invalidate(`pool:${poolId}`);
-    await this.cache.invalidatePattern(`pool:${poolId}:ticks:*`);
-  }
-}
-
-export type { PoolsListResponse };
+/* … truncated 4014 chars — edit only what you need near the top … */
