@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
 import { AnalyticsScheduler } from './analytics.scheduler';
@@ -17,6 +18,10 @@ import { PrismaModule } from '../prisma/prisma.module';
     AdminAuditService,
     AdminAuditInterceptor,
     TestnetRegistryService,
+    {
+      provide: APP_INTERCEPTOR,
+      useExisting: AdminAuditInterceptor,
+    },
   ],
   exports: [AdminAuditService, TestnetRegistryService],
 })
