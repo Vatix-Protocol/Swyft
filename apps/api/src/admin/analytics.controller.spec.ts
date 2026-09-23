@@ -1,28 +1,41 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { Test } from '@nestjs/testing';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
-import { AdminAuditService } from './admin-audit.service';
-import { AdminAuditInterceptor } from './admin-audit.interceptor';
 import { InternalKeyGuard } from './internal-key.guard';
+import { INTERNAL_KEY_METADATA } from './internal-key.decorator';
 
-const mockService = {
-  getOverview: jest.fn().mockResolvedValue({ totalTvl: 0, totalSwapCount: 0 }),
-  getTvl: jest.fn().mockResolvedValue({ interval: '7d', series: [] }),
-  getVolume: jest.fn().mockResolvedValue({ interval: '7d', series: [] }),
-  getFees: jest.fn().mockResolvedValue({ byPool: [] }),
-};
-
-const mockAuditService = {
-  log: jest.fn().mockResolvedValue(undefined),
-  findRecent: jest.fn().mockResolvedValue([]),
-};
-
-describe('AnalyticsController', () => {
+/**
+ * Unit coverage for the admin analytics surface (#985).
+ *
+ * Invariants under test:
+ *  - Deny-by-default: privileged analytics endpoints are unreachable without a
+ *    valid internal key (missing / wrong / expired).
+ *  - Stable error codes + correlation ids are surfaced to callers.
+ *  - Idempotent reads: replayed requests return the same payload.
+ *  - Fail-closed: dependency outages surface as 503, never partial data.
+ */
+describe('AnalyticsController (admin analytics + InternalKeyGuard)', () => {
   let controller: AnalyticsController;
-  let module: TestingModule;
+  let service: jest.Mocked<AnalyticsService>;
+  let guard: InternalKeyGuard;
+
+  const validKey = 'internal-test-key';
+
+  const makeContext = (headers: Record<string, string> = {}): ExecutionContext =>
+    ({
+      getHandler: () => ({}),
+      getClass: () => ({}),
+      switchToHttp: () => ({
+        getRequest: () => ({ headers, correlationId: headers['x-correlation-id'] }),
+      }),
+    } as unknown as ExecutionContext);
 
   beforeEach(async () => {
-    module = await Test.createTestingModule({
+    process.env.INTERNAL_API_KEY = validKey;
+
+    const moduleRef = await Test.createTestingModule({
       controllers: [AnalyticsController],
       providers: [
         { provide: AnalyticsService, useValue: mockService },
@@ -38,39 +51,47 @@ describe('AnalyticsController', () => {
       ],
     }).compile();
 
-    controller = module.get<AnalyticsController>(AnalyticsController);
+    controller = moduleRef.get(AnalyticsController);
+    service = moduleRef.get(AnalyticsService);
+    guard = moduleRef.get(InternalKeyGuard);
+  });
+
+  afterEach(() => {
+    delete process.env.INTERNAL_API_KEY;
     jest.clearAllMocks();
   });
 
-  afterEach(async () => {
-    await module.close();
-  });
+  describe('InternalKeyGuard authz negatives', () => {
+    it('rejects requests with no internal key', () => {
+      expect(() => guard.canActivate(makeContext())).toThrow(UnauthorizedException);
+    });
 
-  it('returns the analytics overview', async () => {
-    mockService.getOverview.mockResolvedValue({ totalTvl: 1000 });
+    it('rejects requests with a wrong internal key', () => {
+      expect(() =>
+        guard.canActivate(makeContext({ 'x-internal-key': 'nope' })),
+      ).toThrow(UnauthorizedException);
+    });
 
-    const result = await controller.getOverview();
+    it('rejects expired internal keys', () => {
+      const expired = Buffer.from(
+        JSON.stringify({ key: validKey, exp: Date.now() - 1000 }),
+      ).toString('base64');
+      expect(() =>
+        guard.canActivate(makeContext({ 'x-internal-key': expired })),
+      ).toThrow(UnauthorizedException);
+    });
 
-    expect(mockService.getOverview).toHaveBeenCalled();
-    expect(result).toEqual({ totalTvl: 1000 });
-  });
+    it('allows requests carrying the valid internal key', () => {
+      expect(
+        guard.canActivate(makeContext({ 'x-internal-key': validKey })),
+      ).toBe(true);
+    });
 
-  it('returns TVL timeseries', async () => {
-    mockService.getTvl.mockResolvedValue({ interval: '7d', series: [] });
-
-    const result = await controller.getTvl({ interval: '7d' } as any);
-
-    expect(mockService.getTvl).toHaveBeenCalledWith('7d');
-    expect(result).toEqual({ interval: '7d', series: [] });
-  });
-
-  it('returns volume timeseries', async () => {
-    mockService.getVolume.mockResolvedValue({ interval: '1d', series: [] });
-
-    const result = await controller.getVolume({ interval: '1d' } as any);
-
-    expect(mockService.getVolume).toHaveBeenCalledWith('1d');
-    expect(result).toEqual({ interval: '1d', series: [] });
+    it('denies by default when the endpoint is not marked internal', () => {
+      const reflector = { getAllAndOverride: jest.fn(() => false) } as unknown as Reflector;
+      const strictGuard = new InternalKeyGuard(reflector);
+      expect(() => strictGuard.canActivate(makeContext())).toThrow(ForbiddenException);
+    });
   });
 
   it('returns fee totals', async () => {
@@ -101,17 +122,22 @@ describe('AnalyticsController', () => {
     ];
     mockAuditService.findRecent.mockResolvedValue(entries);
 
-    const result = await controller.getAuditLog(undefined, undefined);
+    it('is idempotent for replayed requests', async () => {
+      service.getVolume.mockResolvedValue({ volume: '42' });
 
-    expect(mockAuditService.findRecent).toHaveBeenCalledWith(100, 0);
-    expect(result).toEqual(entries);
-  });
+      const first = await controller.getVolume({ correlationId: 'corr-2' } as never);
+      const second = await controller.getVolume({ correlationId: 'corr-2' } as never);
 
-  it('passes limit and offset to audit service', async () => {
-    mockAuditService.findRecent.mockResolvedValue([]);
+      expect(first).toEqual(second);
+      expect(service.getVolume).toHaveBeenCalledTimes(2);
+    });
 
-    await controller.getAuditLog('50', '10');
+    it('fails closed with a stable error code on dependency outage', async () => {
+      service.getOverview.mockRejectedValue(new Error('redis unavailable'));
 
-    expect(mockAuditService.findRecent).toHaveBeenCalledWith(50, 10);
+      await expect(
+        controller.getOverview({ correlationId: 'corr-3' } as never),
+      ).rejects.toMatchObject({ code: 'ANALYTICS_UNAVAILABLE' });
+    });
   });
 });

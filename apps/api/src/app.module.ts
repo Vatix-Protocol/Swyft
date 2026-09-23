@@ -69,11 +69,47 @@ import { infraConfig } from './config/infra.config';
     TransactionsModule,
     BalancesModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer.apply(LoggingMiddleware).forRoutes('*');
+export class AppModule {
+  static corsOptions(config: ConfigService) {
+    const { origins, credentials } = resolveCorsConfig({
+      ...process.env,
+      CORS_ALLOWED_ORIGINS:
+        config.get<string>('CORS_ALLOWED_ORIGINS') ?? process.env.CORS_ALLOWED_ORIGINS,
+      CORS_ALLOW_CREDENTIALS:
+        config.get<string>('CORS_ALLOW_CREDENTIALS') ?? process.env.CORS_ALLOW_CREDENTIALS,
+    });
+
+    return {
+      origin: (
+        origin: string | undefined,
+        callback: (err: Error | null, allow?: boolean) => void,
+      ) => {
+        // Same-origin / non-browser requests have no Origin header.
+        if (!origin) {
+          return callback(null, true);
+        }
+        if (origins.includes(origin)) {
+          return callback(null, true);
+        }
+        // Fail closed: reject unlisted origins instead of reflecting them.
+        return callback(null, false);
+      },
+      credentials,
+    };
+  }
+
+  static rateLimitOptions(config: ConfigService): RateLimitConfig {
+    return resolveRateLimitConfig({
+      ...process.env,
+      RATE_LIMIT_ENABLED:
+        config.get<string>('RATE_LIMIT_ENABLED') ?? process.env.RATE_LIMIT_ENABLED,
+      RATE_LIMIT_WINDOW_MS:
+        config.get<string>('RATE_LIMIT_WINDOW_MS') ?? process.env.RATE_LIMIT_WINDOW_MS,
+      RATE_LIMIT_MAX:
+        config.get<string>('RATE_LIMIT_MAX') ?? process.env.RATE_LIMIT_MAX,
+      RATE_LIMIT_FAIL_CLOSED:
+        config.get<string>('RATE_LIMIT_FAIL_CLOSED') ?? process.env.RATE_LIMIT_FAIL_CLOSED,
+    });
   }
 }

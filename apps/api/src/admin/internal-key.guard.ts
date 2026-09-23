@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Request } from 'express';
@@ -81,6 +82,8 @@ function safeEqual(a: string, b: string): boolean {
  */
 @Injectable()
 export class InternalKeyGuard implements CanActivate {
+  private readonly logger = new Logger(InternalKeyGuard.name);
+
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request>();
     const correlationId =

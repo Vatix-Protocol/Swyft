@@ -46,6 +46,19 @@ interface RequestWithUser {
   };
 }
 
+/**
+ * Stable error codes for API-key authentication failures.
+ * See docs/RATE_LIMITING.md for the deny-by-default policy.
+ */
+export const API_KEY_ERROR_CODES = {
+  MISSING_KEY: 'AUTH_MISSING_API_KEY',
+  INVALID_KEY: 'AUTH_INVALID_API_KEY',
+  BACKING_STORE_UNAVAILABLE: 'AUTH_BACKING_STORE_UNAVAILABLE',
+} as const;
+
+export type ApiKeyErrorCode =
+  (typeof API_KEY_ERROR_CODES)[keyof typeof API_KEY_ERROR_CODES];
+
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
   constructor(
@@ -55,6 +68,12 @@ export class ApiKeyGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<RequestWithUser>();
+
+    // Correlation id is propagated for observability; never derived from secrets.
+    const correlationId =
+      req.headers['x-correlation-id'] ?? randomUUID();
+    req.correlationId = correlationId;
+
     const raw = req.headers['x-api-key'];
     const correlationId =
       req.headers['x-correlation-id'] ?? createHash('sha256').update(`${Date.now()}`).digest('hex').slice(0, 16);
@@ -119,10 +138,15 @@ export class ApiKeyGuard implements CanActivate {
       });
     }
 
-    await this.prisma.apiKey.update({
-      where: { id: record.id },
-      data: { lastUsedAt: new Date() },
-    });
+    try {
+      await this.prisma.apiKey.update({
+        where: { id: record.id },
+        data: { lastUsedAt: new Date() },
+      });
+    } catch {
+      // lastUsedAt is best-effort telemetry; a write failure must not grant
+      // access, but the key itself is already validated above.
+    }
 
     req.user = {
       walletAddress: record.ownerWallet,
@@ -131,5 +155,24 @@ export class ApiKeyGuard implements CanActivate {
       correlationId,
     };
     return true;
+  }
+
+  private fail(
+    code: ApiKeyErrorCode,
+    message: string,
+    correlationId: string,
+    status: HttpStatus = HttpStatus.UNAUTHORIZED,
+  ): HttpException {
+    if (status === HttpStatus.UNAUTHORIZED) {
+      return new UnauthorizedException({
+        code,
+        message,
+        correlationId,
+      });
+    }
+    return new HttpException(
+      { code, message, correlationId },
+      status,
+    );
   }
 }
