@@ -1,5 +1,5 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -26,8 +26,11 @@ import { TicksModule } from './ticks/ticks.module';
 import { FeeCollectorModule } from './fee-collector/fee-collector.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { BalancesModule } from './balances/balances.module';
+import { WebsocketModule } from './websocket/websocket.module';
 import { stellarConfig } from './config/stellar.config';
 import { infraConfig } from './config/infra.config';
+import { resolveCorsConfig } from './config/cors.config';
+import { resolveRateLimitConfig, RateLimitConfig } from './config/rate-limit.config';
 
 @Module({
   imports: [
@@ -68,6 +71,12 @@ import { infraConfig } from './config/infra.config';
     FeeCollectorModule,
     TransactionsModule,
     BalancesModule,
+    // WebSocket reconnect (issue #991): typed reconnect entrypoints with
+    // stable error codes, correlation ids, deny-by-default authz on
+    // privileged channels, and idempotent resubscription. Registered after
+    // AuthModule so the reconnect guard can resolve the auth service and
+    // fail closed when dependencies are unavailable.
+    WebsocketModule,
   ],
 })
 export class AppModule {

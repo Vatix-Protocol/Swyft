@@ -45,6 +45,14 @@ const AUTH_ERROR_CODES = {
  */
 const FEE_COLLECTOR_ROLES = ['fee-collector', 'admin'];
 
+/**
+ * Roles permitted to open or resume a privileged WebSocket channel
+ * (e.g. order/fee/settlement streams). Deny-by-default: a wallet-only
+ * token cannot subscribe to these channels, and reconnect must re-present
+ * a token that still satisfies this policy.
+ */
+const WEBSOCKET_PRIVILEGED_ROLES = ['fee-collector', 'admin', 'trader'];
+
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   private readonly logger = new Logger(JwtAuthGuard.name);
@@ -134,6 +142,81 @@ export class JwtAuthGuard implements CanActivate {
 
     req.user = { walletAddress, roles, scopes };
     return true;
+  }
+
+  /**
+   * Authorize a WebSocket connect/reconnect handshake. Reconnect MUST
+   * re-present a token that still satisfies policy: an expired or
+   * downgraded token cannot silently resume a privileged channel.
+   *
+   * Returns the authenticated principal on success; throws a stable,
+   * non-leaking error otherwise (deny-by-default).
+   */
+  authorizeWebSocket(
+    token: string | undefined,
+    correlationId = 'unknown',
+  ): { walletAddress: string; roles: string[]; scopes: string[] } {
+    if (!token) {
+      throw this.deny(AUTH_ERROR_CODES.MISSING_TOKEN, correlationId);
+    }
+
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      this.logger.error(
+        `[${correlationId}] JWT secret not configured; denying websocket`,
+      );
+      throw this.deny(AUTH_ERROR_CODES.NOT_CONFIGURED, correlationId);
+    }
+
+    const options: VerifyOptions = { algorithms: ['HS256'] };
+    if (process.env.JWT_ISSUER) {
+      options.issuer = process.env.JWT_ISSUER;
+    }
+    if (process.env.JWT_AUDIENCE) {
+      options.audience = process.env.JWT_AUDIENCE;
+    }
+
+    let payload: JwtPayload;
+    try {
+      payload = verify(token, secret, options) as JwtPayload;
+    } catch {
+      this.logger.warn(`[${correlationId}] websocket JWT verification failed`);
+      throw this.deny(AUTH_ERROR_CODES.INVALID_TOKEN, correlationId);
+    }
+
+    if (typeof payload.exp !== 'number' || payload.exp * 1000 <= Date.now()) {
+      throw this.deny(AUTH_ERROR_CODES.INVALID_TOKEN, correlationId);
+    }
+
+    const walletAddress =
+      payload.walletAddress ??
+      payload.wallet ??
+      payload.address ??
+      payload.sub;
+
+    if (!walletAddress || typeof walletAddress !== 'string') {
+      this.logger.warn(
+        `[${correlationId}] websocket JWT missing wallet address claim`,
+      );
+      throw this.deny(AUTH_ERROR_CODES.MISSING_WALLET, correlationId);
+    }
+
+    const roles = this.normalizeList(payload.roles ?? payload.role);
+    const scopes = this.normalizeList(payload.scope);
+
+    // Deny-by-default for privileged channels: a wallet-only token cannot
+    // subscribe to order/fee/settlement streams, on connect or reconnect.
+    if (
+      roles.length === 0 ||
+      !roles.some((role) => WEBSOCKET_PRIVILEGED_ROLES.includes(role))
+    ) {
+      this.logger.warn(
+        `[${correlationId}] websocket JWT lacks privileged role; denying by default`,
+      );
+      throw this.deny(AUTH_ERROR_CODES.FORBIDDEN, correlationId);
+    }
+
+    return { walletAddress, roles, scopes };
   }
 
   private normalizeList(value?: string | string[]): string[] {
