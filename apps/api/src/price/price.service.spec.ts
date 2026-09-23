@@ -4,6 +4,8 @@ import {
   PriceEvent,
   normalizePair,
   spotPriceCacheKey,
+  fillCandleGaps,
+  nullCandle,
 } from './price.service';
 import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -122,6 +124,18 @@ describe('PriceService', () => {
     expect(client.send as jest.Mock).not.toHaveBeenCalled();
   });
 
+  it('contains send failures from disconnected clients', () => {
+    const client = mockClient();
+    (client.send as jest.Mock).mockImplementation(() => {
+      throw new Error('socket closed');
+    });
+    service.subscribe(client, 'pool-1');
+
+    expect(() => service.broadcastPrice(event)).not.toThrow();
+    service.broadcastPrice(event);
+    expect(client.send as jest.Mock).toHaveBeenCalledTimes(1);
+  });
+
   describe('normalizePair', () => {
     it('returns tokens in lexicographic order', () => {
       expect(normalizePair('XLM', 'USDC')).toEqual(['usdc', 'xlm']);
@@ -225,11 +239,55 @@ describe('PriceService', () => {
     });
   });
 
+  describe('fillCandleGaps', () => {
+    it('inserts null buckets for missing intervals (no carry-forward)', () => {
+      const existing = [
+        {
+          time: 0,
+          open: 1,
+          high: 2,
+          low: 0.5,
+          close: 1.5,
+          volume: 10,
+        },
+        {
+          time: 7200,
+          open: 3,
+          high: 4,
+          low: 2.5,
+          close: 3.5,
+          volume: 20,
+        },
+      ];
+
+      const filled = fillCandleGaps(existing, 3600, 0, 7200, 10);
+
+      expect(filled).toHaveLength(3);
+      expect(filled[0]).toEqual(existing[0]);
+      expect(filled[1]).toEqual(nullCandle(3600));
+      expect(filled[2]).toEqual(existing[1]);
+      expect(filled[1].open).toBeNull();
+      expect(filled[1].volume).toBeNull();
+    });
+
+    it('returns only null buckets when no candles exist in range', () => {
+      const filled = fillCandleGaps([], 3600, 0, 3600, 10);
+      expect(filled).toEqual([nullCandle(0), nullCandle(3600)]);
+    });
+
+    it('respects limit while filling gaps', () => {
+      const filled = fillCandleGaps([], 60, 0, 600, 3);
+      expect(filled).toHaveLength(3);
+      expect(filled.map((c) => c.time)).toEqual([0, 60, 120]);
+    });
+  });
+
   describe('getCandles', () => {
-    it('returns empty array when no pool is found', async () => {
+    it('throws NotFoundException when no pool is found', async () => {
       mockPrisma.pool.findFirst.mockResolvedValueOnce(null);
-      const result = await service.getCandles('USDC', 'XLM', '1h', 100, 200, 10);
-      expect(result).toEqual([]);
+      await expect(
+        service.getCandles('USDC', 'XLM', '1h', 100, 200, 10),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('queries price_candle table for found pool', async () => {
@@ -244,33 +302,80 @@ describe('PriceService', () => {
           low: 95,
           close: 102,
           volumeUsd: 10000,
-          periodStart: new Date(100000),
+          periodStart: new Date(3600_000),
           pool: null,
         },
       ];
-      mockPrisma.pool.findFirst.mockResolvedValueOnce(mockPool as never);
-      mockPrisma.priceCandle.findMany.mockResolvedValueOnce(mockCandles as never);
+      mockPrisma.pool.findFirst.mockResolvedValueOnce(mockPool);
+      mockPrisma.priceCandle.findMany.mockResolvedValueOnce(mockCandles);
 
-      const result = await service.getCandles('USDC', 'XLM', '1h', 100, 200, 10);
+      const result = await service.getCandles(
+        'USDC',
+        'XLM',
+        '1h',
+        3600,
+        3600,
+        10,
+      );
 
-      expect(result).toHaveLength(1);
-      expect(result[0].open).toBe('100');
-      expect(result[0].high).toBe('105');
-      expect(result[0].low).toBe('95');
-      expect(result[0].close).toBe('102');
-      expect(result[0].volume).toBe('10000');
+      expect(result.candles).toHaveLength(1);
+      expect(result.candles[0].open).toBe(100);
+      expect(result.candles[0].high).toBe(105);
+      expect(result.candles[0].low).toBe(95);
+      expect(result.candles[0].close).toBe(102);
+      expect(result.candles[0].volume).toBe(10000);
       expect(mockPrisma.priceCandle.findMany).toHaveBeenCalledWith({
         where: {
           poolId: 'pool-1',
           interval: '1h',
           periodStart: {
-            gte: new Date(100000),
-            lte: new Date(200000),
+            gte: new Date(3600_000),
+            lte: new Date(3600_000),
           },
         },
         orderBy: { periodStart: 'asc' },
-        take: 10,
       });
+    });
+
+    it('gap-fills missing buckets with null OHLC (not carry-forward)', async () => {
+      const mockPool = { id: 'pool-1' };
+      const mockCandles = [
+        {
+          id: 'candle-1',
+          poolId: 'pool-1',
+          interval: '1h',
+          open: 10,
+          high: 11,
+          low: 9,
+          close: 10.5,
+          volumeUsd: 100,
+          periodStart: new Date(0),
+          pool: null,
+        },
+        {
+          id: 'candle-2',
+          poolId: 'pool-1',
+          interval: '1h',
+          open: 12,
+          high: 13,
+          low: 11,
+          close: 12.5,
+          volumeUsd: 200,
+          periodStart: new Date(7200_000),
+          pool: null,
+        },
+      ];
+      mockPrisma.pool.findFirst.mockResolvedValueOnce(mockPool as never);
+      mockPrisma.priceCandle.findMany.mockResolvedValueOnce(
+        mockCandles as never,
+      );
+
+      const result = await service.getCandles('USDC', 'XLM', '1h', 0, 7200, 10);
+
+      expect(result.candles).toHaveLength(3);
+      expect(result.candles[0].close).toBe(10.5);
+      expect(result.candles[1]).toEqual(nullCandle(3600));
+      expect(result.candles[2].close).toBe(12.5);
     });
   });
 });

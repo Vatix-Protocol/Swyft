@@ -1,20 +1,28 @@
 # Swyft Smart Contracts
 
-All 9 Swyft smart contracts compile and build successfully.
+All 8 Swyft smart contracts compile and build successfully. (The `hello-world` sample/placeholder was removed from the workspace; it is not a shipped Swyft contract.)
 
 ## Contracts
 
-| Contract | Purpose | Status |
-|----------|---------|--------|
-| `hello-world` | Example contract | ✅ |
-| `math-lib` | Fixed-point math (Q64.96) | ✅ |
-| `pool` | Concentrated liquidity pool | ✅ |
-| `pool-factory` | Pool deployment & registry | ✅ |
-| `router` | Single-hop swap routing | ✅ |
-| `position-nft` | Liquidity position NFTs | ✅ |
-| `fee-collector` | Fee accumulation | ✅ |
-| `oracle-adapter` | TWAP oracle | ✅ |
-| `cl-pool` | Additional pool logic | ✅ |
+| Contract         | Purpose                     | Status |
+| ---------------- | --------------------------- | ------ |
+| `math-lib`       | Fixed-point math (Q64.96)   | ✅     |
+| `pool`           | Concentrated liquidity pool | ✅     |
+| `pool-factory`   | Pool deployment & registry  | ✅     |
+| `router`         | Single-hop swap routing     | ✅     |
+| `position-nft`   | Liquidity position NFTs     | ✅     |
+| `fee-collector`  | Fee accumulation            | ✅     |
+| `oracle-adapter` | TWAP oracle (per-pool)      | ✅     |
+| `cl-pool`        | Concentrated-liquidity pool | ✅     |
+
+## Testnet registry
+
+Deployed testnet contract IDs live in:
+
+- **JSON registry**: [`packages/contract/deployments/testnet.json`](packages/contract/deployments/testnet.json)
+- **Key map / docs**: [`packages/contract/deployments/TESTNET.md`](packages/contract/deployments/TESTNET.md)
+
+Wire addresses into the API via the env keys listed in that registry (see `apps/api/.env.example`).
 
 ## Validation
 
@@ -25,14 +33,37 @@ pnpm validate:contracts
 ```
 
 Output:
+
 ```
-Building hello-world... ✓
 Building math-lib... ✓
 Building pool... ✓
 ...
-Passed: 9/9
+Passed: 8/8
 All Swyft contracts validated!
 ```
+
+### Address drift (CI gate)
+
+`scripts/deploy-testnet.sh` records a sha256 hash of each deployed contract's
+wasm under `.wasmHashes` in `packages/contract/deployments/testnet.json`,
+alongside its address. `pnpm validate:contracts:drift` rebuilds every
+contract and compares the fresh wasm hash against the recorded one for any
+contract that has a deployed address — if they don't match, the contract's
+source has changed since it was deployed (drifted) and the command exits
+non-zero.
+
+This runs as the `Contracts` job in CI (`.github/workflows/ci.yml`) on every
+push/PR — a contract build failure or address drift fails the job. The
+comparison logic itself (`packages/contract/scripts/check-address-drift.js`)
+is unit-tested against a fixture with an intentional mismatch:
+
+```bash
+pnpm --filter contracts test:drift
+```
+
+If a contract's address genuinely drifts (source changed post-deploy),
+redeploy with `pnpm --filter contracts deploy:testnet` and commit the
+updated `testnet.json`.
 
 ## Build Details
 
@@ -135,3 +166,15 @@ events or logs.
 - [ ] Integrate with Stellar testnet
 - [ ] Security audit preparation
 - [ ] Documentation for contract interfaces
+
+## Oracle / TWAP
+
+`pool` and `cl-pool` record a post-swap observation with their `oracle-adapter`
+instance after every swap (`sqrt_price_x96`, active liquidity, timestamp).
+`get_twap(window_secs)` reads time-weighted average prices from that history.
+
+One adapter registers exactly one pool (the only writer), so each pool gets its
+own instance — `oracleAdapter` for `pool`, `clPoolOracleAdapter` for `cl-pool`.
+Deploy-time wiring: `oracle.initialize(pool)` + `pool.set_oracle(oracle)` (the
+deploy script does both). Swaps work without a wired oracle, but `get_twap`
+then fails loudly instead of returning fabricated prices.

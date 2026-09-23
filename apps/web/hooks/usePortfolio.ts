@@ -1,12 +1,12 @@
-"use client";
+'use client';
 
-import { useState, useEffect, useCallback } from "react";
-import type { PositionSnapshot } from "@swyft/ui";
-import { API_BASE } from "@/lib/constants";
+import { useState, useEffect, useCallback } from 'react';
+import type { PositionSnapshot } from '@swyft/ui';
+import { API_BASE } from '@/lib/constants';
 
 async function fetchPositions(
   authToken: string,
-  status: "active" | "closed"
+  status: 'active' | 'closed'
 ): Promise<PositionSnapshot[]> {
   const res = await fetch(`${API_BASE}/positions?status=${status}`, {
     headers: { Authorization: `Bearer ${authToken}` },
@@ -30,8 +30,8 @@ export function usePortfolio(authToken: string | null) {
     setLoading(true);
     try {
       const [a, c] = await Promise.all([
-        fetchPositions(authToken, "active"),
-        fetchPositions(authToken, "closed"),
+        fetchPositions(authToken, 'active'),
+        fetchPositions(authToken, 'closed'),
       ]);
       setActive(a);
       setClosed(c);

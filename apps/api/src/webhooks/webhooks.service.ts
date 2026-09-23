@@ -16,15 +16,9 @@ export class WebhooksService {
 
   /**
    * Register a new webhook for the given wallet.
-   *
-   * @param ownerWallet - Stellar account address of the webhook owner.
-   * @param url - HTTPS endpoint that will receive POST deliveries.
-   * @param eventTypes - One or more event types to subscribe to.
-   * @param secret - Optional HMAC-SHA256 signing secret; when set, deliveries include an `X-Swyft-Signature` header.
-   * @param largeSwapUsd - USD threshold for `swap.large` events (default: 10 000).
-   * @returns The created webhook record (id, url, eventTypes, createdAt).
+   * Writes a 'created' audit log entry after the webhook is persisted.
    */
-  create(
+  async create(
     ownerWallet: string,
     url: string,
     eventTypes: WebhookEventType[],
@@ -34,23 +28,33 @@ export class WebhooksService {
     const validTypes = eventTypes.filter((e) =>
       (WEBHOOK_EVENTS as readonly string[]).includes(e),
     );
-    return this.prisma.webhook.create({
+    const webhook = await this.prisma.webhook.create({
       data: {
         ownerWallet,
         url,
         eventTypes: validTypes,
         secret,
-        largeSwapUsd: largeSwapUsd ?? 10000,
+        largeSwapUsd:
+          largeSwapUsd ??
+          parseFloat(process.env.LARGE_SWAP_THRESHOLD_USD ?? '10000'),
       },
       select: { id: true, url: true, eventTypes: true, createdAt: true },
     });
+
+    await this.prisma.webhookAuditLog.create({
+      data: {
+        webhookId: webhook.id,
+        action: 'created',
+        ownerWallet,
+        meta: JSON.stringify({ url, eventTypes: validTypes }),
+      },
+    });
+
+    return webhook;
   }
 
   /**
    * List all webhooks belonging to the given wallet.
-   *
-   * @param ownerWallet - Stellar account address of the webhook owner.
-   * @returns Array of webhook records (id, url, eventTypes, disabled, createdAt).
    */
   list(ownerWallet: string) {
     return this.prisma.webhook.findMany({
@@ -67,21 +71,61 @@ export class WebhooksService {
 
   /**
    * Delete a webhook, scoped to the owning wallet.
-   *
-   * @param id - UUID of the webhook to delete.
-   * @param ownerWallet - Stellar account address; only the owner may delete.
-   * @returns Resolves when the record has been removed (no-op if not found).
+   * Writes a 'deleted' audit log entry when the webhook is found and removed.
    */
   async remove(id: string, ownerWallet: string) {
-    await this.prisma.webhook.deleteMany({ where: { id, ownerWallet } });
+    const deleted = await this.prisma.webhook.deleteMany({
+      where: { id, ownerWallet },
+    });
+
+    if (deleted.count > 0) {
+      await this.prisma.webhookAuditLog.create({
+        data: {
+          webhookId: id,
+          action: 'deleted',
+          ownerWallet,
+          meta: '{}',
+        },
+      });
+    }
+  }
+
+  /**
+   * Return the audit log for webhooks owned by the given wallet,
+   * most recent entries first.
+   */
+  auditLog(ownerWallet: string) {
+    return this.prisma.webhookAuditLog.findMany({
+      where: { ownerWallet },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        webhookId: true,
+        action: true,
+        meta: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  /**
+   * Re-queue failed BullMQ delivery jobs for a webhook owned by the given wallet.
+   * Returns the number of jobs that were retried.
+   */
+  async retryDeliveries(
+    webhookId: string,
+    ownerWallet: string,
+  ): Promise<{ retried: number }> {
+    const webhook = await this.prisma.webhook.findFirst({
+      where: { id: webhookId, ownerWallet },
+    });
+    if (!webhook) return { retried: 0 };
+    const retried = await this.worker.retryFailedDeliveries(webhookId);
+    return { retried };
   }
 
   /**
    * Fan-out an event to all enabled webhooks subscribed to it.
-   *
-   * @param event - The event type being emitted.
-   * @param data - Arbitrary event payload; must be JSON-serialisable.
-   * @returns Resolves once all delivery jobs have been enqueued.
    */
   async dispatch(event: WebhookEventType, data: Record<string, unknown>) {
     const webhooks = await this.prisma.webhook.findMany({
@@ -97,5 +141,50 @@ export class WebhooksService {
     await Promise.all(
       webhooks.map((w: { id: string }) => this.worker.dispatch(w.id, payload)),
     );
+  }
+
+  /**
+   * Send a test ping webhook to verify connectivity.
+   * Only works for webhooks owned by the given wallet.
+   */
+  async ping(
+    webhookId: string,
+    ownerWallet: string,
+    testEventType: WebhookEventType,
+  ): Promise<{
+    sent: boolean;
+    testEvent: WebhookEventType;
+    timestamp: string;
+  }> {
+    const webhook = await this.prisma.webhook.findFirst({
+      where: { id: webhookId, ownerWallet },
+    });
+
+    if (!webhook) {
+      return {
+        sent: false,
+        testEvent: testEventType,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    const testPayload: WebhookPayload = {
+      event: testEventType,
+      timestamp: new Date().toISOString(),
+      data: {
+        message: 'This is a test webhook ping to verify connectivity',
+        webhookId: webhookId,
+        ownerWallet,
+        test: true,
+      },
+    };
+
+    await this.worker.dispatch(webhookId, testPayload);
+
+    return {
+      sent: true,
+      testEvent: testEventType,
+      timestamp: new Date().toISOString(),
+    };
   }
 }

@@ -5,6 +5,7 @@
 The Position NFT contract has been fully implemented with:
 
 ### Files Modified/Created
+
 - `packages/contract/contracts/position-nft/src/lib.rs` - Complete contract implementation
 - `packages/contract/contracts/position-nft/src/test.rs` - Comprehensive test suite (20+ tests)
 - `packages/contract/contracts/position-nft/README.md` - Complete API documentation
@@ -12,6 +13,7 @@ The Position NFT contract has been fully implemented with:
 - `packages/contract/contracts/position-nft/PR_TEMPLATE.md` - PR summary and checklist
 
 ### Key Features Implemented
+
 ✅ mint() - Creates position NFTs with auto-incrementing IDs
 ✅ burn() - Destroys position NFTs  
 ✅ transfer() - Moves NFTs between addresses with owner verification
@@ -25,12 +27,14 @@ The Position NFT contract has been fully implemented with:
 ## Pre-Commit Verification
 
 ### 1. Verify the code compiles (if you have Rust installed)
+
 ```bash
 cd packages/contract
 cargo check --manifest-path contracts/position-nft/Cargo.toml
 ```
 
 ### 2. Review the implementation
+
 ```bash
 # View main implementation
 cat packages/contract/contracts/position-nft/src/lib.rs
@@ -45,23 +49,27 @@ cat packages/contract/contracts/position-nft/README.md
 ## Git Commands to Push PR
 
 ### 1. Stage the changes
+
 ```bash
 cd c:\Users\USER\Documents\GitHub\Swyft
 git add packages/contract/contracts/position-nft/
 ```
 
 ### 2. Create a feature branch (if not already on one)
+
 ```bash
 git checkout -b feat/position-nft-contract
 ```
 
 ### 3. Review the staged changes
+
 ```bash
 git status
 git diff --cached
 ```
 
 ### 4. Commit the changes
+
 ```bash
 git commit -m "Feat/Contract: Implement position NFT contract
 
@@ -80,6 +88,7 @@ git commit -m "Feat/Contract: Implement position NFT contract
 ```
 
 ### 5. Push to remote
+
 ```bash
 # If this is the first push of this branch
 git push -u origin feat/position-nft-contract
@@ -192,18 +201,19 @@ packages/contract/contracts/position-nft/
 
 ## Key Achievements
 
-| Aspect | Status |
-|--------|--------|
-| Contract implementation | ✅ Complete |
-| Error handling | ✅ Comprehensive |
-| Test coverage | ✅ 20+ tests |
-| Documentation | ✅ Complete |
-| Integration guide | ✅ Detailed |
-| Ready for PR | ✅ Yes |
+| Aspect                  | Status           |
+| ----------------------- | ---------------- |
+| Contract implementation | ✅ Complete      |
+| Error handling          | ✅ Comprehensive |
+| Test coverage           | ✅ 20+ tests     |
+| Documentation           | ✅ Complete      |
+| Integration guide       | ✅ Detailed      |
+| Ready for PR            | ✅ Yes           |
 
 ## Questions?
 
 Refer to:
+
 - `README.md` for API documentation
 - `INTEGRATION.md` for how to use with Pool contract
 - `PR_TEMPLATE.md` for full PR details

@@ -1,100 +1,13 @@
-"use client";
+'use client';
 
-import React, { useState } from "react";
-// import { SwapInput, PriceImpactBadge, SlippagePanel, type TokenPair, type Token } from "@swyft/ui"; // TODO: export these from @swyft/ui
-import { useTokens, useRecentTokens, usePoolId } from "@/hooks/useTokens";
-import { useSwapQuote } from "@/hooks/useSwapQuote";
-import { useWalletBalances } from "@/hooks/useWalletBalances";
-import { SwapConfirmModal } from "@/components/SwapConfirmModal";
-
-// ---------------------------------------------------------------------------
-// Local type stubs — remove once @swyft/ui exports these
-// ---------------------------------------------------------------------------
-
-interface Token {
-  id: string;
-  symbol: string;
-  name: string;
-  logoUrl: string | null;
-}
-
-interface TokenPair {
-  tokenIn: Token | null;
-  tokenOut: Token | null;
-}
-
-// Placeholder components — replace with @swyft/ui imports when available
-function SwapInput({
-  label,
-  token,
-  amount,
-  balance,
-  readOnly,
-  onAmountChange,
-}: {
-  label: string;
-  token: Token | null;
-  amount: string;
-  balance?: string;
-  readOnly?: boolean;
-  onAmountChange?: (v: string) => void;
-  onTokenClick?: () => void;
-}) {
-  return (
-    <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-xs text-zinc-400">{label}</span>
-        {balance !== undefined && (
-          <span className="text-xs text-zinc-400">
-            Balance: {parseFloat(balance).toFixed(4)}
-          </span>
-        )}
-      </div>
-      <input
-        type="number"
-        min="0"
-        step="any"
-        placeholder="0.0"
-        readOnly={readOnly}
-        value={amount}
-        onChange={(e) => onAmountChange?.(e.target.value)}
-        className="w-full bg-transparent text-lg font-semibold text-zinc-900 outline-none dark:text-white"
-        aria-label={`${label} amount${token ? ` in ${token.symbol}` : ""}`}
-      />
-    </div>
-  );
-}
-
-function PriceImpactBadge({ impact }: { impact: number }) {
-  const color =
-    impact >= 5
-      ? "text-red-600 dark:text-red-400"
-      : impact >= 1
-      ? "text-amber-600 dark:text-amber-400"
-      : "text-zinc-700 dark:text-zinc-300";
-  return (
-    <span className={`font-medium ${color}`}>{impact.toFixed(2)}%</span>
-  );
-}
-
-function SlippagePanel({
-  slippageBps,
-  onChange,
-}: {
-  slippageBps: number;
-  onChange: (bps: number) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(slippageBps === 50 ? 100 : 50)}
-      className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-      aria-label={`Slippage: ${slippageBps / 100}%`}
-    >
-      {slippageBps / 100}% slippage
-    </button>
-  );
-}
+import React, { useState } from 'react';
+import { calculateExactOutputQuote } from '@swyft/sdk';
+import { SwapInput, PriceImpactBadge, SlippagePanel, type Token, type TokenPair } from '@swyft/ui';
+import { useTokens, useRecentTokens, usePoolId } from '@/hooks/useTokens';
+import { useSwapQuote } from '@/hooks/useSwapQuote';
+import { useWalletBalances } from '@/hooks/useWalletBalances';
+import { SwapConfirmModal } from '@/components/SwapConfirmModal';
+import { ROUTER_ADDRESS } from '@/lib/constants';
 
 // ---------------------------------------------------------------------------
 // TokenPickerButton
@@ -122,13 +35,11 @@ function TokenPickerButton({
         type="button"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-zinc-900 shadow-sm ring-1 ring-zinc-200 hover:ring-indigo-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-700 dark:text-white dark:ring-zinc-600"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-zinc-900 shadow-sm ring-1 ring-zinc-200 hover:ring-indigo-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-700 dark:text-white dark:ring-zinc-600 min-h-[36px]"
       >
-        {token ? (
-          token.symbol
-        ) : (
-          <span className="text-indigo-600">Select</span>
-        )}
+        {token ? token.symbol : <span className="text-indigo-600">Select</span>}
         <svg
           className="h-3.5 w-3.5 text-zinc-400"
           fill="none"
@@ -137,41 +48,43 @@ function TokenPickerButton({
           strokeWidth={2}
           aria-hidden="true"
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M19 9l-7 7-7-7"
-          />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
 
       {open && (
-        <ul
-          role="listbox"
-          aria-label="Select token"
-          className="absolute right-0 top-full z-30 mt-1 max-h-48 w-40 overflow-y-auto rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-        >
-          {available.length === 0 ? (
-            <li className="px-3 py-2 text-xs text-zinc-400">
-              No tokens available
-            </li>
-          ) : (
-            available.map((t) => (
-              <li key={t.id} role="option" aria-selected={t.id === token?.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelect(t);
-                    setOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                >
-                  {t.symbol}
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
+        <>
+          {/* Backdrop — closes dropdown on outside tap (mobile-friendly) */}
+          <div
+            className="fixed inset-0 z-20"
+            aria-hidden="true"
+            onClick={() => setOpen(false)}
+          />
+          <ul
+            role="listbox"
+            aria-label="Select token"
+            className="absolute right-0 top-full z-30 mt-1 max-h-48 w-40 overflow-y-auto rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            {available.length === 0 ? (
+              <li className="px-3 py-2 text-xs text-zinc-400">No tokens available</li>
+            ) : (
+              available.map((t) => (
+                <li key={t.id} role="option" aria-selected={t.id === token?.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelect(t);
+                      setOpen(false);
+                    }}
+                    className="w-full min-h-[44px] px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    {t.symbol}
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </>
       )}
     </div>
   );
@@ -246,13 +159,15 @@ export function SwapWidget({
   const { tokens, loading: tokensLoading, error: tokensError } = useTokens();
   const { recentIds: _recentIds, pushRecent } = useRecentTokens();
   const [pair, setPair] = useState<TokenPair>({ tokenIn: null, tokenOut: null });
-  const [amountIn, setAmountIn] = useState("");
+  const [amountIn, setAmountIn] = useState('');
+  const [amountOut, setAmountOut] = useState('');
+  const [swapMode, setSwapMode] = useState<'exactIn' | 'exactOut'>('exactIn');
   const [slippageBps, setSlippageBps] = useState(50);
   const [showModal, setShowModal] = useState(false);
 
-  const { poolId, poolExists } = usePoolId(
+  const { poolId, poolExists, feeTier } = usePoolId(
     pair.tokenIn?.id ?? null,
-    pair.tokenOut?.id ?? null,
+    pair.tokenOut?.id ?? null
   );
   const { quote, loading: quoteLoading } = useSwapQuote({
     poolId,
@@ -262,31 +177,49 @@ export function SwapWidget({
     slippageBps,
   });
 
-  const tokenIds = [pair.tokenIn?.id, pair.tokenOut?.id].filter(
-    Boolean,
-  ) as string[];
+  // Exact-output mode is only available when a router contract is
+  // configured; otherwise the widget stays exact-input only.
+  const exactOutputAvailable = Boolean(ROUTER_ADDRESS);
+  const exactOutputQuote =
+    swapMode === 'exactOut' && poolId && pair.tokenIn && pair.tokenOut && amountOut
+      ? (() => {
+          try {
+            return calculateExactOutputQuote({
+              poolId,
+              tokenInId: pair.tokenIn.id,
+              tokenOutId: pair.tokenOut.id,
+              amountOut,
+              slippageBps,
+            });
+          } catch {
+            return null;
+          }
+        })()
+      : null;
+
+  const tokenIds = [pair.tokenIn?.id, pair.tokenOut?.id].filter(Boolean) as string[];
   const balances = useWalletBalances(wallet.address, tokenIds);
 
-  const inBalance = pair.tokenIn
-    ? (balances[pair.tokenIn.id] ?? undefined)
-    : undefined;
-  const outBalance = pair.tokenOut
-    ? (balances[pair.tokenOut.id] ?? undefined)
-    : undefined;
+  const inBalance = pair.tokenIn ? (balances[pair.tokenIn.id] ?? undefined) : undefined;
+  const outBalance = pair.tokenOut ? (balances[pair.tokenOut.id] ?? undefined) : undefined;
+
+  const effectiveAmountIn =
+    swapMode === 'exactOut' ? (exactOutputQuote?.amountIn ?? '') : amountIn;
 
   const insufficient =
-    inBalance !== undefined &&
-    parseFloat(amountIn || "0") > parseFloat(inBalance);
+    inBalance !== undefined && parseFloat(effectiveAmountIn || '0') > parseFloat(inBalance);
 
   const swapDisabled =
     !wallet.address ||
     !pair.tokenIn ||
     !pair.tokenOut ||
-    !amountIn ||
-    parseFloat(amountIn) <= 0 ||
     insufficient ||
-    quoteLoading ||
-    !quote;
+    (swapMode === 'exactIn'
+      ? !amountIn || parseFloat(amountIn) <= 0 || quoteLoading || !quote
+      : !amountOut ||
+        parseFloat(amountOut) <= 0 ||
+        !exactOutputQuote ||
+        feeTier == null);
 
   function selectIn(token: Token) {
     const next =
@@ -314,23 +247,30 @@ export function SwapWidget({
     setPair({ tokenIn: pair.tokenOut, tokenOut: pair.tokenIn });
     onTokenInChange?.(pair.tokenOut ?? null);
     onTokenOutChange?.(pair.tokenIn ?? null);
-    setAmountIn(quote?.amountOut ?? "");
+    setAmountIn(quote?.amountOut ?? '');
   }
 
-  const highImpact = quote && quote.priceImpact >= 5;
+  const highImpact = quote && !quoteLoading && quote.priceImpact >= 5;
+
+  // Generate stable IDs for form error messages
+  const errorIds = {
+    insufficientBalance: 'swap-error-insufficient-balance',
+    noPool: 'swap-error-no-pool',
+    highImpact: 'swap-error-high-impact',
+  };
 
   // ── Loading skeleton ──────────────────────────────────────────────────────
   if (tokensLoading) {
     return (
       <div
-        className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+        className="w-full md:w-[448px] rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
         aria-busy="true"
         aria-label="Loading swap widget"
       >
-        <div className="px-5 pt-5 pb-3">
+        <div className="px-4 sm:px-5 pt-4 sm:pt-5 pb-3">
           <div className="h-5 w-12 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
         </div>
-        <div className="px-4 pb-4 flex flex-col gap-2">
+        <div className="px-3 sm:px-4 pb-4 flex flex-col gap-2">
           <div className="h-16 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
           <div className="mx-auto h-11 w-11 animate-pulse rounded-full bg-zinc-100 dark:bg-zinc-800" />
           <div className="h-16 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
@@ -344,7 +284,7 @@ export function SwapWidget({
   if (tokensError) {
     return (
       <div
-        className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+        className="w-full md:w-[448px] rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
         role="alert"
       >
         <div className="flex flex-col items-center gap-3 px-5 py-10 text-center">
@@ -365,9 +305,7 @@ export function SwapWidget({
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
             Unable to load tokens
           </p>
-          <p className="text-xs text-zinc-400">
-            Check your connection and try again.
-          </p>
+          <p className="text-xs text-zinc-400">Check your connection and try again.</p>
         </div>
       </div>
     );
@@ -376,7 +314,7 @@ export function SwapWidget({
   // ── Empty state — no tokens returned by the API ───────────────────────────
   if (tokens.length === 0) {
     return (
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="w-full md:w-[448px] rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-col items-center gap-3 px-5 py-10 text-center">
           <svg
             className="h-8 w-8 text-zinc-300 dark:text-zinc-600"
@@ -386,18 +324,14 @@ export function SwapWidget({
             strokeWidth={1.5}
             aria-hidden="true"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3 7h18M3 12h18M3 17h18"
-            />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M3 12h18M3 17h18" />
           </svg>
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
             No tokens available
           </p>
           <p className="text-xs text-zinc-400">
-            No tradeable tokens have been listed yet. Add liquidity to a pool
-            first, then return here to swap.
+            No tradeable tokens have been listed yet. Add liquidity to a pool first, then return
+            here to swap.
           </p>
         </div>
       </div>
@@ -407,25 +341,47 @@ export function SwapWidget({
   // ── Main widget ───────────────────────────────────────────────────────────
   return (
     <>
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="w-full md:w-[448px] rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-3">
-          <h2 className="text-base font-semibold text-zinc-900 dark:text-white">
-            Swap
-          </h2>
-          <SlippagePanel slippageBps={slippageBps} onChange={setSlippageBps} />
+        <div className="flex items-center justify-between px-4 sm:px-5 pt-4 sm:pt-5 pb-3">
+          <h2 className="text-base font-semibold text-zinc-900 dark:text-white">Swap</h2>
+          <div className="flex items-center gap-2">
+            {exactOutputAvailable && (
+              <button
+                type="button"
+                onClick={() =>
+                  setSwapMode((m) => (m === 'exactIn' ? 'exactOut' : 'exactIn'))
+                }
+                aria-pressed={swapMode === 'exactOut'}
+                className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              >
+                {swapMode === 'exactIn' ? 'Exact input' : 'Exact output'}
+              </button>
+            )}
+            <SlippagePanel slippageBps={slippageBps} onChange={setSlippageBps} />
+          </div>
         </div>
 
-        <div className="px-4 pb-4 flex flex-col gap-2">
+        <div className="px-3 sm:px-4 pb-4 flex flex-col gap-2">
           {/* Sell input */}
-          <div className="relative">
+          <div
+            className="relative"
+            role="group"
+            aria-labelledby="swap-label-pay"
+            aria-describedby={insufficient ? errorIds.insufficientBalance : undefined}
+          >
+            <label id="swap-label-pay" className="sr-only">
+              You pay
+            </label>
             <SwapInput
               label="You pay"
               token={pair.tokenIn}
-              amount={amountIn}
+              amount={swapMode === 'exactOut' ? (exactOutputQuote?.amountIn ?? '') : amountIn}
               balance={inBalance}
               onAmountChange={setAmountIn}
+              readOnly={swapMode === 'exactOut'}
               onTokenClick={() => {}}
+              aria-invalid={insufficient}
             />
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
               <TokenPickerButton
@@ -463,13 +419,32 @@ export function SwapWidget({
           </div>
 
           {/* Buy input */}
-          <div className="relative">
+          <div
+            className="relative"
+            role="group"
+            aria-labelledby="swap-label-receive"
+            aria-describedby={
+              poolExists === false && pair.tokenIn && pair.tokenOut
+                ? errorIds.noPool
+                : undefined
+            }
+          >
+            <label id="swap-label-receive" className="sr-only">
+              You receive
+            </label>
             <SwapInput
               label="You receive"
               token={pair.tokenOut}
-              amount={quoteLoading ? "" : (quote?.amountOut ?? "")}
+              amount={
+                swapMode === 'exactOut'
+                  ? amountOut
+                  : quoteLoading
+                    ? ''
+                    : (quote?.amountOut ?? '')
+              }
               balance={outBalance}
-              readOnly
+              onAmountChange={swapMode === 'exactOut' ? setAmountOut : undefined}
+              readOnly={swapMode === 'exactIn'}
               onTokenClick={() => {}}
             />
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -490,52 +465,54 @@ export function SwapWidget({
             )}
           </div>
 
-          {/* Quote details */}
-          {quote && pair.tokenIn && pair.tokenOut && (
-            <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400 flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <span>Rate</span>
-                <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                  1 {pair.tokenIn.symbol} ={" "}
-                  {parseFloat(quote.executionPrice).toFixed(6)}{" "}
+          {/* Quote details — hidden while refetching so a stale quote for
+              the previous token pair isn't shown as if it were current. */}
+          {quote && !quoteLoading && pair.tokenIn && pair.tokenOut && (
+            <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-3 sm:px-4 py-3 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400 flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="shrink-0">Rate</span>
+                <span className="font-medium text-zinc-700 dark:text-zinc-300 text-right truncate">
+                  1 {pair.tokenIn.symbol} = {parseFloat(quote.executionPrice).toFixed(6)}{' '}
                   {pair.tokenOut.symbol}
                 </span>
               </div>
-              <div className="flex items-center justify-between">
-                <span>Price impact</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="shrink-0">Price impact</span>
                 <PriceImpactBadge impact={quote.priceImpact} />
               </div>
-              <div className="flex items-center justify-between">
-                <span>Min. received</span>
-                <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                  {parseFloat(quote.minimumReceived).toFixed(6)}{" "}
-                  {pair.tokenOut.symbol}
+              <div className="flex items-center justify-between gap-2">
+                <span className="shrink-0">Min. received</span>
+                <span className="font-medium text-zinc-700 dark:text-zinc-300 text-right">
+                  {parseFloat(quote.minimumReceived).toFixed(6)} {pair.tokenOut.symbol}
                 </span>
               </div>
-              <div className="flex items-center justify-between">
-                <span>LP fee</span>
-                <span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="shrink-0">LP fee</span>
+                <span className="text-right">
                   {parseFloat(quote.lpFee).toFixed(7)} {pair.tokenIn.symbol}
                 </span>
               </div>
               {parseFloat(quote.protocolFee) > 0 && (
-                <div className="flex items-center justify-between">
-                  <span>Protocol fee</span>
-                  <span>
-                    {parseFloat(quote.protocolFee).toFixed(7)}{" "}
-                    {pair.tokenIn.symbol}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="shrink-0">Protocol fee</span>
+                  <span className="text-right">
+                    {parseFloat(quote.protocolFee).toFixed(7)} {pair.tokenIn.symbol}
                   </span>
                 </div>
               )}
             </div>
           )}
 
+          {/* Insufficient balance error */}
+          {insufficient && (
+            <p id={errorIds.insufficientBalance} role="alert" className="text-xs text-red-600 dark:text-red-400">
+              Insufficient {pair.tokenIn?.symbol} balance
+            </p>
+          )}
+
           {/* No pool warning */}
           {poolExists === false && pair.tokenIn && pair.tokenOut && (
-            <p
-              role="alert"
-              className="text-xs text-amber-600 dark:text-amber-400"
-            >
+            <p id={errorIds.noPool} role="alert" className="text-xs text-amber-600 dark:text-amber-400">
               No pool exists for this pair. Try a different token combination.
             </p>
           )}
@@ -543,8 +520,9 @@ export function SwapWidget({
           {/* High price impact warning */}
           {highImpact && (
             <div
+              id={errorIds.highImpact}
               role="alert"
-              className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950"
+              className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 sm:px-4 py-3 dark:border-red-800 dark:bg-red-950"
             >
               <svg
                 className="mt-0.5 h-4 w-4 shrink-0 text-red-500"
@@ -561,8 +539,8 @@ export function SwapWidget({
                 />
               </svg>
               <p className="text-xs font-medium text-red-700 dark:text-red-400">
-                Price impact is {quote!.priceImpact.toFixed(2)}% — this trade
-                may result in significant losses.
+                Price impact is {quote!.priceImpact.toFixed(2)}% — this trade may result in
+                significant losses.
               </p>
             </div>
           )}
@@ -573,33 +551,47 @@ export function SwapWidget({
             onClick={() => setShowModal(true)}
             disabled={swapDisabled}
             aria-disabled={swapDisabled}
-            className="mt-1 w-full min-h-[44px] rounded-xl bg-indigo-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
+            aria-describedby={
+              insufficient
+                ? errorIds.insufficientBalance
+                : highImpact
+                  ? errorIds.highImpact
+                  : undefined
+            }
+            className="mt-1 w-full min-h-[52px] sm:min-h-[44px] rounded-xl bg-indigo-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {quoteLoading ? (
               <>
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" aria-hidden="true" />
+                <span
+                  className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                  aria-hidden="true"
+                />
                 Fetching quote…
               </>
-            ) : !wallet.address
-              ? "Connect wallet to swap"
-              : !pair.tokenIn || !pair.tokenOut
-              ? "Select tokens"
-              : !amountIn || parseFloat(amountIn) <= 0
-              ? "Enter an amount"
-              : insufficient
-              ? "Insufficient balance"
-              : "Swap"}
+            ) : !wallet.address ? (
+              'Connect wallet to swap'
+            ) : !pair.tokenIn || !pair.tokenOut ? (
+              'Select tokens'
+            ) : swapMode === 'exactIn' && (!amountIn || parseFloat(amountIn) <= 0) ? (
+              'Enter an amount'
+            ) : swapMode === 'exactOut' && (!amountOut || parseFloat(amountOut) <= 0) ? (
+              'Enter an amount'
+            ) : insufficient ? (
+              'Insufficient balance'
+            ) : (
+              'Swap'
+            )}
           </button>
         </div>
       </div>
 
       {/* Confirmation modal */}
       {showModal &&
-        quote &&
         pair.tokenIn &&
         pair.tokenOut &&
         wallet.address &&
-        poolId && (
+        poolId &&
+        (swapMode === 'exactIn' && quote && !quoteLoading ? (
           <SwapConfirmModal
             poolId={poolId}
             tokenIn={pair.tokenIn}
@@ -610,11 +602,27 @@ export function SwapWidget({
             onClose={() => setShowModal(false)}
             onSuccess={() => {
               setShowModal(false);
-              setAmountIn("");
+              setAmountIn('');
               onSwapSuccess?.();
             }}
           />
-        )}
+        ) : swapMode === 'exactOut' && exactOutputQuote && feeTier != null ? (
+          <SwapConfirmModal
+            mode="exactOut"
+            fee={feeTier}
+            tokenIn={pair.tokenIn}
+            tokenOut={pair.tokenOut}
+            amountOut={amountOut}
+            quote={exactOutputQuote}
+            walletAddress={wallet.address}
+            onClose={() => setShowModal(false)}
+            onSuccess={() => {
+              setShowModal(false);
+              setAmountOut('');
+              onSwapSuccess?.();
+            }}
+          />
+        ) : null)}
     </>
   );
 }

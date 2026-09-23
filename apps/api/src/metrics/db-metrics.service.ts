@@ -7,6 +7,8 @@ export interface DbMetricsSnapshot {
   p95QueryTimeMs: number;
   slowQueryCount: number;
   cacheHitRate: number | null;
+  poolCount: number;
+  swapRatePerMinute: number;
 }
 
 @Injectable()
@@ -16,8 +18,22 @@ export class DbMetricsService {
   private readonly slowThreshold = Number(
     process.env.DB_SLOW_QUERY_THRESHOLD_MS ?? 100,
   );
+  private _poolCount = 0;
+  private swapTimestamps: number[] = [];
 
   constructor(private readonly cache: CacheService) {}
+
+  setPoolCount(count: number) {
+    this._poolCount = count;
+  }
+
+  recordSwap() {
+    const now = Date.now();
+    this.swapTimestamps.push(now);
+    // Keep only timestamps within the last 60 seconds
+    const cutoff = now - 60_000;
+    this.swapTimestamps = this.swapTimestamps.filter((t) => t >= cutoff);
+  }
 
   record(durationMs: number) {
     this.durations.push(durationMs);
@@ -52,6 +68,8 @@ export class DbMetricsService {
       p95QueryTimeMs: p95 ?? 0,
       slowQueryCount: this.slowCount,
       cacheHitRate,
+      poolCount: this._poolCount,
+      swapRatePerMinute: this.swapTimestamps.length,
     };
   }
 }

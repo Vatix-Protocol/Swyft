@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { AllExceptionsFilter } from './all-exceptions.filter';
 import { ArgumentsHost } from '@nestjs/common';
+import { RequestContext } from '../logging/request-context';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -198,5 +199,48 @@ describe('AllExceptionsFilter', () => {
         replyMock.mockClear();
       },
     );
+  });
+
+  // ── requestId correlation ───────────────────────────────────────────────────
+
+  describe('requestId correlation', () => {
+    it('omits requestId when there is no active RequestContext', () => {
+      filter.catch(new NotFoundException(), host);
+      const [, body] = replyMock.mock.calls[0];
+      expect(body.requestId).toBeUndefined();
+    });
+
+    it('includes the active requestId in the error body', () => {
+      RequestContext.run({ requestId: 'req-abc-123' }, () => {
+        filter.catch(new BadRequestException('bad input'), host);
+      });
+
+      const [, body] = replyMock.mock.calls[0];
+      expect(body.requestId).toBe('req-abc-123');
+    });
+
+    it('includes the active requestId in the validationErrors body shape', () => {
+      const exception = new BadRequestException({
+        message: ['email must be an email'],
+        error: 'Bad Request',
+        statusCode: 400,
+      });
+
+      RequestContext.run({ requestId: 'req-validation-1' }, () => {
+        filter.catch(exception, host);
+      });
+
+      const [, body] = replyMock.mock.calls[0];
+      expect(body.requestId).toBe('req-validation-1');
+    });
+
+    it('includes the active requestId for unhandled 500 errors', () => {
+      RequestContext.run({ requestId: 'req-500-1' }, () => {
+        filter.catch(new Error('boom'), host);
+      });
+
+      const [, body] = replyMock.mock.calls[0];
+      expect(body.requestId).toBe('req-500-1');
+    });
   });
 });

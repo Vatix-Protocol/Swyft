@@ -1,0 +1,101 @@
+name: Publish SDK to npm
+
+# Triggered when a tag matching `sdk/v*.*.*` is pushed, e.g. `sdk/v0.1.0`.
+# This scoped tag convention avoids conflicting with future app-level releases.
+on:
+  push:
+    tags:
+      - 'sdk/v[0-9]+.[0-9]+.[0-9]+'
+      - 'sdk/v[0-9]+.[0-9]+.[0-9]+-*'
+
+concurrency:
+  group: publish-sdk
+  cancel-in-progress: false
+
+jobs:
+  # ── 1. Verify the package builds and all tests pass ──────────────────────────
+  verify:
+    name: Verify SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check SDK
+        run: pnpm --filter @swyft/sdk build:check
+
+      - name: Test SDK
+        run: pnpm --filter @swyft/sdk test
+
+      - name: Build SDK
+        run: pnpm --filter @swyft/sdk build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-dist
+          path: packages/sdk/dist
+          retention-days: 1
+
+  # ── 2. Publish to npm registry ────────────────────────────────────────────────
+  publish:
+    name: Publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # Required for npm provenance
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-dist
+          path: packages/sdk/dist
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#sdk/v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate package version matches tag
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/sdk/package.json').version")
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::package.json version ($PKG_VERSION) does not match tag version ($TAG_VERSION)"
+            exit 1
+          fi
+
+      - name: Publish @swyft/sdk
+        run: pnpm --filter @swyft/sdk publish --no-git-checks --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

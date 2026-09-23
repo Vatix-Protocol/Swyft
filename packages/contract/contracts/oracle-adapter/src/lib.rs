@@ -228,6 +228,9 @@ impl OracleAdapter {
     }
 }
 
+#[cfg(test)]
+mod test;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn panic_oracle_error(env: &Env, error: OracleError) -> ! {

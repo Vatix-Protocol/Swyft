@@ -1,12 +1,20 @@
-"use client";
+'use client';
 
-import { useRef, useCallback, useMemo } from "react";
-import type { TickData } from "@/hooks/usePoolTicks";
-import { tickToPrice, priceToTick, nearestUsableTick } from "@/hooks/useAddLiquidity";
+import { useRef, useCallback, useMemo } from 'react';
+import type { TickData } from '@/hooks/usePoolTicks';
+import { tickToPrice, priceToTick, nearestUsableTick } from '@/hooks/useAddLiquidity';
 
 export interface RangeSelectorProps {
   /** Tick data used to render the liquidity depth chart */
   ticks: TickData[];
+  /**
+   * Set when the tick fetch failed and `ticks` is synthetic placeholder
+   * data rather than real liquidity. Shows a warning banner with a retry
+   * action when present.
+   */
+  ticksError?: string | null;
+  /** Re-fetches tick data after a failed load. */
+  onRetryTicks?: () => void;
   /** The pool's current active tick */
   currentTick: number;
   /** Currently selected lower bound tick */
@@ -47,6 +55,8 @@ const CHART_W = 100; // percentage units
 
 export function RangeSelector({
   ticks,
+  ticksError,
+  onRetryTicks,
   currentTick,
   lowerTick,
   upperTick,
@@ -63,7 +73,7 @@ export function RangeSelector({
   isFullRange,
 }: RangeSelectorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const dragging = useRef<"lower" | "upper" | null>(null);
+  const dragging = useRef<'lower' | 'upper' | null>(null);
 
   const { bars, minTick, maxTick } = useMemo(() => {
     if (!ticks.length) return { bars: [] as Bar[], minTick: -2000, maxTick: 2000 };
@@ -80,15 +90,21 @@ export function RangeSelector({
     return { bars, minTick: minT, maxTick: maxT };
   }, [ticks, lowerTick, upperTick]);
 
-  const tickToX = useCallback((tick: number) => {
-    if (maxTick === minTick) return 50;
-    return Math.max(0, Math.min(100, ((tick - minTick) / (maxTick - minTick)) * 100));
-  }, [minTick, maxTick]);
+  const tickToX = useCallback(
+    (tick: number) => {
+      if (maxTick === minTick) return 50;
+      return Math.max(0, Math.min(100, ((tick - minTick) / (maxTick - minTick)) * 100));
+    },
+    [minTick, maxTick]
+  );
 
-  const xToTick = useCallback((xPct: number) => {
-    const tick = minTick + (xPct / 100) * (maxTick - minTick);
-    return nearestUsableTick(Math.round(tick), tickSpacing);
-  }, [minTick, maxTick, tickSpacing]);
+  const xToTick = useCallback(
+    (xPct: number) => {
+      const tick = minTick + (xPct / 100) * (maxTick - minTick);
+      return nearestUsableTick(Math.round(tick), tickSpacing);
+    },
+    [minTick, maxTick, tickSpacing]
+  );
 
   const getSvgX = useCallback((clientX: number): number => {
     const svg = svgRef.current;
@@ -97,28 +113,58 @@ export function RangeSelector({
     return Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
   }, []);
 
-  const onMouseDown = useCallback((handle: "lower" | "upper") => (e: React.MouseEvent) => {
-    e.preventDefault();
-    dragging.current = handle;
+  const onMouseDown = useCallback(
+    (handle: 'lower' | 'upper') => (e: React.MouseEvent) => {
+      e.preventDefault();
+      dragging.current = handle;
 
-    const onMove = (me: MouseEvent) => {
-      const xPct = getSvgX(me.clientX);
-      const tick = xToTick(xPct);
-      if (handle === "lower" && tick < upperTick) onLowerTickChange(tick);
-      if (handle === "upper" && tick > lowerTick) onUpperTickChange(tick);
-    };
-    const onUp = () => {
-      dragging.current = null;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [getSvgX, xToTick, lowerTick, upperTick, onLowerTickChange, onUpperTickChange]);
+      const onMove = (me: MouseEvent) => {
+        const xPct = getSvgX(me.clientX);
+        const tick = xToTick(xPct);
+        if (handle === 'lower' && tick < upperTick) onLowerTickChange(tick);
+        if (handle === 'upper' && tick > lowerTick) onUpperTickChange(tick);
+      };
+      const onUp = () => {
+        dragging.current = null;
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [getSvgX, xToTick, lowerTick, upperTick, onLowerTickChange, onUpperTickChange]
+  );
 
   const lowerX = tickToX(lowerTick);
   const upperX = tickToX(upperTick);
   const currentX = tickToX(currentTick);
+
+  // Guard manual price entry against inverted/out-of-range bounds before
+  // forwarding to the parent, since a bad tick pair here becomes a bad
+  // on-chain call (mint would revert or silently create a degenerate range).
+  const handleLowerPriceChange = useCallback(
+    (value: string) => {
+      const price = parseFloat(value);
+      if (value.trim() !== '' && !isNaN(price) && price > 0) {
+        const proposedTick = nearestUsableTick(priceToTick(price), tickSpacing);
+        if (proposedTick >= upperTick) return;
+      }
+      onLowerPriceChange(value);
+    },
+    [onLowerPriceChange, tickSpacing, upperTick]
+  );
+
+  const handleUpperPriceChange = useCallback(
+    (value: string) => {
+      const price = parseFloat(value);
+      if (value.trim() !== '' && !isNaN(price) && price > 0) {
+        const proposedTick = nearestUsableTick(priceToTick(price), tickSpacing);
+        if (proposedTick <= lowerTick) return;
+      }
+      onUpperPriceChange(value);
+    },
+    [onUpperPriceChange, tickSpacing, lowerTick]
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -129,13 +175,28 @@ export function RangeSelector({
           onClick={onFullRange}
           className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
             isFullRange
-              ? "bg-indigo-600 text-white"
-              : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              ? 'bg-indigo-600 text-white'
+              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
           }`}
         >
           Full range
         </button>
       </div>
+
+      {ticksError && (
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+          <span>Showing estimated liquidity — live data failed to load.</span>
+          {onRetryTicks && (
+            <button
+              type="button"
+              onClick={onRetryTicks}
+              className="shrink-0 font-semibold underline hover:no-underline"
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Depth chart */}
       <div className="relative rounded-xl border border-zinc-100 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50 overflow-hidden">
@@ -147,8 +208,22 @@ export function RangeSelector({
           aria-label="Liquidity depth chart"
         >
           {/* Out-of-range fill */}
-          <rect x="0" y="0" width={lowerX} height={CHART_H} fill="currentColor" className="text-zinc-200 dark:text-zinc-800" />
-          <rect x={upperX} y="0" width={100 - upperX} height={CHART_H} fill="currentColor" className="text-zinc-200 dark:text-zinc-800" />
+          <rect
+            x="0"
+            y="0"
+            width={lowerX}
+            height={CHART_H}
+            fill="currentColor"
+            className="text-zinc-200 dark:text-zinc-800"
+          />
+          <rect
+            x={upperX}
+            y="0"
+            width={100 - upperX}
+            height={CHART_H}
+            fill="currentColor"
+            className="text-zinc-200 dark:text-zinc-800"
+          />
 
           {/* Bars */}
           {bars.map((bar) => (
@@ -158,7 +233,7 @@ export function RangeSelector({
               y={CHART_H - bar.h}
               width={Math.max(0.4, CHART_W / bars.length - 0.2)}
               height={bar.h}
-              fill={bar.active ? "rgb(99,102,241)" : "rgb(161,161,170)"}
+              fill={bar.active ? 'rgb(99,102,241)' : 'rgb(161,161,170)'}
               opacity={bar.active ? 0.85 : 0.35}
             />
           ))}
@@ -185,15 +260,43 @@ export function RangeSelector({
           />
 
           {/* Lower handle */}
-          <g onMouseDown={onMouseDown("lower")} className="cursor-ew-resize">
-            <line x1={lowerX} y1="0" x2={lowerX} y2={CHART_H} stroke="rgb(99,102,241)" strokeWidth="0.8" />
-            <rect x={lowerX - 2} y={CHART_H - 16} width={4} height={12} rx="1" fill="rgb(99,102,241)" />
+          <g onMouseDown={onMouseDown('lower')} className="cursor-ew-resize">
+            <line
+              x1={lowerX}
+              y1="0"
+              x2={lowerX}
+              y2={CHART_H}
+              stroke="rgb(99,102,241)"
+              strokeWidth="0.8"
+            />
+            <rect
+              x={lowerX - 2}
+              y={CHART_H - 16}
+              width={4}
+              height={12}
+              rx="1"
+              fill="rgb(99,102,241)"
+            />
           </g>
 
           {/* Upper handle */}
-          <g onMouseDown={onMouseDown("upper")} className="cursor-ew-resize">
-            <line x1={upperX} y1="0" x2={upperX} y2={CHART_H} stroke="rgb(99,102,241)" strokeWidth="0.8" />
-            <rect x={upperX - 2} y={CHART_H - 16} width={4} height={12} rx="1" fill="rgb(99,102,241)" />
+          <g onMouseDown={onMouseDown('upper')} className="cursor-ew-resize">
+            <line
+              x1={upperX}
+              y1="0"
+              x2={upperX}
+              y2={CHART_H}
+              stroke="rgb(99,102,241)"
+              strokeWidth="0.8"
+            />
+            <rect
+              x={upperX - 2}
+              y={CHART_H - 16}
+              width={4}
+              height={12}
+              rx="1"
+              fill="rgb(99,102,241)"
+            />
           </g>
         </svg>
 
@@ -214,12 +317,14 @@ export function RangeSelector({
             type="text"
             inputMode="decimal"
             value={lowerPrice}
-            onChange={(e) => onLowerPriceChange(e.target.value)}
+            onChange={(e) => handleLowerPriceChange(e.target.value)}
             aria-label="Minimum price"
             placeholder="0.00"
             className="w-full bg-transparent text-sm font-semibold text-zinc-900 placeholder-zinc-300 focus:outline-none dark:text-white dark:placeholder-zinc-600"
           />
-          <p className="mt-0.5 text-[10px] text-zinc-400">{token1Symbol} per {token0Symbol}</p>
+          <p className="mt-0.5 text-[10px] text-zinc-400">
+            {token1Symbol} per {token0Symbol}
+          </p>
         </div>
         <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900">
           <p className="mb-1 text-[10px] font-medium text-zinc-400">Max price</p>
@@ -227,12 +332,14 @@ export function RangeSelector({
             type="text"
             inputMode="decimal"
             value={upperPrice}
-            onChange={(e) => onUpperPriceChange(e.target.value)}
+            onChange={(e) => handleUpperPriceChange(e.target.value)}
             aria-label="Maximum price"
             placeholder="0.00"
             className="w-full bg-transparent text-sm font-semibold text-zinc-900 placeholder-zinc-300 focus:outline-none dark:text-white dark:placeholder-zinc-600"
           />
-          <p className="mt-0.5 text-[10px] text-zinc-400">{token1Symbol} per {token0Symbol}</p>
+          <p className="mt-0.5 text-[10px] text-zinc-400">
+            {token1Symbol} per {token0Symbol}
+          </p>
         </div>
       </div>
     </div>

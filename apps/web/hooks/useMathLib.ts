@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { SwyftRpcError } from "@swyft/sdk";
-import { API_BASE } from "@/lib/constants";
+import { useState } from 'react';
+import { SwyftRpcError } from '@swyft/sdk';
+import { API_BASE } from '@/lib/constants';
 
 export interface MathLibResult {
   tick?: number;
@@ -24,14 +24,14 @@ export function useMathLib() {
     setResult(null);
     try {
       const res = await fetch(
-        `${API_BASE}/math/sqrt-price-to-tick?sqrtPriceX96=${encodeURIComponent(sqrtPriceX96)}`,
+        `${API_BASE}/math/sqrt-price-to-tick?sqrtPriceX96=${encodeURIComponent(sqrtPriceX96)}`
       );
       if (!res.ok) throw new SwyftRpcError(`math-lib request failed: ${res.status}`);
       const data = (await res.json()) as { tick: number };
       setResult({ tick: data.tick });
       return data.tick;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
+      const message = err instanceof Error ? err.message : 'Unknown error';
       setResult({ error: message });
       return null;
     } finally {
@@ -49,7 +49,7 @@ export function useMathLib() {
       setResult({ sqrtPrice: data.sqrtPriceX96 });
       return data.sqrtPriceX96;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
+      const message = err instanceof Error ? err.message : 'Unknown error';
       setResult({ error: message });
       return null;
     } finally {

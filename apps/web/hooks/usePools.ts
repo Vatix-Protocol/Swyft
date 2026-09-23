@@ -1,9 +1,10 @@
-"use client";
+'use client';
 
-import { useQuery } from "@tanstack/react-query";
-import { API_BASE } from "@/lib/constants";
+import { useQuery } from '@tanstack/react-query';
+import { useNetworkContext } from '@/context/NetworkContext';
+import { apiFetch } from '@/lib/api-fetch';
 
-export type PoolOrderBy = "tvl" | "volume" | "apr";
+export type PoolOrderBy = 'tvl' | 'volume' | 'apr';
 
 export interface PoolListItem {
   id: string;
@@ -32,20 +33,26 @@ interface UsePoolsParams {
 }
 
 export function usePools({ page, orderBy, search }: UsePoolsParams) {
-  return useQuery<PoolsResponse>({
-    queryKey: ["pools", page, orderBy, search],
+  const { network, apiBase } = useNetworkContext();
+
+  const query = useQuery<PoolsResponse>({
+    queryKey: ['pools', network, page, orderBy, search],
     queryFn: async () => {
       const params = new URLSearchParams({
         page: String(page),
-        limit: "20",
+        limit: '20',
         orderBy,
         ...(search ? { search } : {}),
       });
-      const res = await fetch(`${API_BASE}/pools?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch pools");
+      const res = await apiFetch(`${apiBase}/pools?${params}`);
+      if (!res.ok) throw new Error('Failed to fetch pools');
       return res.json();
     },
-    refetchInterval: 30_000,
     placeholderData: (prev) => prev,
+    refetchInterval: 30_000,
   });
+
+  const isStale = query.data === undefined && !query.isLoading;
+
+  return { ...query, isStale };
 }

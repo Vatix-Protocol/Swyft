@@ -42,13 +42,65 @@ export function spotPriceCacheKey(tokenA: string, tokenB: string): string {
   return `price:spot:${a}:${b}`;
 }
 
+/**
+ * OHLCV candle for a fixed interval bucket.
+ *
+ * Gap policy (null buckets): when no trades occurred in a bucket inside the
+ * requested `[from, to]` range, the API returns an explicit null candle —
+ * `open`/`high`/`low`/`close`/`volume` are all `null`. Gaps are never
+ * carry-forward filled. See `docs/CANDLE_GAP_POLICY.md`.
+ */
 export interface PriceCandle {
-  timestamp: number;
-  open: string;
-  high: string;
-  low: string;
-  close: string;
-  volume: string;
+  time: number;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  volume: number | null;
+}
+
+/** Build an explicit null-bucket candle for a missing interval. */
+export function nullCandle(time: number): PriceCandle {
+  return {
+    time,
+    open: null,
+    high: null,
+    low: null,
+    close: null,
+    volume: null,
+  };
+}
+
+/**
+ * Align `from`/`to` unix seconds onto interval boundaries and insert
+ * null-bucket candles for any missing period in the closed range.
+ *
+ * Existing candles are left unchanged; only absent buckets are filled with
+ * null OHLC/volume (never carry-forward).
+ */
+export function fillCandleGaps(
+  candles: PriceCandle[],
+  intervalSec: number,
+  from: number,
+  to: number,
+  limit: number,
+): PriceCandle[] {
+  if (intervalSec <= 0 || limit <= 0) return [];
+
+  const start = Math.floor(from / intervalSec) * intervalSec;
+  const end = Math.floor(to / intervalSec) * intervalSec;
+  if (end < start) return [];
+
+  const byTime = new Map<number, PriceCandle>();
+  for (const c of candles) {
+    byTime.set(c.time, c);
+  }
+
+  const filled: PriceCandle[] = [];
+  for (let t = start; t <= end && filled.length < limit; t += intervalSec) {
+    filled.push(byTime.get(t) ?? nullCandle(t));
+  }
+  return filled;
 }
 
 @Injectable()
@@ -86,7 +138,11 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
         (id) => `prices:${id}`,
       );
       if (channels.length) {
-        void this.subscriber.subscribe(...channels);
+        void this.subscriber
+          .subscribe(...channels)
+          .catch((error: unknown) =>
+            this.logger.warn(`Price re-subscription failed: ${String(error)}`),
+          );
         this.logger.log(`Re-subscribed to ${channels.length} channel(s)`);
       }
     });
@@ -104,7 +160,13 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
     if (!this.clientPools.has(client)) this.clientPools.set(client, new Set());
     this.clientPools.get(client)!.add(poolId);
 
-    if (isNew) void this.subscriber.subscribe(`prices:${poolId}`);
+    if (isNew) {
+      void this.subscriber
+        .subscribe(`prices:${poolId}`)
+        .catch((error: unknown) =>
+          this.logger.warn(`Price subscription failed: ${String(error)}`),
+        );
+    }
   }
 
   unsubscribe(client: WebSocket, poolId: string): void {
@@ -113,10 +175,19 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
       pool.delete(client);
       if (pool.size === 0) {
         this.subscriptions.delete(poolId);
-        void this.subscriber.unsubscribe(`prices:${poolId}`);
+        void this.subscriber
+          .unsubscribe(`prices:${poolId}`)
+          .catch((error: unknown) =>
+            this.logger.warn(`Price unsubscribe failed: ${String(error)}`),
+          );
       }
     }
     this.clientPools.get(client)?.delete(poolId);
+  }
+
+  /** Number of pools a given client is currently subscribed to. */
+  getSubscriptionCount(client: WebSocket): number {
+    return this.clientPools.get(client)?.size ?? 0;
   }
 
   removeClient(client: WebSocket): void {
@@ -175,7 +246,13 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
 
     const payload = JSON.stringify({ event: 'price', data: event });
     for (const client of clients) {
-      if (client.readyState === WebSocket.OPEN) client.send(payload);
+      if (client.readyState !== WebSocket.OPEN) continue;
+      try {
+        client.send(payload);
+      } catch (error) {
+        this.removeClient(client);
+        this.logger.warn(`Price broadcast failed: ${String(error)}`);
+      }
     }
   }
 
@@ -186,7 +263,7 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
     from: number,
     to: number,
     limit: number,
-  ): Promise<PriceCandle[]> {
+  ): Promise<{ poolId: string; candles: PriceCandle[] }> {
     const tokenALower = tokenA.toLowerCase();
     const tokenBLower = tokenB.toLowerCase();
 
@@ -206,7 +283,9 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!pool) {
-      return [];
+      throw new NotFoundException(
+        `No pool found for token pair ${tokenA}/${tokenB}`,
+      );
     }
 
     const fromDate = new Date(from * 1000);
@@ -222,17 +301,21 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
         },
       },
       orderBy: { periodStart: 'asc' },
-      take: limit,
     });
 
-    return priceCandles.map((candle) => ({
-      timestamp: Math.floor(candle.periodStart.getTime() / 1000),
-      open: candle.open.toString(),
-      high: candle.high.toString(),
-      low: candle.low.toString(),
-      close: candle.close.toString(),
-      volume: candle.volumeUsd.toString(),
+    const candles = priceCandles.map((candle) => ({
+      time: Math.floor(candle.periodStart.getTime() / 1000),
+      open: parseFloat(candle.open.toString()),
+      high: parseFloat(candle.high.toString()),
+      low: parseFloat(candle.low.toString()),
+      close: parseFloat(candle.close.toString()),
+      volume: parseFloat(candle.volumeUsd.toString()),
     }));
+
+    const intervalSec = this.getIntervalSeconds(interval);
+    const filled = fillCandleGaps(candles, intervalSec, from, to, limit);
+
+    return { poolId: pool.id, candles: filled };
   }
 
   private getIntervalSeconds(interval: string): number {

@@ -18,7 +18,7 @@ export const MAX_TICK = 887272;
  * @returns The nearest tick index snapped to `tickSpacing` and clamped to valid bounds
  */
 export function priceToTick(price: number, tickSpacing: number): number {
-  if (price <= 0) throw new RangeError("price must be positive");
+  if (price <= 0) throw new RangeError('price must be positive');
   // tick = log(price) / log(1.0001)
   const tick = Math.log(price) / Math.log(1.0001);
   const snapped = Math.round(tick / tickSpacing) * tickSpacing;
@@ -34,11 +34,7 @@ export function priceToTick(price: number, tickSpacing: number): number {
  * @param token1Decimals - Decimals for token1
  * @returns The price as a floating-point number (token1/token0)
  */
-export function tickToPrice(
-  tick: number,
-  token0Decimals: number,
-  token1Decimals: number
-): number {
+export function tickToPrice(tick: number, token0Decimals: number, token1Decimals: number): number {
   // price = 1.0001^tick * 10^(token0Decimals - token1Decimals)
   return Math.pow(1.0001, tick) * Math.pow(10, token0Decimals - token1Decimals);
 }
@@ -75,9 +71,7 @@ export function getAmountsForLiquidity({
 
   if (sqrtPriceX96 <= sqrtPriceLowerX96) {
     // Price is below range: only amount0
-    const amount0 =
-      (liquidity * Q96) / sqrtPriceLowerX96 -
-      (liquidity * Q96) / sqrtPriceUpperX96;
+    const amount0 = (liquidity * Q96) / sqrtPriceLowerX96 - (liquidity * Q96) / sqrtPriceUpperX96;
     return { amount0, amount1: 0n };
   } else if (sqrtPriceX96 >= sqrtPriceUpperX96) {
     // Price is above range: only amount1
@@ -85,8 +79,7 @@ export function getAmountsForLiquidity({
     return { amount0: 0n, amount1 };
   } else {
     // Price is in range: both amounts
-    const amount0 = (liquidity * Q96) / sqrtPriceLowerX96 -
-      (liquidity * Q96) / sqrtPriceX96;
+    const amount0 = (liquidity * Q96) / sqrtPriceLowerX96 - (liquidity * Q96) / sqrtPriceX96;
     const amount1 = (liquidity * (sqrtPriceX96 - sqrtPriceLowerX96)) / Q96;
     return { amount0, amount1 };
   }
@@ -132,8 +125,7 @@ export function getLiquidityForAmounts({
   } else {
     // Price is in range — take the minimum of both constraints
     const liq0 =
-      (amount0 * sqrtPriceX96 * sqrtPriceUpperX96) /
-      (Q96 * (sqrtPriceUpperX96 - sqrtPriceX96));
+      (amount0 * sqrtPriceX96 * sqrtPriceUpperX96) / (Q96 * (sqrtPriceUpperX96 - sqrtPriceX96));
     const liq1 = (amount1 * Q96) / (sqrtPriceX96 - sqrtPriceLowerX96);
     return liq0 < liq1 ? liq0 : liq1;
   }
@@ -188,8 +180,7 @@ export function getAmountsDelta({
  * @returns Sqrt price in Q64.96 as bigint
  */
 export function tickToSqrtPriceX96(tick: number): bigint {
-  if (tick < MIN_TICK || tick > MAX_TICK)
-    throw new RangeError(`tick ${tick} out of bounds`);
+  if (tick < MIN_TICK || tick > MAX_TICK) throw new RangeError(`tick ${tick} out of bounds`);
   if (tick >= 0) {
     return Q96 + (BigInt(tick) * Q96) / 20000n;
   } else {
@@ -207,7 +198,7 @@ export function tickToSqrtPriceX96(tick: number): bigint {
  * @returns Tick index (number)
  */
 export function sqrtPriceX96ToTick(sqrtPriceX96: bigint): number {
-  if (sqrtPriceX96 <= 0n) throw new RangeError("sqrtPriceX96 must be positive");
+  if (sqrtPriceX96 <= 0n) throw new RangeError('sqrtPriceX96 must be positive');
   if (sqrtPriceX96 >= Q96) {
     const ratio = sqrtPriceX96 - Q96;
     return Number((ratio * 20000n) / Q96);
@@ -215,4 +206,68 @@ export function sqrtPriceX96ToTick(sqrtPriceX96: bigint): number {
     const ratio = Q96 - sqrtPriceX96;
     return -Number((ratio * 20000n) / Q96);
   }
+}
+
+/**
+ * Parameters for computing impermanent loss percentage.
+ */
+export interface ImpermanentLossParams {
+  /** Current token0 amount (as number, post-decimals) */
+  readonly amount0Current: number;
+  /** Current token1 amount (as number, post-decimals) */
+  readonly amount1Current: number;
+  /** Initial token0 amount when position was created (as number, post-decimals) */
+  readonly amount0Initial: number;
+  /** Initial token1 amount when position was created (as number, post-decimals) */
+  readonly amount1Initial: number;
+  /** Current token0 price in terms of token1 */
+  readonly token0Price: number;
+  /** Current token1 price in terms of token0 (optional, derived from 1/token0Price if not provided) */
+  readonly token1Price?: number;
+}
+
+/**
+ * Calculates impermanent loss percentage for a liquidity position.
+ *
+ * Compares the value of the current position against a hypothetical "hodl" scenario
+ * where the initial amounts were simply held without providing liquidity.
+ *
+ * **Assumptions:**
+ * - Prices are in decimal-adjusted terms (10^decimals already factored in)
+ * - The position value is calculated as: amount0 * token0Price + amount1 * token1Price
+ * - A negative result means impermanent loss (position lost value)
+ * - A positive result means impermanent gain
+ *
+ * @param params.amount0Current - Current token0 balance in the position
+ * @param params.amount1Current - Current token1 balance in the position
+ * @param params.amount0Initial - Initial token0 deposited when position was created
+ * @param params.amount1Initial - Initial token1 deposited when position was created
+ * @param params.token0Price - Current token0 price (token1 per token0)
+ * @param params.token1Price - Current token1 price (token0 per token1), optional
+ * @returns IL percentage, or null if calculation cannot be performed (e.g., zero initial value)
+ */
+export function getImpermanentLossPercentage({
+  amount0Current,
+  amount1Current,
+  amount0Initial,
+  amount1Initial,
+  token0Price,
+  token1Price: providedToken1Price,
+}: ImpermanentLossParams): number | null {
+  // Use provided token1Price or derive from token0Price
+  const token1Price = providedToken1Price ?? (token0Price !== 0 ? 1 / token0Price : 0);
+
+  // Calculate current position value
+  const currentValue = amount0Current * token0Price + amount1Current * token1Price;
+
+  // Calculate hodl value (what you'd have if you just held the initial amounts)
+  const hodlValue = amount0Initial * token0Price + amount1Initial * token1Price;
+
+  // Return null if hodl value is zero or negative (invalid scenario)
+  if (hodlValue <= 0) return null;
+
+  // IL% = (hodlValue / currentValue - 1) * 100
+  const ilPercentage = ((hodlValue / currentValue - 1) * 100);
+
+  return isFinite(ilPercentage) ? ilPercentage : null;
 }

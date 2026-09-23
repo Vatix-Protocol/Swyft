@@ -46,6 +46,7 @@ Initializes the contract with a minter address (typically the pool factory contr
 **Authorization**: Requires `minter` to authorize the call
 
 **Effects**:
+
 - Sets the minter address
 - Initializes the next token ID counter to 0
 - Can only be called once
@@ -61,6 +62,7 @@ Mints a new position NFT.
 **Authorization**: Only the minter address can call this function
 
 **Parameters**:
+
 - `owner`: The address that will own the position NFT
 - `pool`: The pool address where this position exists
 - `tick_lower`: Lower tick of the position range
@@ -68,6 +70,7 @@ Mints a new position NFT.
 - `liquidity`: The liquidity amount of the position
 
 **Effects**:
+
 - Creates a new position with metadata
 - Assigns a unique, auto-incrementing token ID
 - Records the creation timestamp
@@ -85,9 +88,11 @@ Destroys a position NFT when the position is fully closed.
 **Authorization**: Only the minter address can call this function
 
 **Parameters**:
+
 - `token_id`: The ID of the position NFT to burn
 
 **Effects**:
+
 - Removes the position from storage
 - Emits a Transfer event: `Transfer(owner, 0x0, token_id)`
 
@@ -102,11 +107,13 @@ Transfers a position NFT from one address to another.
 **Authorization**: Requires `from` to authorize the call
 
 **Parameters**:
+
 - `token_id`: The ID of the position NFT to transfer
 - `from`: The current owner of the position
 - `to`: The new owner of the position
 
 **Effects**:
+
 - Updates the owner field in the position metadata
 - Preserves all other metadata (pool, ticks, liquidity, timestamp)
 - Emits a Transfer event: `Transfer(from, to, token_id)`
@@ -122,6 +129,7 @@ Returns the current owner of a position NFT.
 **Authorization**: None required
 
 **Parameters**:
+
 - `token_id`: The ID of the position NFT
 
 **Returns**: The owner address on success, or `PositionNftError::PositionNotFound` if the token doesn't exist
@@ -135,6 +143,7 @@ Returns the complete metadata of a position NFT.
 **Authorization**: None required
 
 **Parameters**:
+
 - `token_id`: The ID of the position NFT
 
 **Returns**: The complete `PositionMetadata` on success, or `PositionNftError::PositionNotFound` if the token doesn't exist
@@ -233,6 +242,7 @@ The contract includes comprehensive test coverage:
 - Permission enforcement
 
 Run tests with:
+
 ```bash
 cargo test --manifest-path contracts/position-nft/Cargo.toml
 ```

@@ -47,7 +47,7 @@ export interface PositionSnapshot {
   /** Unix timestamp (seconds) when the position was closed, or null if still active */
   closedAt: number | null;
   /** Whether the position is currently earning fees */
-  status: "active" | "closed";
+  status: 'active' | 'closed';
   /** Current price of the pool, used to determine if the position is in range */
   poolCurrentPrice: number;
 }

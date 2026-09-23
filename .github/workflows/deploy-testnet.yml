@@ -1,5 +1,6 @@
 name: Deploy Contracts to Testnet
 
+# Manual deploy only — not part of CI status checks.
 on:
   workflow_dispatch:
     inputs:

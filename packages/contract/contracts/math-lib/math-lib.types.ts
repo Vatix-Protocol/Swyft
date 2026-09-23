@@ -10,16 +10,16 @@
 // ── Branded primitives ────────────────────────────────────────────────────────
 
 /** Q64.96 fixed-point sqrt price, represented as a bigint. */
-export type SqrtPriceX96 = bigint & { readonly __brand: "SqrtPriceX96" };
+export type SqrtPriceX96 = bigint & { readonly __brand: 'SqrtPriceX96' };
 
 /** Tick index, clamped to [MIN_TICK, MAX_TICK]. */
-export type Tick = number & { readonly __brand: "Tick" };
+export type Tick = number & { readonly __brand: 'Tick' };
 
 /** Liquidity amount (non-negative integer). */
-export type Liquidity = bigint & { readonly __brand: "Liquidity" };
+export type Liquidity = bigint & { readonly __brand: 'Liquidity' };
 
 /** Token amount (non-negative integer). */
-export type TokenAmount = bigint & { readonly __brand: "TokenAmount" };
+export type TokenAmount = bigint & { readonly __brand: 'TokenAmount' };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -42,10 +42,10 @@ export type MathErrorCode = (typeof MathErrorCode)[keyof typeof MathErrorCode];
 export class MathError extends Error {
   constructor(
     public readonly code: MathErrorCode,
-    message: string,
+    message: string
   ) {
     super(message);
-    this.name = "MathError";
+    this.name = 'MathError';
   }
 }
 
@@ -74,27 +74,31 @@ export interface NextSqrtPriceParams {
 
 /** Cast a raw bigint to SqrtPriceX96 (validates > 0). */
 export function toSqrtPriceX96(value: bigint): SqrtPriceX96 {
-  if (value <= 0n) throw new MathError(MathErrorCode.PriceOutOfBounds, "sqrtPriceX96 must be positive");
+  if (value <= 0n)
+    throw new MathError(MathErrorCode.PriceOutOfBounds, 'sqrtPriceX96 must be positive');
   return value as SqrtPriceX96;
 }
 
 /** Cast a raw number to Tick (validates bounds). */
 export function toTick(value: number): Tick {
   if (!Number.isInteger(value) || value < MIN_TICK || value > MAX_TICK) {
-    throw new MathError(MathErrorCode.InvalidTick, `tick ${value} out of [${MIN_TICK}, ${MAX_TICK}]`);
+    throw new MathError(
+      MathErrorCode.InvalidTick,
+      `tick ${value} out of [${MIN_TICK}, ${MAX_TICK}]`
+    );
   }
   return value as Tick;
 }
 
 /** Cast a raw bigint to Liquidity (validates >= 0). */
 export function toLiquidity(value: bigint): Liquidity {
-  if (value < 0n) throw new MathError(MathErrorCode.Underflow, "liquidity must be non-negative");
+  if (value < 0n) throw new MathError(MathErrorCode.Underflow, 'liquidity must be non-negative');
   return value as Liquidity;
 }
 
 /** Cast a raw bigint to TokenAmount (validates >= 0). */
 export function toTokenAmount(value: bigint): TokenAmount {
-  if (value < 0n) throw new MathError(MathErrorCode.Underflow, "token amount must be non-negative");
+  if (value < 0n) throw new MathError(MathErrorCode.Underflow, 'token amount must be non-negative');
   return value as TokenAmount;
 }
 
@@ -120,11 +124,12 @@ export type MathLibResult<T> =
 
 /** User-facing messages for empty / invalid math-lib inputs. */
 export const MATH_LIB_MESSAGES = {
-  missingPrice: "Price data is not available yet. Wait for the pool to initialise, then try again.",
-  missingLiquidity: "Liquidity data is missing. Refresh the page to reload pool state.",
-  missingTick: "Tick data is unavailable. Ensure the pool is active before proceeding.",
-  missingAmount: "Token amount is required. Enter a value greater than zero to continue.",
-  invalidParams: "One or more calculation inputs are empty or invalid. Check your inputs and try again.",
+  missingPrice: 'Price data is not available yet. Wait for the pool to initialise, then try again.',
+  missingLiquidity: 'Liquidity data is missing. Refresh the page to reload pool state.',
+  missingTick: 'Tick data is unavailable. Ensure the pool is active before proceeding.',
+  missingAmount: 'Token amount is required. Enter a value greater than zero to continue.',
+  invalidParams:
+    'One or more calculation inputs are empty or invalid. Check your inputs and try again.',
 } as const;
 
 /**
@@ -133,7 +138,7 @@ export const MATH_LIB_MESSAGES = {
  */
 export function isEmpty(value: bigint | number | null | undefined): boolean {
   if (value === null || value === undefined) return true;
-  if (typeof value === "bigint") return value === 0n;
+  if (typeof value === 'bigint') return value === 0n;
   return false;
 }
 
@@ -206,7 +211,7 @@ export function safeTokenAmount(value: bigint | null | undefined): MathLibResult
  * result is confirmed ok.
  */
 export function safeAmountDeltaParams(
-  raw: Partial<Record<keyof AmountDeltaParams, bigint | null | undefined>>,
+  raw: Partial<Record<keyof AmountDeltaParams, bigint | null | undefined>>
 ): MathLibResult<AmountDeltaParams> {
   const liquidity = safeLiquidity(raw.liquidity ?? null);
   if (!liquidity.ok) return liquidity;

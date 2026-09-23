@@ -1,7 +1,8 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { API_BASE } from "@/lib/constants";
+import { useCallback, useEffect, useState } from 'react';
+import { API_BASE } from '@/lib/constants';
+import { apiFetch } from '@/lib/api-fetch';
 
 export interface TickData {
   tick: number;
@@ -25,119 +26,103 @@ export interface PoolDetail {
   volume24h: number;
 }
 
+/**
+ * Loads initialized ticks for a pool from the API.
+ *
+ * Failure policy: if the tick fetch fails (network error, non-2xx
+ * response, or bad JSON), `ticks` is cleared and `error` is set so callers
+ * can render an explicit error state instead of fabricated liquidity data.
+ * Callers can retry via the returned `retry()` function.
+ */
 export function usePoolTicks(poolId: string | null) {
   const [ticks, setTicks] = useState<TickData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
-    if (!poolId) { setTicks([]); return; }
+    if (!poolId) {
+      setTicks([]);
+      setError(null);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
-    setError(null);
 
-    fetch(`${API_BASE}/pools/${poolId}/ticks`)
+    apiFetch(`${API_BASE}/pools/${poolId}/ticks`)
       .then((r) => {
-        if (!r.ok) throw new Error("Failed to load tick data");
+        if (!r.ok) throw new Error(`Failed to load tick data: HTTP ${r.status}`);
         return r.json() as Promise<TickData[]>;
       })
-      .then((data) => { if (!cancelled) setTicks(data); })
-      .catch(() => {
+      .then((data) => {
         if (!cancelled) {
-          setTicks(generateSyntheticTicks());
+          setTicks(data);
           setError(null);
         }
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setTicks([]);
+          setError(err instanceof Error ? err.message : 'Failed to load tick data');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-    return () => { cancelled = true; };
-  }, [poolId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [poolId, retryCount]);
 
-  return { ticks, loading, error };
+  const retry = useCallback(() => setRetryCount((c) => c + 1), []);
+
+  return { ticks, loading, error, retry };
 }
 
 export function usePools() {
   const [pools, setPools] = useState<PoolDetail[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
-    fetch(`${API_BASE}/pools?limit=50&orderBy=tvl`)
-      .then((r) => r.json())
-      .then((data: { items?: PoolDetail[] }) => {
-        if (!cancelled) setPools(data.items ?? []);
+    apiFetch(`${API_BASE}/pools?limit=50&orderBy=tvl`, { cache: 'no-store' })
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to load pools: HTTP ${r.status}`);
+        return r.json();
       })
-      .catch(() => {
-        if (!cancelled) setPools(MOCK_POOLS);
+      .then((data: unknown) => {
+        if (!cancelled) {
+          if (!data || typeof data !== 'object') {
+            throw new Error('Invalid response format');
+          }
+          setPools(((data as { items?: PoolDetail[] }).items ?? []));
+          setLastUpdated(Date.now());
+        }
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          const error = err instanceof Error ? err : new Error('Failed to load pools');
+          setError(error);
+          setPools([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  return { pools, loading };
+  const isStale = lastUpdated === null;
+
+  return { pools, loading, error, isStale };
 }
 
-function generateSyntheticTicks(): TickData[] {
-  const ticks: TickData[] = [];
-  const center = 0;
-  const spread = 2000;
-  const count = 80;
-
-  for (let i = 0; i < count; i++) {
-    const tick = center - spread + (i * spread * 2) / count;
-    const roundedTick = Math.round(tick / 10) * 10;
-    const dist = Math.abs(tick - center) / spread;
-    const liq = Math.max(0, (1 - dist * dist) * 500_000 + Math.random() * 100_000);
-    ticks.push({
-      tick: roundedTick,
-      liquidityNet: String(Math.round(liq)),
-      liquidityGross: String(Math.round(liq * 1.1)),
-    });
-  }
-  return ticks;
-}
-
-export const MOCK_POOLS: PoolDetail[] = [
-  {
-    id: "pool-xlm-usdc-030",
-    token0: "XLM",
-    token1: "USDC",
-    token0Symbol: "XLM",
-    token1Symbol: "USDC",
-    feeTier: "0.30%",
-    currentPrice: 0.1085,
-    currentTick: -22000,
-    tvl: 4_200_000,
-    feeApr: 12.4,
-    volume24h: 340_000,
-  },
-  {
-    id: "pool-xlm-usdc-005",
-    token0: "XLM",
-    token1: "USDC",
-    token0Symbol: "XLM",
-    token1Symbol: "USDC",
-    feeTier: "0.05%",
-    currentPrice: 0.1085,
-    currentTick: -22000,
-    tvl: 8_100_000,
-    feeApr: 3.2,
-    volume24h: 1_200_000,
-  },
-  {
-    id: "pool-btc-xlm-100",
-    token0: "BTC",
-    token1: "XLM",
-    token0Symbol: "BTC",
-    token1Symbol: "XLM",
-    feeTier: "1.00%",
-    currentPrice: 850000,
-    currentTick: 131000,
-    tvl: 2_900_000,
-    feeApr: 28.7,
-    volume24h: 180_000,
-  },
-];

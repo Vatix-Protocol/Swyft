@@ -1,9 +1,9 @@
-"use client";
+'use client';
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useWalletContext } from "@/context/WalletContext";
-import { TransactionHistory } from "@/components/TransactionHistory";
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useWalletContext } from '@/context/WalletContext';
+import { TransactionHistory } from '@/components/TransactionHistory';
 
 export default function HistoryPage() {
   const { address } = useWalletContext();
@@ -11,7 +11,7 @@ export default function HistoryPage() {
 
   useEffect(() => {
     if (!address) {
-      router.push("/");
+      router.push('/');
     }
   }, [address, router]);
 

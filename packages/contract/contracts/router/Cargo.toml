@@ -15,3 +15,4 @@ soroban-sdk = { workspace = true }
 soroban-sdk = { workspace = true, features = ["testutils"] }
 cl-pool = { path = "../cl-pool" }
 pool-factory = { path = "../pool-factory" }
+position-nft = { path = "../position-nft" }

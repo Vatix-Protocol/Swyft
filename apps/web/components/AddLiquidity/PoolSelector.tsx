@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { usePools, type PoolDetail } from "@/hooks/usePoolTicks";
+import { usePools, type PoolDetail } from '@/hooks/usePoolTicks';
 
 export interface PoolSelectorProps {
   /** The currently selected pool, or null if none is selected */
@@ -10,17 +10,26 @@ export interface PoolSelectorProps {
 }
 
 export function PoolSelector({ selected, onSelect }: PoolSelectorProps) {
-  const { pools, loading } = usePools();
+  const { pools, loading, error } = usePools();
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Select pool</p>
+      <div className="flex items-center gap-2">
+        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Select pool</p>
+      </div>
       {loading ? (
         <div className="flex gap-2">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-14 flex-1 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
+            <div
+              key={i}
+              className="h-14 flex-1 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800"
+            />
           ))}
         </div>
+      ) : error ? (
+        <p className="text-sm text-red-500 dark:text-red-400">Failed to load pools. Please try again.</p>
+      ) : pools.length === 0 ? (
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">No pools available.</p>
       ) : (
         <div className="flex flex-col gap-2">
           {pools.map((pool) => {
@@ -32,8 +41,8 @@ export function PoolSelector({ selected, onSelect }: PoolSelectorProps) {
                 onClick={() => onSelect(pool)}
                 className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                   isSelected
-                    ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 dark:border-indigo-400"
-                    : "border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
+                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 dark:border-indigo-400'
+                    : 'border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700'
                 }`}
               >
                 <div className="flex items-center gap-3">
@@ -53,7 +62,9 @@ export function PoolSelector({ selected, onSelect }: PoolSelectorProps) {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">{pool.feeApr.toFixed(1)}% APR</p>
+                  <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                    {pool.feeApr.toFixed(1)}% APR
+                  </p>
                   <p className="text-xs text-zinc-400">${(pool.tvl / 1_000_000).toFixed(1)}M TVL</p>
                 </div>
               </button>

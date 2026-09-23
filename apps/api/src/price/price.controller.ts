@@ -5,14 +5,17 @@ import {
   NotFoundException,
   Param,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiOperation,
   ApiParam,
   ApiQuery,
   ApiResponse,
+  ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
+import { ApiKeyGuard } from '../auth/api-key.guard';
 import { PriceService, SpotPriceResponse } from './price.service';
 import { CacheService, TTL } from '../cache/cache.service';
 import { PriceCandleDto } from './dto/price-candle.dto';
@@ -23,7 +26,9 @@ const VALID_INTERVALS = ['1m', '5m', '1h', '1d'] as const;
 type CandleInterval = (typeof VALID_INTERVALS)[number];
 
 @ApiTags(SWAGGER_TAGS.PRICES)
+@ApiSecurity('api-key')
 @Controller('prices')
+@UseGuards(ApiKeyGuard)
 export class PriceController {
   constructor(
     private readonly priceService: PriceService,
@@ -128,12 +133,12 @@ export class PriceController {
 
     const cacheKey = `candles:${tokenA}:${tokenB}:${interval}:${parsedFrom}:${parsedTo}:${parsedLimit}`;
 
-    const cached = await this.cacheService.get<PriceCandleDto[]>(cacheKey);
+    const cached = await this.cacheService.get<CandlesResponseDto>(cacheKey);
     if (cached) {
       return cached;
     }
 
-    const candles = await this.priceService.getCandles(
+    const { poolId, candles } = await this.priceService.getCandles(
       tokenA,
       tokenB,
       interval,
@@ -152,7 +157,7 @@ export class PriceController {
       interval === '1m' || interval === '5m'
         ? TTL.CANDLES_FAST
         : TTL.CANDLES_SLOW;
-    const response: CandlesResponseDto = { data: candles };
+    const response: CandlesResponseDto = { poolId, candles };
     await this.cacheService.set(cacheKey, response, ttl);
 
     return response;

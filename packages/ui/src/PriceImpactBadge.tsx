@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 interface Props {
   impact: number; // percentage 0–100

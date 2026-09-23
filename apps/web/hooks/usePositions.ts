@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import type { PositionSnapshot } from "@swyft/ui";
-import { API_BASE } from "@/lib/constants";
+import { useEffect, useState } from 'react';
+import type { PositionSnapshot } from '@swyft/ui';
+import { API_BASE } from '@/lib/constants';
 
 export function usePosition(id: string | null, authToken: string | null) {
   const [position, setPosition] = useState<PositionSnapshot | null>(null);
@@ -10,7 +10,10 @@ export function usePosition(id: string | null, authToken: string | null) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!id || !authToken) { setPosition(null); return; }
+    if (!id || !authToken) {
+      setPosition(null);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -19,14 +22,23 @@ export function usePosition(id: string | null, authToken: string | null) {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then((r) => {
-        if (!r.ok) throw new Error(r.status === 404 ? "Position not found" : "Failed to load position");
+        if (!r.ok)
+          throw new Error(r.status === 404 ? 'Position not found' : 'Failed to load position');
         return r.json() as Promise<PositionSnapshot>;
       })
-      .then((data) => { if (!cancelled) setPosition(data); })
-      .catch((e: Error) => { if (!cancelled) setError(e.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .then((data) => {
+        if (!cancelled) setPosition(data);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [id, authToken]);
 
   return { position, loading, error };
@@ -38,7 +50,10 @@ export function usePositions(authToken: string | null) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!authToken) { setPositions([]); return; }
+    if (!authToken) {
+      setPositions([]);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -47,7 +62,7 @@ export function usePositions(authToken: string | null) {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then((r) => {
-        if (!r.ok) throw new Error("Failed to load positions");
+        if (!r.ok) throw new Error('Failed to load positions');
         return r.json();
       })
       .then((data: { items?: PositionSnapshot[] }) => {
@@ -59,9 +74,13 @@ export function usePositions(authToken: string | null) {
           setError(e.message);
         }
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [authToken]);
 
   return { positions, loading, error };

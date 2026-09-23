@@ -14,12 +14,7 @@ describe('TokenSelectorModal', () => {
     const onSelect = vi.fn();
 
     render(
-      <TokenSelector
-        label="Input token"
-        tokens={tokens}
-        selected={null}
-        onSelect={onSelect}
-      />
+      <TokenSelector label="Input token" tokens={tokens} selected={null} onSelect={onSelect} />
     );
 
     const trigger = screen.getByRole('button', { name: /input token/i });

@@ -8,40 +8,41 @@ Swyft is a decentralized exchange built on Stellar using Soroban smart contracts
 
 ## Why Swyft?
 
-| | Swyft | Traditional Stellar DEXes |
-|---|---|---|
-| Liquidity model | Concentrated (v3-style) | Full-range only |
-| Capital efficiency | High — LPs set custom price ranges | Low |
-| MEV protection | Yes | No |
-| Developer SDK | TypeScript (`@swyft/sdk`) | None |
-| Open source | MIT | Varies |
+|                    | Swyft                              | Traditional Stellar DEXes |
+| ------------------ | ---------------------------------- | ------------------------- |
+| Liquidity model    | Concentrated (v3-style)            | Full-range only           |
+| Capital efficiency | High — LPs set custom price ranges | Low                       |
+| MEV protection     | Yes                                | No                        |
+| Developer SDK      | TypeScript (`@swyft/sdk`)          | None                      |
+| Open source        | MIT                                | Varies                    |
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Smart contracts | Rust / Soroban |
-| Backend API | NestJS — REST + WebSocket |
-| Database | PostgreSQL + Redis (Prisma, BullMQ) |
-| Frontend | Next.js 14, Tailwind CSS, Radix UI |
-| SDK | TypeScript (`@swyft/sdk`) |
-| Wallets | Freighter / xBull |
-| Monorepo | Turborepo + pnpm workspaces |
-| CI/CD | GitHub Actions |
-| License | MIT |
+| Layer           | Technology                          |
+| --------------- | ----------------------------------- |
+| Smart contracts | Rust / Soroban                      |
+| Backend API     | NestJS — REST + WebSocket           |
+| Database        | PostgreSQL + Redis (Prisma, BullMQ) |
+| Frontend        | Next.js 14, Tailwind CSS, Radix UI  |
+| SDK             | TypeScript (`@swyft/sdk`)           |
+| Wallets         | Freighter / xBull                   |
+| Monorepo        | Turborepo + pnpm workspaces         |
+| CI/CD           | GitHub Actions                      |
+| License         | MIT                                 |
 
 ---
 
 ## Repo Structure
+
 ```
 swyft/
 ├── apps/
 │   ├── web/              # Next.js dApp
 │   └── api/              # NestJS backend
 ├── packages/
-│   ├── contracts/        # Soroban Rust contracts
+│   ├── contract/         # Soroban Rust contracts
 │   ├── sdk/              # @swyft/sdk (TypeScript)
 │   ├── ui/               # @swyft/ui shared components
 │   └── config/           # Shared ESLint, TS, Tailwind configs
@@ -60,39 +61,160 @@ swyft/
 - Rust + `stellar-cli` ([install guide](https://developers.stellar.org/docs/smart-contracts/getting-started/setup))
 - Docker (for local Postgres + Redis)
 
-### Local dev
+### Local dev — quick start (5 minutes)
+
 ```bash
-# Clone the repo
+# 1. Clone and enter repo
 git clone https://github.com/Vatix-Protocol/Swyft.git
 cd swyft
 
-# Install all dependencies
+# 2. Install dependencies (~2 min)
 pnpm install
 
-# Copy env files
+# 3. Set up environment files
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
 
-# Start everything
+# 4. Start Docker services (Postgres, Redis) (~30 sec with docker-compose --wait)
+docker-compose up -d --wait
+
+# 5. Initialize database (~30 sec)
+pnpm db:generate        # Generate Prisma client
+pnpm db:migrate:deploy  # Run migrations (same command CI uses for migrate smoke)
+
+# Optional: load the deterministic demo market used by the web app
+pnpm --filter api exec ts-node ../../prisma/seed.ts
+
+# Local equivalent of the CI Prisma migration smoke
+# (.github/workflows/db-migrations.yml — ephemeral Postgres + migrate deploy):
+#   docker-compose up -d postgres   # or any Postgres 16 with DATABASE_URL set
+#   pnpm prisma migrate deploy --schema prisma/schema.prisma
+# This must succeed; a failing migrate fails CI on main/PRs that touch prisma/**.
+
+# 6. Start all dev servers (~2 min)
 pnpm dev
 ```
 
 This starts the Next.js dApp, NestJS API, and watches contract changes simultaneously via Turborepo.
 
+The seed is safe to re-run. It keeps the demo pool at `test-pool-1`, using
+USDC address `GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN`
+and XLM address `GBDEVU63Y6NTHJQQZIKVTC23NWLQVP3WJ2RI2OTSJTNYOIGICST6DUXR`.
+
+**Total time: ~5 minutes** (mostly waiting for pnpm install and Docker)
+
+**wait-for-healthy:** every service in `docker-compose.yml` (`postgres`, `redis`, `api`) declares a `healthcheck`, and dependers use `depends_on: condition: service_healthy` — so `api` won't start until Postgres and Redis report healthy, and `web` won't start until `api` does. `docker-compose up -d --wait` blocks the CLI until that chain is healthy, which is why step 4 above doesn't need a manual retry loop.
+
+### What each command does
+
+| Step | Command                       | What it does                                   | Time   |
+| ---- | ----------------------------- | ---------------------------------------------- | ------ |
+| 1    | `git clone`                   | Clone the repository                           | ~10s   |
+| 2    | `pnpm install`                | Install all dependencies via monorepo          | ~2 min |
+| 3    | `cp .env.example`             | Create environment files (uses safe defaults)  | ~1s    |
+| 4    | `docker-compose up -d --wait` | Start Postgres + Redis, wait for health checks | ~30s   |
+| 5    | `pnpm db:generate`            | Generate Prisma ORM types                      | ~10s   |
+| 5    | `pnpm db:migrate:deploy`      | Apply pending database migrations              | ~20s   |
+| 6    | `pnpm dev`                    | Start Next.js, NestJS, and Turborepo watchers  | ~1 min |
+
+**Troubleshooting:**
+
+- **"postgres is not reachable"** — Check Docker is running: `docker ps`. If needed, re-run: `docker-compose up -d --wait`
+- **"Port 5432 already in use"** — Stop other services: `docker-compose down` then retry
+- **"Database migration failed"** — Ensure Postgres is healthy: `docker-compose logs postgres`
+- **"pnpm not found"** — Install pnpm 8+: `npm install -g pnpm@latest`
+
 ### Run contract tests
+
 ```bash
-cd packages/contracts
-stellar-cli contract test
+cd packages/contract
+cargo test --workspace
 ```
 
 ### Run API tests
+
 ```bash
 pnpm --filter api test
 ```
 
+## Release build order
+
+Use Turbo for the release build path so packages are built in dependency order. The default entrypoint is:
+
+```bash
+pnpm turbo run build
+```
+
+For a focused SDK → web / API release, the intended sequence is:
+
+1. Build the Soroban contract package separately:
+
+   ```bash
+   pnpm --filter contracts build
+   ```
+
+   The contract package is independent from the application/package build graph and should be handled first when fresh artifacts are required.
+
+2. Build the shared packages and apps through Turbo:
+
+   ```bash
+   pnpm turbo run build --filter=web --filter=api
+   ```
+
+   Turbo resolves the release graph in dependency order, so the SDK is built before the web app, while the API build runs alongside the web path.
+
+3. For a full repo release, run the root build command:
+   ```bash
+   pnpm turbo run build
+   ```
+
+This keeps the release path predictable for maintainers and makes it clear that contract artifacts are handled separately from the SDK/web/API build sequence.
+
+---
+
+## Environment Variables
+
+Copy `apps/api/.env.example` to `apps/api/.env` and fill in the values below.
+
+| Variable                        | Required | Default                                               | Description                                                                       |
+| ------------------------------- | -------- | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `DATABASE_URL`                  | ✅       | `postgresql://postgres:postgres@localhost:5432/swyft` | PostgreSQL connection string (Prisma)                                             |
+| `REDIS_URL`                     | ✅       | `redis://localhost:6379`                              | Redis connection string (BullMQ + cache)                                          |
+| `STELLAR_NETWORK`               | ✅       | `testnet`                                             | `testnet` or `mainnet`                                                            |
+| `STELLAR_RPC_URL`               | ✅       | `https://soroban-testnet.stellar.org`                 | Soroban RPC endpoint                                                              |
+| `HORIZON_URL`                   | ✅       | `https://horizon-testnet.stellar.org`                 | Stellar Horizon endpoint                                                          |
+| `POOL_CONTRACT_ID`              | ✅       | _(empty)_                                             | Deployed pool contract address — see `packages/contract/deployments/testnet.json` |
+| `JWT_SECRET`                    | ✅       | `change-me-in-production`                             | Secret used to sign JWT tokens — **must be changed in production**                |
+| `JWT_EXPIRES_IN`                | ✅       | `7d`                                                  | JWT token lifetime                                                                |
+| `PORT`                          | ✅       | `3001`                                                | HTTP port the API listens on                                                      |
+| `INTERNAL_API_KEY`              | ✅       | `change-me-in-production`                             | Protects `/admin/*` and `/metrics/db` routes — **must be changed in production**  |
+| `DB_SLOW_QUERY_THRESHOLD_MS`    | ❌       | `100`                                                 | Queries slower than this (ms) are logged as warnings                              |
+| `SENTRY_DSN`                    | ❌       | _(empty)_                                             | Sentry DSN for error tracking — leave blank to disable                            |
+| `SENTRY_TRACES_SAMPLE_RATE`     | ❌       | `0.1`                                                 | Sentry trace sampling rate (0–1)                                                  |
+| `COMPRESSION_LEVEL`             | ❌       | `6`                                                   | zlib compression level for HTTP responses (1–9)                                   |
+| `LARGE_SWAP_THRESHOLD_USD`      | ❌       | `10000`                                               | USD threshold above which a swap triggers a webhook notification                  |
+| `WEBHOOK_MAX_CONSECUTIVE_FAILS` | ❌       | `10`                                                  | Number of consecutive delivery failures before disabling a webhook                |
+| `WEBHOOK_RETRY_ATTEMPTS`        | ❌       | `3`                                                   | Number of times to retry webhook delivery before marking as failed                |
+
+### Web app (`apps/web/.env`)
+
+Copy `apps/web/.env.example` to `apps/web/.env`. `NEXT_PUBLIC_*` values are
+inlined into the client bundle at **build** time, so they must be set when the
+web image is built (build args in `docker-compose.yml` / `apps/web/Dockerfile`), not just at runtime.
+
+| Variable                          | Required            | Default                    | Description                                                                                     |
+| --------------------------------- | ------------------- | -------------------------- | ----------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_STELLAR_NETWORK`     | ✅                  | `TESTNET`                  | `TESTNET` or `PUBLIC` — build-time default network (passphrase, RPC, explorer links)            |
+| `NEXT_PUBLIC_API_URL`             | ✅                  | `http://localhost:3001`    | Shared API base URL (no `/v1` suffix — appended automatically)                                  |
+| `NEXT_PUBLIC_API_URL_TESTNET`     | ❌                  | falls back to `NEXT_PUBLIC_API_URL` | Per-network API URL for testnet, used when the runtime network switcher selects TESTNET |
+| `NEXT_PUBLIC_API_URL_PUBLIC`      | ✅ for mainnet      | falls back to `NEXT_PUBLIC_API_URL` | Per-network API URL for mainnet — **must be set on PUBLIC deployments**, otherwise mainnet traffic silently uses the testnet/localhost URL |
+| `NEXT_PUBLIC_WS_URL`              | ❌                  | derived from API URL       | WebSocket URL for live candles/swap quotes                                                      |
+| `NEXT_PUBLIC_SWYFT_API_KEY`       | ❌                  | _(none)_                   | `X-Api-Key` for the read-only market-data endpoints                                             |
+
 ---
 
 ## Architecture
+
 ```
 Browser (Freighter / xBull wallet)
           │
@@ -109,18 +231,29 @@ PostgreSQL         │
 
 The NestJS backend indexes Soroban events from Stellar Horizon, caches pool state in Redis, and exposes a REST API and WebSocket gateway for real-time price feeds. The frontend communicates with both the API and Soroban RPC directly via the SDK.
 
+Full architecture details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+
+---
+
+## API Documentation
+
+- **API Changelog** — [`docs/API_CHANGELOG.md`](docs/API_CHANGELOG.md) — Breaking changes and migration guides for the REST API
+- **Architecture** — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Data flow from Horizon to API to frontend
+- **Ops & Deployment** — [`docs/OPS_DEPLOYMENT.md`](docs/OPS_DEPLOYMENT.md) — Deployment strategies, health checks, and rollback procedures
+- **Rate Limiting** — [`docs/RATE_LIMITING.md`](docs/RATE_LIMITING.md) — `X-RateLimit-*` response headers, per-endpoint rules, and configuration
+
 ---
 
 ## Roadmap
 
-| Phase | Timeline | Focus | Status |
-|---|---|---|---|
-| Phase 0 — Foundation | M1–2 | Monorepo, CI, contributor onboarding | 🟡 In progress |
-| Phase 1 — Core contracts | M2–5 | Soroban CL pool, router, position NFT | ⚪ Planned |
-| Phase 2 — Backend & SDK | M4–7 | NestJS API, indexer, `@swyft/sdk` | ⚪ Planned |
-| Phase 3 — Frontend | M6–9 | Swap UI, LP management, pool browser | ⚪ Planned |
-| Phase 4 — Mainnet | M9–12 | Audit, mainnet deploy, liquidity bootstrap | ⚪ Planned |
-| Phase 5 — Growth | M12+ | Governance, fee tiers, integrations | ⚪ Future |
+| Phase                    | Timeline | Focus                                      | Status         |
+| ------------------------ | -------- | ------------------------------------------ | -------------- |
+| Phase 0 — Foundation     | M1–2     | Monorepo, CI, contributor onboarding       | 🟡 In progress |
+| Phase 1 — Core contracts | M2–5     | Soroban CL pool, router, position NFT      | 🟢 Implemented |
+| Phase 2 — Backend & SDK  | M4–7     | NestJS API, indexer, `@swyft/sdk`          | 🟢 Implemented |
+| Phase 3 — Frontend       | M6–9     | Swap UI, LP management, pool browser       | 🟢 Implemented |
+| Phase 4 — Mainnet        | M9–12    | Audit, mainnet deploy, liquidity bootstrap | ⚪ Planned     |
+| Phase 5 — Growth         | M12+     | Governance, fee tiers, integrations        | ⚪ Future      |
 
 Full roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 
@@ -134,19 +267,19 @@ Swyft is built almost entirely by external contributors. The maintainer handles 
 
 ### Good first issues
 
-Look for issues labelled [`good first issue`](https://github.com/your-org/swyft/issues?q=label%3A%22good+first+issue%22). These are small, well-scoped tasks that don't require deep protocol knowledge.
+Look for issues labelled [`good first issue`](https://github.com/Vatix-Protocol/Swyft/issues?q=label%3A%22good+first+issue%22). These are small, well-scoped tasks that don't require deep protocol knowledge.
 
 ### Issue labels
 
-| Label | Meaning |
-|---|---|
+| Label              | Meaning                           |
+| ------------------ | --------------------------------- |
 | `good first issue` | No deep protocol knowledge needed |
-| `bounty` | Financial reward attached |
-| `contracts` | Soroban / Rust work |
-| `backend` | NestJS / API work |
-| `frontend` | Next.js / React work |
-| `sdk` | TypeScript SDK work |
-| `docs` | Documentation |
+| `bounty`           | Financial reward attached         |
+| `contracts`        | Soroban / Rust work               |
+| `backend`          | NestJS / API work                 |
+| `frontend`         | Next.js / React work              |
+| `sdk`              | TypeScript SDK work               |
+| `docs`             | Documentation                     |
 
 ### PR conventions
 
@@ -179,5 +312,3 @@ Please do not open public GitHub issues for security vulnerabilities. See [`SECU
 - **GitHub Projects** — live task board
 
 ---
-
-*Swyft is in active development. Contracts are unaudited. Do not use on mainnet until a security audit has been completed.*

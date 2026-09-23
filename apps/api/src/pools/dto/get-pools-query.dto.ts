@@ -1,5 +1,6 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -51,4 +52,40 @@ export class GetPoolsQueryDto {
   @IsString()
   @IsOptional()
   search?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter pools where this address is token0 or token1',
+  })
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString()
+  @IsOptional()
+  token0?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter pools where this address is token0 or token1',
+  })
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString()
+  @IsOptional()
+  token1?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'When true, include inactive pools in the list. By default only active pools are returned.',
+    default: false,
+    type: Boolean,
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'true' || normalized === '1') return true;
+      if (normalized === 'false' || normalized === '0') return false;
+    }
+    return value;
+  })
+  @IsBoolean()
+  includeInactive?: boolean;
 }

@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 export interface AmountInputsProps {
   token0Symbol: string;
@@ -28,18 +28,9 @@ interface TokenInputProps {
   onChange: (value: string) => void;
 }
 
-function TokenInput({
-  label,
-  symbol,
-  amount,
-  balance,
-  disabled,
-  onChange,
-}: TokenInputProps) {
+function TokenInput({ label, symbol, amount, balance, disabled, onChange }: TokenInputProps) {
   const insufficient =
-    !disabled &&
-    balance !== undefined &&
-    parseFloat(amount || "0") > parseFloat(balance || "0");
+    !disabled && balance !== undefined && parseFloat(amount || '0') > parseFloat(balance || '0');
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value;
@@ -50,10 +41,10 @@ function TokenInput({
     <div
       className={`rounded-xl border px-4 py-3 transition-colors ${
         disabled
-          ? "border-zinc-100 bg-zinc-50 opacity-50 dark:border-zinc-800 dark:bg-zinc-900/30"
+          ? 'border-zinc-100 bg-zinc-50 opacity-50 dark:border-zinc-800 dark:bg-zinc-900/30'
           : insufficient
-          ? "border-red-400 bg-white dark:border-red-500 dark:bg-zinc-900"
-          : "border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900"
+            ? 'border-red-400 bg-white dark:border-red-500 dark:bg-zinc-900'
+            : 'border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900'
       }`}
     >
       <div className="flex items-center justify-between gap-3">
@@ -62,7 +53,7 @@ function TokenInput({
           <input
             type="text"
             inputMode="decimal"
-            placeholder={disabled ? "—" : "0.00"}
+            placeholder={disabled ? '—' : '0.00'}
             value={amount}
             readOnly={disabled}
             onChange={handleChange}
@@ -79,8 +70,8 @@ function TokenInput({
       </div>
       {balance !== undefined && !disabled && (
         <div className="mt-1.5 flex justify-between">
-          <span className={`text-xs ${insufficient ? "text-red-500" : "text-transparent"}`}>
-            {insufficient ? "Insufficient balance" : "."}
+          <span className={`text-xs ${insufficient ? 'text-red-500' : 'text-transparent'}`}>
+            {insufficient ? 'Insufficient balance' : '.'}
           </span>
           <button
             type="button"
@@ -91,9 +82,7 @@ function TokenInput({
           </button>
         </div>
       )}
-      {disabled && (
-        <p className="mt-1 text-xs text-zinc-400">Not required for this range</p>
-      )}
+      {disabled && <p className="mt-1 text-xs text-zinc-400">Not required for this range</p>}
     </div>
   );
 }

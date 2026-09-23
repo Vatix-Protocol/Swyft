@@ -1,9 +1,10 @@
-"use client";
+'use client';
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { API_BASE } from "@/lib/constants";
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { API_BASE } from '@/lib/constants';
+import { apiFetch } from '@/lib/api-fetch';
 
-export type Interval = "1m" | "5m" | "1h" | "1d";
+export type Interval = '1m' | '5m' | '1h' | '1d';
 
 export interface Candle {
   time: number; // unix seconds
@@ -14,29 +15,74 @@ export interface Candle {
   volume: number;
 }
 
-const WS_BASE = API_BASE.replace(/^http/, "ws");
+interface ApiCandle {
+  timestamp: number;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  volume: string;
+}
 
-export function usePriceCandles(
-  tokenA: string | null,
-  tokenB: string | null,
-  interval: Interval
-) {
+interface CandlesApiResponse {
+  poolId?: string;
+  candles: ApiCandle[];
+}
+
+function isApiCandle(v: unknown): v is ApiCandle {
+  if (!v || typeof v !== 'object') return false;
+  const c = v as Record<string, unknown>;
+  return typeof c.timestamp === 'number';
+}
+
+function mapApiCandleToCandle(c: ApiCandle): Candle {
+  return {
+    time: c.timestamp,
+    open: Number(c.open),
+    high: Number(c.high),
+    low: Number(c.low),
+    close: Number(c.close),
+    volume: Number(c.volume),
+  };
+}
+
+/** Derives the WS base from the API host (apps/api, :3001), not the Next.js host. */
+function getWsBase(): string {
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL;
+  }
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+  return apiUrl.replace(/^http/, 'ws');
+}
+
+export function usePriceCandles(tokenA: string | null, tokenB: string | null, interval: Interval) {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [loading, setLoading] = useState(false);
+  const [poolId, setPoolId] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   const fetch168 = useCallback(async () => {
     if (!tokenA || !tokenB) return;
     setLoading(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/prices/${tokenA}/${tokenB}/candles?interval=${interval}&limit=168`
       );
-      if (!res.ok) { setCandles([]); return; }
-      const data = (await res.json()) as { candles?: Candle[] };
-      setCandles(data.candles ?? []);
+      if (!res.ok) {
+        setCandles([]);
+        return;
+      }
+      const data = (await res.json()) as CandlesApiResponse;
+      const rawCandles = Array.isArray(data.candles) ? data.candles : [];
+      const validCandles = rawCandles.filter(isApiCandle).map(mapApiCandleToCandle);
+      setCandles(validCandles);
+      if (data.poolId) {
+        setPoolId(data.poolId);
+      }
     } catch {
       setCandles([]);
+      setPoolId(null);
     } finally {
       setLoading(false);
     }
@@ -45,51 +91,77 @@ export function usePriceCandles(
   // Initial fetch
   useEffect(() => {
     setCandles([]);
+    setPoolId(null);
     fetch168();
   }, [fetch168]);
 
-  // WebSocket for live candle updates
+  // WebSocket for live candle updates — connect whenever we have a valid token pair
   useEffect(() => {
     if (!tokenA || !tokenB) return;
+
     wsRef.current?.close();
 
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(`${WS_BASE}/price`);
-    } catch {
-      return;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: NodeJS.Timeout | null = null;
+    let attempts = 0;
+    let disposed = false;
+
+    function scheduleReconnect() {
+      if (disposed || reconnectTimer) return;
+      const delay = Math.min(30_000, 1_000 * 2 ** attempts++);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
     }
-    wsRef.current = ws;
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ event: "subscribe_candles", tokenA, tokenB, interval }));
-    };
-
-    ws.onmessage = (e) => {
+    function connect() {
+      if (disposed) return;
       try {
-        const msg = JSON.parse(e.data as string) as {
-          event?: string;
-          candle?: Candle;
-        };
-        if (msg.event !== "candle" || !msg.candle) return;
-        setCandles((prev) => {
-          if (prev.length === 0) return [msg.candle!];
-          const last = prev[prev.length - 1];
-          // Replace last candle if same timestamp, else append
-          if (last.time === msg.candle!.time) {
-            return [...prev.slice(0, -1), msg.candle!];
-          }
-          return [...prev.slice(-167), msg.candle!];
-        });
+        ws = new WebSocket(`${getWsBase()}/price`);
       } catch {
-        // ignore
+        scheduleReconnect();
+        return;
       }
-    };
+      wsRef.current = ws;
 
-    return () => { ws.close(); };
-  }, [tokenA, tokenB, interval]);
+      ws.onopen = () => {
+        attempts = 0;
+        if (poolId) {
+          ws?.send(JSON.stringify({ action: 'subscribe', poolId }));
+        }
+      };
+      ws.onclose = scheduleReconnect;
+      ws.onerror = () => ws?.close();
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data as string);
+          if (msg.event === 'price' && msg.data?.poolId === poolId) {
+            setCandles((prev) => {
+              if (prev.length === 0) return [msg.data as Candle];
+              const last = prev[prev.length - 1];
+              if (last.time === (msg.data as Candle).time) {
+                return [...prev.slice(0, -1), msg.data as Candle];
+              }
+              return [...prev.slice(-167), msg.data as Candle];
+            });
+          }
+        } catch {
+          // ignore malformed messages
+        }
+      };
+    }
+
+    connect();
+
+    return () => {
+      disposed = true;
+      clearTimeout(reconnectTimer ?? undefined);
+      ws?.close();
+    };
+  }, [tokenA, tokenB, interval, poolId]);
 
   const currentPrice = candles.length > 0 ? candles[candles.length - 1].close : null;
 
-  return { candles, loading, currentPrice };
+  return { candles, loading, currentPrice, poolId };
 }

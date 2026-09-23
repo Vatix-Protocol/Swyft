@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-swyft}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-swyft}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-swyft}
+      REDIS_URL: redis://redis:6379
+      PORT: 3001
+      NODE_ENV: ${NODE_ENV:-development}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
+      HORIZON_URL: ${HORIZON_URL:-https://horizon-testnet.stellar.org}
+      STELLAR_RPC_URL: ${STELLAR_RPC_URL:-https://soroban-testnet.stellar.org}
+      STELLAR_NETWORK: ${STELLAR_NETWORK:-testnet}
+      POOL_CONTRACT_ID: ${POOL_CONTRACT_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      # NEXT_PUBLIC_* vars are inlined into the client bundle at build time, so
+      # they must be build args (runtime `environment:` is too late). Set
+      # NEXT_PUBLIC_API_URL_PUBLIC to the production API URL for mainnet builds.
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+        NEXT_PUBLIC_API_URL_TESTNET: ${NEXT_PUBLIC_API_URL_TESTNET:-}
+        NEXT_PUBLIC_API_URL_PUBLIC: ${NEXT_PUBLIC_API_URL_PUBLIC:-}
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      # Also exposed at runtime for server-side reads (client bundle uses the
+      # build args above).
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      NEXT_PUBLIC_API_URL_TESTNET: ${NEXT_PUBLIC_API_URL_TESTNET:-}
+      NEXT_PUBLIC_API_URL_PUBLIC: ${NEXT_PUBLIC_API_URL_PUBLIC:-}
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

@@ -29,6 +29,9 @@ function makeSignedNonce(nonce: string): {
 const mockRedis = {
   get: jest.fn(),
   del: jest.fn(),
+  incr: jest.fn().mockResolvedValue(1),
+  ttl: jest.fn().mockResolvedValue(120),
+  expire: jest.fn().mockResolvedValue(1),
 };
 
 const mockJwtService = {
@@ -36,7 +39,10 @@ const mockJwtService = {
 };
 
 const mockConfigService = {
-  get: jest.fn().mockReturnValue('15m'),
+  get: jest.fn((key: string) => {
+    if (key === 'JWT_EXPIRES_IN') return '15m';
+    return undefined;
+  }),
   getOrThrow: jest.fn().mockReturnValue('test-secret'),
 };
 
@@ -47,6 +53,10 @@ describe('AuthService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockConfigService.get.mockImplementation((key: string) => {
+      if (key === 'JWT_EXPIRES_IN') return '15m';
+      return undefined;
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -88,7 +98,10 @@ describe('AuthService', () => {
       expect(mockRedis.del).toHaveBeenCalledWith(
         `${AuthService.NONCE_PREFIX}${walletAddress}`,
       );
-      expect(mockRedis.del).toHaveBeenCalledTimes(1);
+      expect(mockRedis.del).toHaveBeenCalledWith(
+        `${AuthService.ATTEMPTS_PREFIX}${walletAddress}`,
+      );
+      expect(mockRedis.del).toHaveBeenCalledTimes(2);
     });
 
     it('signs the JWT with the wallet address as sub', async () => {
@@ -107,7 +120,9 @@ describe('AuthService', () => {
     });
 
     it('uses JWT_EXPIRES_IN from ConfigService', async () => {
-      mockConfigService.get.mockReturnValueOnce('30m');
+      mockConfigService.get.mockImplementation((key: string) =>
+        key === 'JWT_EXPIRES_IN' ? '30m' : undefined,
+      );
 
       const nonce = 'expires-in-test';
       const { walletAddress, signature } = makeSignedNonce(nonce);
@@ -123,7 +138,7 @@ describe('AuthService', () => {
     });
 
     it('falls back to 15m when JWT_EXPIRES_IN is not set', async () => {
-      mockConfigService.get.mockReturnValueOnce(undefined);
+      mockConfigService.get.mockImplementation(() => undefined);
 
       const nonce = 'fallback-expiry';
       const { walletAddress, signature } = makeSignedNonce(nonce);
@@ -251,6 +266,44 @@ describe('AuthService', () => {
     });
   });
 
+  // ── #776: failed attempts tracked per nonce ────────────────────────────────
+
+  describe('verifyWallet — failed attempt tracking', () => {
+    it('increments the attempts counter on a signature failure', async () => {
+      const nonce = 'attempts-nonce';
+      const { walletAddress } = makeSignedNonce(nonce);
+      const badSig = Buffer.alloc(64).toString('base64');
+
+      mockRedis.get.mockResolvedValueOnce(nonce);
+      mockRedis.incr.mockResolvedValueOnce(1);
+
+      await expect(
+        service.verifyWallet({ walletAddress, nonce, signature: badSig }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockRedis.incr).toHaveBeenCalledWith(
+        `${AuthService.ATTEMPTS_PREFIX}${walletAddress}`,
+      );
+    });
+
+    it('invalidates the nonce once MAX_NONCE_ATTEMPTS is reached', async () => {
+      const nonce = 'lockout-nonce';
+      const { walletAddress } = makeSignedNonce(nonce);
+      const badSig = Buffer.alloc(64).toString('base64');
+
+      mockRedis.get.mockResolvedValueOnce(nonce);
+      mockRedis.incr.mockResolvedValueOnce(AuthService.MAX_NONCE_ATTEMPTS);
+
+      await expect(
+        service.verifyWallet({ walletAddress, nonce, signature: badSig }),
+      ).rejects.toThrow('Too many failed attempts; nonce invalidated');
+
+      expect(mockRedis.del).toHaveBeenCalledWith(
+        `${AuthService.NONCE_PREFIX}${walletAddress}`,
+      );
+    });
+  });
+
   // ── Malformed address ──────────────────────────────────────────────────────
 
   describe('verifyWallet — malformed wallet address', () => {
@@ -279,6 +332,80 @@ describe('AuthService', () => {
       );
 
       jest.restoreAllMocks();
+    });
+  });
+
+  // ── #412: issuer and audience in issued JWTs ───────────────────────────────
+
+  describe('issueJwt — issuer and audience claims', () => {
+    async function signIn(configOverrides: Record<string, string | undefined>) {
+      mockConfigService.get.mockImplementation(
+        (key: string) => configOverrides[key],
+      );
+
+      const nonce = 'iss-aud-nonce';
+      const { walletAddress, signature } = makeSignedNonce(nonce);
+      mockRedis.get.mockResolvedValueOnce(nonce);
+      mockRedis.del.mockResolvedValueOnce(1);
+
+      await service.verifyWallet({ walletAddress, nonce, signature });
+    }
+
+    it('includes issuer in sign options when JWT_ISSUER is configured', async () => {
+      await signIn({
+        JWT_EXPIRES_IN: '15m',
+        JWT_ISSUER: 'swyft-api',
+        JWT_AUDIENCE: undefined,
+      });
+
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ issuer: 'swyft-api' }),
+      );
+    });
+
+    it('includes audience in sign options when JWT_AUDIENCE is configured', async () => {
+      await signIn({
+        JWT_EXPIRES_IN: '15m',
+        JWT_ISSUER: undefined,
+        JWT_AUDIENCE: 'swyft-client',
+      });
+
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ audience: 'swyft-client' }),
+      );
+    });
+
+    it('includes both issuer and audience when both are configured', async () => {
+      await signIn({
+        JWT_EXPIRES_IN: '15m',
+        JWT_ISSUER: 'swyft-api',
+        JWT_AUDIENCE: 'swyft-client',
+      });
+
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          issuer: 'swyft-api',
+          audience: 'swyft-client',
+        }),
+      );
+    });
+
+    it('omits issuer and audience from sign options when neither is configured', async () => {
+      await signIn({
+        JWT_EXPIRES_IN: '15m',
+        JWT_ISSUER: undefined,
+        JWT_AUDIENCE: undefined,
+      });
+
+      const signCallOptions = mockJwtService.sign.mock.calls[0][1] as Record<
+        string,
+        unknown
+      >;
+      expect(signCallOptions).not.toHaveProperty('issuer');
+      expect(signCallOptions).not.toHaveProperty('audience');
     });
   });
 });

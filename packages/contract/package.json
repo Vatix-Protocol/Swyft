@@ -8,11 +8,12 @@
     "test:unit": "jest",
     "test:integration": "tsx scripts/test-integration.ts",
     "test:deploy": "vitest run scripts/__tests__/deploy.test.ts",
+    "test:drift": "vitest run scripts/__tests__/check-address-drift.test.ts",
     "deploy:testnet": "bash scripts/deploy-testnet.sh",
     "deploy:testnet:force": "bash scripts/deploy-testnet.sh --force"
   },
   "devDependencies": {
-    "@stellar/stellar-sdk": "^13.0.0",
+    "@stellar/stellar-sdk": "^13.1.0",
     "@types/jest": "^30.0.0",
     "jest": "^30.0.0",
     "ts-jest": "^29.2.5",

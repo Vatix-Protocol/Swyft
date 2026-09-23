@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 import Redis from 'ioredis';
+import { RequestContext } from '../logging/request-context';
+import { ErrorResponse } from '../request-validation/error-response.interface';
 
 /** A named rate-limit rule that defines a sliding-window counter. */
 interface RateLimitRule {
@@ -31,11 +33,14 @@ interface RateLimitHit extends RateLimitRule {
  * NestJS middleware that enforces per-IP (and per-internal-key) rate limits
  * using Redis sliding-window counters.
  *
- * **Behaviour when Redis is unavailable:** all requests are allowed through and
- * rate-limit headers are set to reflect the configured limits with `remaining=0`.
+ * **Behaviour when Redis is unavailable:** in production (`NODE_ENV=production`)
+ * requests are rejected with HTTP 503 to fail closed rather than allow
+ * unlimited traffic. Outside production (local dev, test) requests are
+ * allowed through with degraded headers so Redis is not a hard local
+ * dependency.
  *
- * **Health-check bypass:** requests to `/health` are always passed through
- * without touching Redis or setting headers.
+ * **Health-check and metrics bypass:** requests to `/health` and `/metrics*`
+ * are always passed through without touching Redis or setting headers.
  *
  * ### Environment variables
  * | Variable | Default | Description |
@@ -47,6 +52,10 @@ interface RateLimitHit extends RateLimitRule {
  * | `INTERNAL_CANDLE_RATE_LIMIT_PER_MINUTE` | `240` | Per-minute limit for candle endpoints (internal) |
  * | `AUTH_RATE_LIMIT_PER_MINUTE` | `10` | Per-minute limit for auth endpoints (public) |
  * | `INTERNAL_AUTH_RATE_LIMIT_PER_MINUTE` | `60` | Per-minute limit for auth endpoints (internal) |
+ * | `TRANSACTION_RATE_LIMIT_PER_MINUTE` | `20` | Per-minute limit for POST /transactions (public) |
+ * | `INTERNAL_TRANSACTION_RATE_LIMIT_PER_MINUTE` | `120` | Per-minute limit for POST /transactions (internal) |
+ * | `TICKS_RATE_LIMIT_PER_MINUTE` | `30` | Per-minute limit for GET /pools/:id/ticks (public) |
+ * | `INTERNAL_TICKS_RATE_LIMIT_PER_MINUTE` | `120` | Per-minute limit for GET /pools/:id/ticks (internal) |
  * | `INTERNAL_API_KEY` | _(unset)_ | Shared secret sent via `x-internal-key` header |
  */
 @Injectable()
@@ -83,7 +92,9 @@ export class RateLimitMiddleware
    *
    * Evaluates all applicable rate-limit rules for the incoming request and
    * either calls `next()` (request allowed) or responds with HTTP 429
-   * (request blocked).
+   * (request blocked) using the shared {@link ErrorResponse} body shape
+   * (`statusCode`, `message`, `error`, `timestamp`, `path`, optional
+   * `requestId`) plus `retryAfter` and the `Retry-After` response header.
    *
    * Response headers set on every non-health request:
    * - `X-RateLimit-Limit` — the effective window limit
@@ -96,14 +107,13 @@ export class RateLimitMiddleware
    * @param next - Express next-function; called when the request is allowed
    */
   async use(req: Request, res: Response, next: NextFunction): Promise<void> {
-    if (req.path === '/health') {
+    if (req.path === '/health' || req.path.startsWith('/metrics')) {
       next();
       return;
     }
 
     if (!this.redis) {
-      this.setHeaders(res, this.publicRuleFor(req), 0, 0);
-      next();
+      this.handleRedisUnavailable(req, res, next);
       return;
     }
 
@@ -116,8 +126,7 @@ export class RateLimitMiddleware
         rules.map((rule) => this.hit(rule, identity, this.routeBucketFor(req))),
       );
     } catch {
-      this.setHeaders(res, this.publicRuleFor(req), 0, 0);
-      next();
+      this.handleRedisUnavailable(req, res, next);
       return;
     }
     const effective = this.effectiveHit(hits);
@@ -130,16 +139,63 @@ export class RateLimitMiddleware
     );
 
     if (effective.exceeded) {
-      res.setHeader('Retry-After', effective.resetSeconds.toString());
-      res.status(429).json({
+      const retryAfter = effective.resetSeconds.toString();
+      res.setHeader('Retry-After', retryAfter);
+      const body: ErrorResponse & { retryAfter?: string } = {
         statusCode: 429,
         message: 'Too many requests',
         error: 'Too Many Requests',
-      });
+        timestamp: new Date().toISOString(),
+        path: req.originalUrl || req.path,
+        requestId: RequestContext.requestId,
+        retryAfter,
+      };
+      res.status(429).json(body);
       return;
     }
 
     next();
+  }
+
+  /**
+   * Handles a request when Redis is unreachable (never connected, or the
+   * current command failed). In production this fails closed with HTTP 503
+   * so a Redis outage cannot be used to bypass rate limits; outside
+   * production it falls back to the previous fail-open behaviour so local
+   * development and tests don't require a running Redis.
+   *
+   * @param req - Incoming Express request
+   * @param res - Outgoing Express response
+   * @param next - Express next-function
+   */
+  private handleRedisUnavailable(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): void {
+    if (!this.isProduction()) {
+      this.setHeaders(res, this.publicRuleFor(req), 0, 0);
+      next();
+      return;
+    }
+
+    const body: ErrorResponse = {
+      statusCode: 503,
+      message: 'Rate limiting is temporarily unavailable',
+      error: 'Service Unavailable',
+      timestamp: new Date().toISOString(),
+      path: req.originalUrl || req.path,
+      requestId: RequestContext.requestId,
+    };
+    res.status(503).json(body);
+  }
+
+  /**
+   * Whether the process is running in production, used to decide whether a
+   * Redis outage fails closed (production) or open (local dev/test).
+   */
+  private isProduction(): boolean {
+    return process.env.NODE_ENV === 'production';
   }
 
   /**
@@ -196,6 +252,26 @@ export class RateLimitMiddleware
         limit: internal
           ? this.envInt('INTERNAL_AUTH_RATE_LIMIT_PER_MINUTE', 60)
           : this.envInt('AUTH_RATE_LIMIT_PER_MINUTE', 10),
+        windowSeconds: 60,
+      };
+    }
+
+    if (req.path === '/transactions' && req.method === 'POST') {
+      return {
+        name: internal ? 'internal-transactions' : 'transactions',
+        limit: internal
+          ? this.envInt('INTERNAL_TRANSACTION_RATE_LIMIT_PER_MINUTE', 120)
+          : this.envInt('TRANSACTION_RATE_LIMIT_PER_MINUTE', 20),
+        windowSeconds: 60,
+      };
+    }
+
+    if (/^\/pools\/[^/]+\/ticks\/?$/.test(req.path)) {
+      return {
+        name: internal ? 'internal-ticks' : 'ticks',
+        limit: internal
+          ? this.envInt('INTERNAL_TICKS_RATE_LIMIT_PER_MINUTE', 120)
+          : this.envInt('TICKS_RATE_LIMIT_PER_MINUTE', 30),
         windowSeconds: 60,
       };
     }
@@ -304,6 +380,8 @@ export class RateLimitMiddleware
       return 'prices-candles';
     }
     if (req.path.startsWith('/auth')) return 'auth';
+    if (req.path === '/transactions') return 'transactions';
+    if (/^\/pools\/[^/]+\/ticks\/?$/.test(req.path)) return 'pools-ticks';
     return 'global';
   }
 

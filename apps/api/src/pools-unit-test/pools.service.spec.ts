@@ -6,6 +6,8 @@ import { CacheService } from '../cache/cache.service';
 import {
   createMockCacheService,
   createMockPoolsRepository,
+  mockPoolDetailData,
+  mockSwap,
   mockTick,
 } from './mock-factories';
 
@@ -45,6 +47,66 @@ describe('PoolsService', () => {
       expect(cache.set).toHaveBeenCalledTimes(1);
     });
 
+    it('passes token0 and token1 filter params to repository', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({
+        page: 1,
+        limit: 10,
+        token0: 'USDC-addr',
+        token1: 'XLM-addr',
+      });
+
+      expect(repo.listActivePools).toHaveBeenCalledWith(
+        expect.objectContaining({ token0: 'USDC-addr', token1: 'XLM-addr' }),
+      );
+    });
+
+    it('includes token0/token1 in cache key to isolate pair results', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({ page: 1, limit: 10, token0: 'USDC-addr' });
+
+      expect(cache.get).toHaveBeenCalledWith(
+        expect.stringContaining('token0=USDC-addr'),
+      );
+    });
+
+    it('defaults includeInactive to false and filters inactive pools', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({ page: 1, limit: 10 });
+
+      expect(repo.listActivePools).toHaveBeenCalledWith(
+        expect.objectContaining({ includeInactive: false }),
+      );
+    });
+
+    it('passes includeInactive=true through to the repository', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({ page: 1, limit: 10, includeInactive: true });
+
+      expect(repo.listActivePools).toHaveBeenCalledWith(
+        expect.objectContaining({ includeInactive: true }),
+      );
+    });
+
+    it('includes includeInactive in the cache key', async () => {
+      cache.get.mockResolvedValue(null);
+      repo.listActivePools.mockResolvedValue({ items: [], total: 0 });
+
+      await service.getPools({ page: 1, limit: 10, includeInactive: true });
+
+      expect(cache.get).toHaveBeenCalledWith(
+        expect.stringContaining('includeInactive=true'),
+      );
+    });
+
     it('returns cached result and skips repository on cache hit', async () => {
       const cached = {
         items: [],
@@ -69,8 +131,12 @@ describe('PoolsService', () => {
     const poolId = 'cltest123456789012345678';
 
     beforeEach(() => {
-      // findPoolById uses isValidPoolId — cuid pattern passes
       cache.get.mockResolvedValue(null);
+      repo.getPoolDetailById.mockResolvedValue({
+        ...mockPoolDetailData({ pool: { id: poolId } }),
+        token0: null,
+        token1: null,
+      });
     });
 
     it('returns ticks from repository on cache miss', async () => {
@@ -119,6 +185,7 @@ describe('PoolsService', () => {
 
     it('throws NotFoundException for unknown pool id', async () => {
       repo.poolExists.mockResolvedValue(false);
+      repo.getPoolDetailById.mockResolvedValueOnce(null);
       await expect(service.getPoolTicks('unknown_id')).rejects.toThrow(
         NotFoundException,
       );
@@ -127,6 +194,7 @@ describe('PoolsService', () => {
 
     it('does not cache on 404', async () => {
       repo.poolExists.mockResolvedValue(false);
+      repo.getPoolDetailById.mockResolvedValueOnce(null);
       await expect(service.getPoolTicks('bad_id')).rejects.toThrow(
         NotFoundException,
       );
@@ -139,6 +207,63 @@ describe('PoolsService', () => {
       await service.getPoolTicks(poolId);
 
       expect(cache.get).toHaveBeenCalledWith(expect.stringContaining(poolId));
+    });
+  });
+
+  // ─── findPoolById ────────────────────────────────────────────────────────────
+
+  describe('findPoolById()', () => {
+    const poolId = 'cltest123456789012345678';
+    const now = new Date('2024-06-01T12:00:00Z');
+
+    it('returns full PoolDetail shape for a known pool', async () => {
+      const poolData = mockPoolDetailData({
+        pool: { id: poolId, createdAt: now, updatedAt: now },
+        swaps: [mockSwap({ id: 'swap_1', poolId, timestamp: now })],
+      });
+
+      repo.getPoolDetailById = jest.fn().mockResolvedValue(poolData);
+
+      const result = await service.findPoolById(poolId);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveProperty('id', poolId);
+      expect(result).toHaveProperty('token0.symbol', 'USDC');
+      expect(result).toHaveProperty('token1.symbol', 'WETH');
+      expect(result).toHaveProperty('feeTier', 3000);
+      expect(result).toHaveProperty('tvl', '5000000');
+      expect(result).toHaveProperty('volume24h', '1200000');
+      expect(result).toHaveProperty('recentSwaps');
+      expect(result?.recentSwaps).toHaveLength(1);
+      expect(result?.recentSwaps[0]).toHaveProperty('txHash', '0xTxHash1');
+    });
+
+    it('returns null for unknown pool id', async () => {
+      repo.getPoolDetailById = jest.fn().mockResolvedValue(null);
+
+      const result = await service.findPoolById('unknown_id');
+
+      expect(result).toBeNull();
+    });
+
+    it('handles missing token data with defaults', async () => {
+      const poolData = {
+        ...mockPoolDetailData({
+          pool: { id: poolId, createdAt: now, updatedAt: now },
+        }),
+        token0: null,
+        token1: null,
+      };
+
+      repo.getPoolDetailById = jest.fn().mockResolvedValue(poolData);
+
+      const result = await service.findPoolById(poolId);
+
+      expect(result).toBeDefined();
+      expect(result?.token0.symbol).toBe('');
+      expect(result?.token0.decimals).toBe(18);
+      expect(result?.token1.symbol).toBe('');
+      expect(result?.token1.decimals).toBe(18);
     });
   });
 });

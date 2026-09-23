@@ -1,12 +1,12 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { useWebhooks } from "@/hooks/useWebhooks";
+import { useState } from 'react';
+import { useWebhooks } from '@/hooks/useWebhooks';
 
 const WEBHOOK_EVENT_OPTIONS = [
-  { value: "pool.created", label: "Pool Created" },
-  { value: "swap.large", label: "Large Swap" },
-  { value: "pool.tvl.milestone", label: "TVL Milestone" },
+  { value: 'pool.created', label: 'Pool Created' },
+  { value: 'swap.large', label: 'Large Swap' },
+  { value: 'pool.tvl.milestone', label: 'TVL Milestone' },
 ] as const;
 
 interface WebhooksPanelProps {
@@ -28,6 +28,9 @@ function SkeletonRow() {
       <td className="px-4 py-3">
         <div className="h-4 w-12 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
       </td>
+      <td className="px-4 py-3">
+        <div className="h-4 w-32 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+      </td>
       <td className="px-4 py-3 text-right">
         <div className="ml-auto h-7 w-16 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-700" />
       </td>
@@ -39,13 +42,13 @@ export function WebhooksPanel({ authToken }: WebhooksPanelProps) {
   const { items, loading, error, createWebhook, removeWebhook } = useWebhooks(authToken);
 
   const [showForm, setShowForm] = useState(false);
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState('');
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
-  const [secret, setSecret] = useState("");
+  const [secret, setSecret] = useState('');
 
   function toggleEvent(value: string) {
     setSelectedEvents((prev) =>
-      prev.includes(value) ? prev.filter((e) => e !== value) : [...prev, value],
+      prev.includes(value) ? prev.filter((e) => e !== value) : [...prev, value]
     );
   }
 
@@ -53,9 +56,9 @@ export function WebhooksPanel({ authToken }: WebhooksPanelProps) {
     e.preventDefault();
     if (!url || selectedEvents.length === 0) return;
     await createWebhook({ url, eventTypes: selectedEvents, secret: secret || undefined });
-    setUrl("");
+    setUrl('');
     setSelectedEvents([]);
-    setSecret("");
+    setSecret('');
     setShowForm(false);
   }
 
@@ -78,7 +81,7 @@ export function WebhooksPanel({ authToken }: WebhooksPanelProps) {
           aria-label="Register a new webhook"
           className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {showForm ? "Cancel" : "Register"}
+          {showForm ? 'Cancel' : 'Register'}
         </button>
       </div>
 
@@ -119,8 +122,8 @@ export function WebhooksPanel({ authToken }: WebhooksPanelProps) {
                     key={value}
                     className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                       selectedEvents.includes(value)
-                        ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
-                        : "border-zinc-200 text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:text-zinc-400"
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                        : 'border-zinc-200 text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:text-zinc-400'
                     }`}
                   >
                     <input
@@ -141,8 +144,7 @@ export function WebhooksPanel({ authToken }: WebhooksPanelProps) {
                 htmlFor="webhook-secret"
                 className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
               >
-                Signing secret{" "}
-                <span className="font-normal text-zinc-400">(optional)</span>
+                Signing secret <span className="font-normal text-zinc-400">(optional)</span>
               </label>
               <input
                 id="webhook-secret"
@@ -160,7 +162,7 @@ export function WebhooksPanel({ authToken }: WebhooksPanelProps) {
               disabled={loading || !url || selectedEvents.length === 0}
               className="self-start rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading ? "Saving…" : "Save webhook"}
+              {loading ? 'Saving…' : 'Save webhook'}
             </button>
           </div>
         </form>
@@ -184,25 +186,22 @@ export function WebhooksPanel({ authToken }: WebhooksPanelProps) {
               <th className="px-4 py-3 text-left font-medium text-zinc-500">URL</th>
               <th className="px-4 py-3 text-left font-medium text-zinc-500">Events</th>
               <th className="px-4 py-3 text-left font-medium text-zinc-500">Status</th>
+              <th className="px-4 py-3 text-left font-medium text-zinc-500">Last Delivery</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
             {/* Skeleton rows while loading with no existing items yet */}
-            {loading && items.length === 0 &&
+            {loading &&
+              items.length === 0 &&
               Array.from({ length: 3 }).map((_, i) => <SkeletonRow key={i} />)}
 
             {/* Empty state */}
             {!loading && items.length === 0 && (
               <tr>
-                <td
-                  colSpan={4}
-                  className="px-4 py-12 text-center text-zinc-400 dark:text-zinc-600"
-                >
-                  No webhooks registered yet. Click{" "}
-                  <strong className="font-medium text-zinc-600 dark:text-zinc-400">
-                    Register
-                  </strong>{" "}
+                <td colSpan={5} className="px-4 py-12 text-center text-zinc-400 dark:text-zinc-600">
+                  No webhooks registered yet. Click{' '}
+                  <strong className="font-medium text-zinc-600 dark:text-zinc-400">Register</strong>{' '}
                   to add your first endpoint.
                 </td>
               </tr>
@@ -238,6 +237,38 @@ export function WebhooksPanel({ authToken }: WebhooksPanelProps) {
                     <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
                       Active
                     </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-sm">
+                  {!item.lastDeliveryStatus ? (
+                    <span className="text-zinc-400 dark:text-zinc-500">Never delivered</span>
+                  ) : item.lastDeliveryStatus === 'success' ? (
+                    <div className="flex flex-col gap-0.5">
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400 inline-block w-fit">
+                        Success
+                      </span>
+                      {item.lastDeliveryTimestamp && (
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                          {new Date(item.lastDeliveryTimestamp * 1000).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-0.5">
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600 dark:bg-red-950 dark:text-red-400 inline-block w-fit">
+                        Failed
+                      </span>
+                      {item.lastDeliveryTimestamp && (
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                          {new Date(item.lastDeliveryTimestamp * 1000).toLocaleString()}
+                        </span>
+                      )}
+                      {item.lastDeliveryError && (
+                        <span className="text-xs text-red-500 dark:text-red-400 truncate" title={item.lastDeliveryError}>
+                          {item.lastDeliveryError}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right">
