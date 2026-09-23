@@ -35,6 +35,27 @@ export class CacheError extends Error {
   }
 }
 
+/** Stable error codes for rate-limit entrypoints (safe to surface to callers/logs). */
+export const RATE_LIMIT_ERROR = {
+  EXCEEDED: 'RATE_LIMIT_EXCEEDED',
+  DEPENDENCY_UNAVAILABLE: 'RATE_LIMIT_DEPENDENCY_UNAVAILABLE',
+} as const;
+
+export type RateLimitErrorCode =
+  (typeof RATE_LIMIT_ERROR)[keyof typeof RATE_LIMIT_ERROR];
+
+export class RateLimitError extends Error {
+  constructor(
+    readonly code: RateLimitErrorCode,
+    message: string,
+    readonly correlationId?: string,
+    readonly retryAfterSeconds?: number,
+  ) {
+    super(message);
+    this.name = 'RateLimitError';
+  }
+}
+
 export interface CacheFetchOptions {
   /** TTL (seconds) applied to the freshly fetched value. */
   ttlSeconds?: number;
@@ -45,6 +66,27 @@ export interface CacheFetchOptions {
    * unavailable, throw instead of silently returning stale/incorrect data.
    */
   failClosed?: boolean;
+}
+
+export interface RateLimitOptions {
+  /** Max requests permitted within the window. */
+  limit: number;
+  /** Window length in seconds. */
+  windowSeconds: number;
+  /** Correlation id propagated to logs/errors for tracing. */
+  correlationId?: string;
+  /**
+   * Fail-closed mode for money-path entrypoints: when the rate-limit backing
+   * store is unavailable, deny the request instead of allowing it through.
+   */
+  failClosed?: boolean;
+}
+
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  /** Seconds until the window resets (only meaningful when not allowed). */
+  retryAfterSeconds: number;
 }
 
 @Injectable()
@@ -173,6 +215,69 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
 
     this.inflight.set(key, pending);
     return pending;
+  }
+
+  /**
+   * Fixed-window rate limiter backed by Redis.
+   *
+   * The INCR + EXPIRE pair runs atomically in a Lua script so concurrent
+   * requests across API replicas share one counter and cannot race past the
+   * limit. Deny-by-default: when the backing store is unavailable and
+   * `failClosed` is set, the request is rejected with a typed `RateLimitError`
+   * rather than being allowed through.
+   */
+  async checkRateLimit(
+    key: string,
+    options: RateLimitOptions,
+  ): Promise<RateLimitResult> {
+    const { limit, windowSeconds, correlationId, failClosed = false } = options;
+
+    if (!this.available) {
+      if (failClosed) {
+        throw new RateLimitError(
+          RATE_LIMIT_ERROR.DEPENDENCY_UNAVAILABLE,
+          `Rate-limit store unavailable for key=${key}`,
+          correlationId,
+        );
+      }
+      // Non-money-path: allow but surface no remaining budget.
+      return { allowed: true, remaining: 0, retryAfterSeconds: 0 };
+    }
+
+    try {
+      const [count, ttl] = (await this.client!.eval(
+        `local current = redis.call('INCR', KEYS[1])
+         if current == 1 then
+           redis.call('EXPIRE', KEYS[1], ARGV[1])
+         end
+         local ttl = redis.call('TTL', KEYS[1])
+         return { current, ttl }`,
+        1,
+        key,
+        String(windowSeconds),
+      )) as [number, number];
+
+      const remaining = Math.max(0, limit - count);
+      const allowed = count <= limit;
+      const retryAfterSeconds = allowed ? 0 : Math.max(1, ttl);
+
+      if (!allowed) {
+        this.logger.warn(
+          `rate limit exceeded key=${key} count=${count} limit=${limit}`,
+        );
+      }
+
+      return { allowed, remaining, retryAfterSeconds };
+    } catch (err) {
+      if (failClosed) {
+        throw new RateLimitError(
+          RATE_LIMIT_ERROR.DEPENDENCY_UNAVAILABLE,
+          `Rate-limit store error for key=${key}`,
+          correlationId,
+        );
+      }
+      return { allowed: true, remaining: 0, retryAfterSeconds: 0 };
+    }
   }
 
   async ping(): Promise<boolean> {

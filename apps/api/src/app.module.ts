@@ -60,6 +60,52 @@ export function resolveCorsConfig(env: NodeJS.ProcessEnv = process.env): CorsCon
   return { origins, credentials };
 }
 
+/**
+ * Rate limiting configuration for the API.
+ *
+ * Deny-by-default: every external entrypoint is rate limited. The backing
+ * store (Redis) is required for writes; when it is unavailable the limiter
+ * fails closed so untrusted clients cannot bypass policy. See
+ * docs/RATE_LIMITING.md for the production contract.
+ */
+export interface RateLimitConfig {
+  enabled: boolean;
+  windowMs: number;
+  max: number;
+  /** Fail closed on writes when the backing store is unavailable. */
+  failClosed: boolean;
+}
+
+const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
+const DEFAULT_RATE_LIMIT_MAX = 120;
+
+/**
+ * Resolve the effective rate-limit config for the current environment.
+ *
+ * - Production/mainnet: rate limiting is always enabled and fails closed.
+ * - Non-production: can be disabled via RATE_LIMIT_ENABLED=false for local
+ *   development, but defaults to enabled.
+ */
+export function resolveRateLimitConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): RateLimitConfig {
+  const isProduction = env.NODE_ENV === 'production';
+
+  const windowMs = Number.parseInt(env.RATE_LIMIT_WINDOW_MS ?? '', 10);
+  const max = Number.parseInt(env.RATE_LIMIT_MAX ?? '', 10);
+
+  // Production cannot be disabled; non-production defaults to enabled.
+  const enabled = isProduction ? true : env.RATE_LIMIT_ENABLED !== 'false';
+
+  return {
+    enabled,
+    windowMs: Number.isFinite(windowMs) && windowMs > 0 ? windowMs : DEFAULT_RATE_LIMIT_WINDOW_MS,
+    max: Number.isFinite(max) && max > 0 ? max : DEFAULT_RATE_LIMIT_MAX,
+    // Writes always fail closed; production never relaxes this.
+    failClosed: isProduction ? true : env.RATE_LIMIT_FAIL_CLOSED !== 'false',
+  };
+}
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -93,5 +139,19 @@ export class AppModule {
       },
       credentials,
     };
+  }
+
+  static rateLimitOptions(config: ConfigService): RateLimitConfig {
+    return resolveRateLimitConfig({
+      ...process.env,
+      RATE_LIMIT_ENABLED:
+        config.get<string>('RATE_LIMIT_ENABLED') ?? process.env.RATE_LIMIT_ENABLED,
+      RATE_LIMIT_WINDOW_MS:
+        config.get<string>('RATE_LIMIT_WINDOW_MS') ?? process.env.RATE_LIMIT_WINDOW_MS,
+      RATE_LIMIT_MAX:
+        config.get<string>('RATE_LIMIT_MAX') ?? process.env.RATE_LIMIT_MAX,
+      RATE_LIMIT_FAIL_CLOSED:
+        config.get<string>('RATE_LIMIT_FAIL_CLOSED') ?? process.env.RATE_LIMIT_FAIL_CLOSED,
+    });
   }
 }
