@@ -5,6 +5,16 @@ on:
     - cron: '0 2 * * *'   # 02:00 UTC daily
   workflow_dispatch:        # allow manual trigger
 
+# Least-privilege: the backup job only needs to read repo contents.
+permissions:
+  contents: read
+
+# Never run two backups concurrently — overlapping dumps can race on the
+# same object key and corrupt retention accounting. Queue instead of cancel.
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
 jobs:
   backup:
     name: Backup PostgreSQL to S3
@@ -16,6 +26,26 @@ jobs:
       - name: Install PostgreSQL client
         run: sudo apt-get install -y postgresql-client
 
+      - name: Verify required secrets are present
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for var in DATABASE_URL BACKUP_S3_BUCKET AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+            if [ -z "${!var:-}" ]; then
+              echo "::error::Required secret ${var} is not configured"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Refusing to run backup with missing credentials (fail-closed)"
+            exit 1
+          fi
+
       - name: Run backup script
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -25,4 +55,11 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.BACKUP_AWS_REGION }}
+          # Stable correlation id so backup logs/metrics can be traced end-to-end.
+          BACKUP_CORRELATION_ID: ${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm --filter api db:backup
+
+      - name: Report backup failure
+        if: failure()
+        run: |
+          echo "::error::Database backup failed (correlation id ${{ github.run_id }}-${{ github.run_attempt }}). See runbook docs/OPS_DEPLOYMENT.md."

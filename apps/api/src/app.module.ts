@@ -26,6 +26,7 @@ import { TicksModule } from './ticks/ticks.module';
 import { FeeCollectorModule } from './fee-collector/fee-collector.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { BalancesModule } from './balances/balances.module';
+import { WebsocketModule } from './websocket/websocket.module';
 import { stellarConfig, resolveStellarConfig, stellarConfigSummary } from './config/stellar.config';
 import { infraConfig } from './config/infra.config';
 import { resolveCorsConfig } from './config/cors.config';
@@ -71,6 +72,12 @@ import { applySentryRedactionPolicy } from './observability/sentry-redaction';
     FeeCollectorModule,
     TransactionsModule,
     BalancesModule,
+    // WebSocket reconnect (issue #991): typed reconnect entrypoints with
+    // stable error codes, correlation ids, deny-by-default authz on
+    // privileged channels, and idempotent resubscription. Registered after
+    // AuthModule so the reconnect guard can resolve the auth service and
+    // fail closed when dependencies are unavailable.
+    WebsocketModule,
   ],
 })
 export class AppModule implements NestModule {
