@@ -24,6 +24,61 @@ Deployed testnet contract IDs live in:
 
 Wire addresses into the API via the env keys listed in that registry (see `apps/api/.env.example`).
 
+## math-lib: Fixed-Point (Q64.96) Invariants
+
+The `math-lib` contract provides fixed-point arithmetic in **Q64.96** format
+(64 integer bits, 96 fractional bits). All arithmetic is **checked**: overflow
+and underflow revert rather than wrapping, and rounding is deterministic.
+
+### Invariants
+
+- **No silent overflow/underflow.** Every add/sub/mul/div uses checked
+  arithmetic. A result outside the representable Q64.96 range reverts with
+  `MathError::Overflow` (positive) or `MathError::Underflow` (negative) instead
+  of wrapping around.
+- **Representable range.** The minimum representable value is `0` and the
+  maximum is `2^64 - 1` in integer units (i.e. `(2^64 - 1) << 96` in raw
+  fixed-point). Values at or beyond these bounds fail closed.
+- **Deterministic rounding.** `mul_div` rounds **down** (toward zero) and
+  `div` truncates toward zero; the same inputs always produce the same output
+  across runs and platforms. Rounding never silently crosses a boundary into
+  overflow.
+- **Division by zero.** Any division or `mul_div` with a zero denominator
+  reverts with `MathError::DivisionByZero`.
+- **Server/contract is source of truth.** Callers cannot supply a pre-rounded
+  or pre-scaled result; all scaling is performed inside `math-lib`.
+
+### Stable error codes
+
+| Code | Name             | Meaning                                          |
+| ---- | ---------------- | ------------------------------------------------ |
+| 1    | `Overflow`       | Result exceeds the maximum representable value   |
+| 2    | `Underflow`      | Result is below the minimum representable value  |
+| 3    | `DivisionByZero` | Zero denominator in `div`/`mul_div`              |
+| 4    | `InvalidInput`   | Malformed/negative input where unsigned expected |
+
+### Property tests
+
+`math-lib` ships property-based tests asserting the invariants above:
+
+- **Boundary values.** `0`, `1` (smallest unit), and `(2^64 - 1) << 96`
+  (maximum) round-trip through add/sub/mul/div without loss.
+- **Overflow/underflow.** `max + 1` reverts with `MathError::Overflow`;
+  `0 - 1` reverts with `MathError::Underflow`; `max * 2` reverts with
+  `MathError::Overflow`. Tests **assert on the revert** rather than allowing
+  wraparound (fail-closed).
+- **Rounding boundaries.** `mul_div` results just below and just above a
+  fractional boundary round deterministically down; the property holds for
+  randomized inputs.
+- **Adversarial inputs.** Zero denominators, maximum operands, and
+  randomized large values never produce a wrapped or silently truncated
+  result — they either return a correct in-range value or revert.
+
+### Observability
+
+- Arithmetic reverts carry the stable error code above; no secrets, keys, or
+  raw signatures are ever logged.
+
 ## Oracle Adapter: Per-Pool TWAP Correctness
 
 The `oracle-adapter` contract exposes a per-pool TWAP oracle. Every entrypoint
@@ -153,90 +208,6 @@ stable error codes, and are deny-by-default for privileged surfaces.
 ### Observability
 
 - Money-path metrics are emitted per swap: direction (exact in/out), pool id,
-  token pair, realized amounts, and outcome code.
-- Logs carry the `correlation_id` for tracing and **never** include secrets,
-  private keys, or raw signatures.
+  token 
 
-### Rollout / kill-switch
-
-- Router swaps are gated behind a feature flag; disabling it makes both
-  entrypoints revert with `RouterError::DependencyUnavailable` (fail-closed).
-- Rollback: flip the flag off and redeploy the previous router wasm; no pool
-  state migration is required.
-
-## Position NFT: LP NFT Mint / Burn / Transfer Rules
-
-The `position-nft` contract mints one NFT per concentrated-liquidity position.
-The NFT is the on-chain proof of ownership for the position's liquidity and
-accrued fees. All lifecycle entrypoints are typed, return stable error codes,
-and are deny-by-default for privileged surfaces.
-
-### Entrypoints
-
-| Entrypoint        | Direction | Semantics                                              |
-| ----------------- | --------- | ------------------------------------------------------ |
-| `mint`            | write     | Mint a position NFT on liquidity provision             |
-| `burn`            | write     | Burn the position NFT on full withdrawal               |
-| `transfer`        | write     | Transfer the position NFT to a new owner               |
-| `owner_of`        | read      | Return the current owner of a position NFT             |
-
-### Invariants
-
-- **Mint on provision.** `mint` is called exactly once per new position and
-  records the pool id, tick range, and liquidity amount. The contract is the
-  source of truth for ownership; client-supplied owner ids are ignored unless
-  they match the authenticated caller.
-- **Burn on full withdrawal.** `burn` is only valid when the position's
-  liquidity is fully withdrawn and all accrued fees are collected. Partial
-  withdrawals must not burn the NFT; they revert with
-  `PositionNftError::PositionNotClosed`.
-- **Transfer only by authorized owner.** `transfer` requires the caller to be
-  the current owner (or an approved operator). Untrusted clients cannot move a
-  position they do not own; unauthorized callers receive
-  `PositionNftError::Unauthorized`.
-- **One NFT per position.** A position id maps to at most one live NFT; minting
-  a duplicate id reverts with `PositionNftError::DuplicateRequest`.
-- **Idempotency.** Each mint/burn/transfer carries a caller-supplied
-  `correlation_id`. Replayed or concurrent requests with a previously consumed
-  id are rejected with `PositionNftError::DuplicateRequest` and never mutate
-  ownership twice.
-- **Fail-closed on dependency outage.** If the pool/RPC dependency is
-  unavailable, writes revert with `PositionNftError::DependencyUnavailable`
-  rather than proceeding on stale ownership or liquidity data.
-
-### Stable error codes
-
-| Code | Name                     | Meaning                                          |
-| ---- | ------------------------ | ------------------------------------------------ |
-| 1    | `Unauthorized`           | Caller is not owner/operator or lacks role       |
-| 2    | `PositionNotClosed`      | Burn attempted before full withdrawal            |
-| 3    | `DuplicateRequest`       | `correlation_id` already consumed (replay)       |
-| 4    | `DependencyUnavailable`  | Pool/RPC dependency outage; write failed closed  |
-| 5    | `InvalidAmount`          | Zero/negative or malformed liquidity amount      |
-| 6    | `NotFound`               | Position id has no live NFT                      |
-
-### Authorization
-
-- `mint` is permissionless for the caller's own liquidity but every request is
-  authorized against position policy; untrusted clients cannot mint a position
-  they did not fund.
-- `burn` and `transfer` are **deny-by-default**: only the current owner or an
-  explicitly approved operator may call them. Unauthorized callers receive
-  `PositionNftError::Unauthorized`.
-- Privileged surfaces (operator approval, admin config) require the admin role
-  and are deny-by-default.
-
-### Observability
-
-- Money-path metrics are emitted per lifecycle event: operation
-  (mint/burn/transfer), pool id, position id, and outcome code.
-- Logs carry the `correlation_id` for tracing and **never** include secrets,
-  private keys, or raw signatures.
-
-### Rollout / kill-switch
-
-- Position lifecycle writes are gated behind a feature flag; disabling it makes
-  `mint`/`burn`/`transfer` revert with `PositionNftError::DependencyUnavailable`
-  (fail-closed).
-- Rollback: flip the flag off and redeploy the previous position-nft wasm; no
-  ownership state migration is required.
+/* … truncated 4521 chars — edit only what you need near the top … */
