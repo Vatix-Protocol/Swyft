@@ -26,19 +26,27 @@ export class JwtAuthGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<RequestWithUser>();
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
-      throw new UnauthorizedException(
-        'Missing or invalid Authorization header',
-      );
+      throw new UnauthorizedException({
+        code: 'AUTH_MISSING_HEADER',
+        message: 'Missing or invalid Authorization header',
+      });
     }
 
     const token = authHeader.slice('Bearer '.length).trim();
     if (!token) {
-      throw new UnauthorizedException('Missing JWT');
+      throw new UnauthorizedException({
+        code: 'AUTH_MISSING_TOKEN',
+        message: 'Missing JWT',
+      });
     }
 
     const secret = process.env.JWT_SECRET;
     if (!secret) {
-      throw new UnauthorizedException('JWT secret not configured');
+      // Fail-closed: without a configured secret we cannot verify any caller.
+      throw new UnauthorizedException({
+        code: 'AUTH_NOT_CONFIGURED',
+        message: 'JWT secret not configured',
+      });
     }
 
     const options: VerifyOptions = {};
@@ -49,22 +57,31 @@ export class JwtAuthGuard implements CanActivate {
       options.audience = process.env.JWT_AUDIENCE;
     }
 
+    let payload: JwtPayload;
     try {
-      const payload = verify(token, secret, options) as JwtPayload;
-      const walletAddress =
-        payload.walletAddress ??
-        payload.wallet ??
-        payload.address ??
-        payload.sub;
-
-      if (!walletAddress || typeof walletAddress !== 'string') {
-        throw new UnauthorizedException('JWT is missing wallet address claim');
-      }
-
-      req.user = { walletAddress };
-      return true;
+      payload = verify(token, secret, options) as JwtPayload;
     } catch {
-      throw new UnauthorizedException('Invalid JWT');
+      throw new UnauthorizedException({
+        code: 'AUTH_INVALID_TOKEN',
+        message: 'Invalid JWT',
+      });
     }
+
+    const walletAddress =
+      payload.walletAddress ??
+      payload.wallet ??
+      payload.address ??
+      payload.sub;
+
+    if (!walletAddress || typeof walletAddress !== 'string') {
+      throw new UnauthorizedException({
+        code: 'AUTH_MISSING_WALLET_CLAIM',
+        message: 'JWT is missing wallet address claim',
+      });
+    }
+
+    // Deny-by-default: only a verified wallet claim is attached to the request.
+    req.user = { walletAddress };
+    return true;
   }
 }
