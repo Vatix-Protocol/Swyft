@@ -1,5 +1,5 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -28,6 +28,9 @@ import { TransactionsModule } from './transactions/transactions.module';
 import { BalancesModule } from './balances/balances.module';
 import { stellarConfig } from './config/stellar.config';
 import { infraConfig } from './config/infra.config';
+import { resolveCorsConfig } from './config/cors.config';
+import { resolveRateLimitConfig, RateLimitConfig } from './config/rate-limit.config';
+import { applySentryRedactionPolicy } from './observability/sentry-redaction';
 
 @Module({
   imports: [
@@ -70,7 +73,19 @@ import { infraConfig } from './config/infra.config';
     BalancesModule,
   ],
 })
-export class AppModule {
+export class AppModule implements NestModule {
+  constructor(private readonly config: ConfigService) {
+    // Apply the SENTRY_REDACTION_POLICY (issue #987) at bootstrap so every
+    // Sentry event/transaction/breadcrumb is scrubbed before it leaves the
+    // process. Deny-by-default: unknown fields are dropped, and the policy is
+    // server-controlled — untrusted clients cannot opt out or widen it.
+    applySentryRedactionPolicy(this.config);
+  }
+
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(LoggingMiddleware).forRoutes('*');
+  }
+
   static corsOptions(config: ConfigService) {
     const { origins, credentials } = resolveCorsConfig({
       ...process.env,
