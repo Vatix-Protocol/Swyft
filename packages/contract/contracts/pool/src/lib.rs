@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Env, Map, Symbol,
+    contract, contractimpl, contracttype, symbol_short, token, Address, Env, Map, Symbol,
 };
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -13,6 +13,7 @@ const KEY_STATE: Symbol = symbol_short!("STATE");
 const KEY_TICKS: Symbol = symbol_short!("TICKS");
 const KEY_BITMAP: Symbol = symbol_short!("BITMAP");
 const KEY_POSITIONS: Symbol = symbol_short!("POSITIONS");
+const KEY_ORACLE: Symbol = symbol_short!("ORACLE");
 
 // ── User-facing messages for empty states ────────────────────────────────────
 /// Message for empty liquidity pool state.
@@ -159,6 +160,34 @@ impl Pool {
         );
     }
 
+    /// Wires the oracle-adapter instance this pool writes observations to.
+    ///
+    /// Deploy-time wiring step: the pool records a price observation after
+    /// every swap so `get_twap` has real history to answer from. Can be set
+    /// once; re-pointing (which would let an attacker redirect the pool's
+    /// observation writes) is rejected.
+    pub fn set_oracle(env: Env, oracle: Address) {
+        match env.storage().instance().get::<_, Address>(&KEY_ORACLE) {
+            Some(existing) if existing != oracle => {
+                panic_with_pool_error(&env, PoolError::AlreadyInitialized);
+            }
+            Some(_) => {}
+            None => {
+                env.storage().instance().set(&KEY_ORACLE, &oracle);
+                env.events().publish(
+                    (Symbol::new(&env, "OracleSet"),),
+                    (oracle,),
+                );
+            }
+        }
+    }
+
+    /// Returns the oracle-adapter address this pool writes observations to,
+    /// or `None` if no oracle has been wired yet.
+    pub fn get_oracle(env: Env) -> Option<Address> {
+        env.storage().instance().get(&KEY_ORACLE)
+    }
+
     /// Returns current pool state.
     ///
     /// # Returns
@@ -215,29 +244,30 @@ impl Pool {
             .get(&KEY_BITMAP)
             .unwrap_or(Map::new(&env));
 
+        // Valid compressed-tick word range; keeps the scan bounded instead of
+        // walking towards i32::MIN / i32::MAX (which blew the VM budget).
+        let min_word = (MIN_TICK / tick_spacing) >> 7;
+        let max_word = (MAX_TICK / tick_spacing) >> 7;
+
         if lte {
             let (word_pos, bit_pos) = tick_position(compressed);
-            let mask = (1u128 << bit_pos)
-                .wrapping_sub(1)
-                .wrapping_add(1u128 << bit_pos); // mask = (1 << bit_pos+1) - 1
+            // Bits 0..=bit_pos set: ((1 << bit_pos) - 1) | (1 << bit_pos).
+            let mask = (1u128 << bit_pos).wrapping_sub(1) | (1u128 << bit_pos);
             let word = bitmap.get(word_pos).unwrap_or(0u128);
             let masked = word & mask;
             if masked != 0 {
                 let msb = 127 - masked.leading_zeros() as i32;
-                let next = (word_pos as i32 * 256 + msb) * tick_spacing;
+                let next = (word_pos * 128 + msb) * tick_spacing;
                 return (next, true);
             }
             // scan left through words
             let mut w = word_pos - 1;
-            loop {
+            while w >= min_word {
                 let word = bitmap.get(w).unwrap_or(0u128);
                 if word != 0 {
                     let msb = 127 - word.leading_zeros() as i32;
-                    let next = (w as i32 * 256 + msb) * tick_spacing;
+                    let next = (w * 128 + msb) * tick_spacing;
                     return (next, true);
-                }
-                if w == i32::MIN {
-                    break;
                 }
                 w -= 1;
             }
@@ -249,19 +279,16 @@ impl Pool {
             let masked = word & mask;
             if masked != 0 {
                 let lsb = masked.trailing_zeros() as i32;
-                let next = (word_pos as i32 * 256 + lsb) * tick_spacing;
+                let next = (word_pos * 128 + lsb) * tick_spacing;
                 return (next, true);
             }
             let mut w = word_pos + 1;
-            loop {
+            while w <= max_word {
                 let word = bitmap.get(w).unwrap_or(0u128);
                 if word != 0 {
                     let lsb = word.trailing_zeros() as i32;
-                    let next = (w as i32 * 256 + lsb) * tick_spacing;
+                    let next = (w * 128 + lsb) * tick_spacing;
                     return (next, true);
-                }
-                if w == i32::MAX {
-                    break;
                 }
                 w += 1;
             }
@@ -277,6 +304,9 @@ impl Pool {
     /// current tick is inside the range), and the caller's position record.
     ///
     /// # Arguments
+    /// * `sender` - Address of the LP funding the position. Must authorise this call
+    ///   and hold sufficient balances of `token_0`/`token_1`; the minted amounts are
+    ///   transferred from the sender into the pool contract.
     /// * `position_id` - Unique identifier for the LP position (e.g. NFT token id).
     /// * `tick_lower` - Lower bound of the price range (inclusive, must be aligned to tick spacing).
     /// * `tick_upper` - Upper bound of the price range (exclusive, must be aligned to tick spacing).
@@ -292,11 +322,13 @@ impl Pool {
     /// Panics with `PoolError::Overflow` on arithmetic overflow.
     pub fn mint(
         env: Env,
+        sender: Address,
         position_id: u64,
         tick_lower: i32,
         tick_upper: i32,
         amount: u128,
     ) -> MintResult {
+        sender.require_auth();
         if amount == 0 {
             panic_with_pool_error(&env, PoolError::ZeroLiquidity);
         }
@@ -344,6 +376,21 @@ impl Pool {
         let amount_1 = get_amount_1(amount, sqrt_lower, sqrt_upper, state.sqrt_price_x96);
 
         env.storage().instance().set(&KEY_STATE, &state);
+        // Transfer the funding tokens from the LP into the pool contract.
+        if amount_0 > 0 {
+            token::Client::new(&env, &state.token_0).transfer(
+                &sender,
+                &env.current_contract_address(),
+                &(amount_0 as i128),
+            );
+        }
+        if amount_1 > 0 {
+            token::Client::new(&env, &state.token_1).transfer(
+                &sender,
+                &env.current_contract_address(),
+                &(amount_1 as i128),
+            );
+        }
         env.events().publish(
             (symbol_short!("mint"),),
             (position_id, tick_lower, tick_upper, amount, amount_0, amount_1),
@@ -351,12 +398,17 @@ impl Pool {
         MintResult { amount_0, amount_1 }
     }
 
-    /// Remove liquidity between [tick_lower, tick_upper].
+    /// Remove liquidity between [tick_lower, tick_upper] and return the released
+    /// tokens to the position owner.
     ///
     /// Decrements tick accumulators, updates the bitmap, reduces active liquidity
-    /// when the current tick is inside the range, and shrinks or removes the position.
+    /// when the current tick is inside the range, shrinks or removes the position,
+    /// and transfers the redeemed `amount_0`/`amount_1` from the pool contract back
+    /// to the caller.
     ///
     /// # Arguments
+    /// * `sender` - Address of the position owner. Must authorise this call and is
+    ///   the recipient of the redeemed tokens.
     /// * `position_id` - Unique identifier for the LP position.
     /// * `tick_lower` - Lower bound of the price range.
     /// * `tick_upper` - Upper bound of the price range.
@@ -371,11 +423,13 @@ impl Pool {
     /// Panics with `PoolError::InsufficientLiquidity` if `amount` exceeds position liquidity.
     pub fn burn(
         env: Env,
+        sender: Address,
         position_id: u64,
         tick_lower: i32,
         tick_upper: i32,
         amount: u128,
     ) -> BurnResult {
+        sender.require_auth();
         if amount == 0 {
             panic_with_pool_error(&env, PoolError::ZeroLiquidity);
         }
@@ -419,6 +473,21 @@ impl Pool {
         let amount_1 = get_amount_1(amount, sqrt_lower, sqrt_upper, state.sqrt_price_x96);
 
         env.storage().instance().set(&KEY_STATE, &state);
+        // Transfer the redeemed tokens from the pool contract back to the LP.
+        if amount_0 > 0 {
+            token::Client::new(&env, &state.token_0).transfer(
+                &env.current_contract_address(),
+                &sender,
+                &(amount_0 as i128),
+            );
+        }
+        if amount_1 > 0 {
+            token::Client::new(&env, &state.token_1).transfer(
+                &env.current_contract_address(),
+                &sender,
+                &(amount_1 as i128),
+            );
+        }
         env.events().publish(
             (symbol_short!("burn"),),
             (position_id, tick_lower, tick_upper, amount, amount_0, amount_1),
@@ -533,13 +602,16 @@ impl Pool {
 
     /// Perform a swap.
     ///
-    /// Executes a single-hop swap within this pool, accruing protocol fees.
+    /// Executes a single-hop exact-input swap within this pool, accruing
+    /// protocol fees, moving the pool price along the active-liquidity curve,
+    /// and recording a post-swap observation with the oracle adapter (when one
+    /// is wired) so TWAP queries reflect real on-chain price history.
     ///
     /// # Arguments
     /// * `token_in` - Address of the token being sold.
     /// * `token_out` - Address of the token being bought.
     /// * `amount_in` - Exact amount of `token_in` to swap.
-    /// * `exact_input` - `true` for exact-input swaps; `false` for exact-output.
+    /// * `exact_input` - Reserved; this implementation is exact-input only.
     /// * `sqrt_price_limit_x96` - Price limit in Q64.96 format; swap stops if this price is reached.
     ///
     /// # Returns
@@ -552,15 +624,60 @@ impl Pool {
         exact_input: bool,
         sqrt_price_limit_x96: u128,
     ) -> SwapResult {
-        // Simplified swap implementation for fee testing.
-        // In practice, this would do the full swap logic.
-        let fee_amount = amount_in / 1000; // 0.1% fee
+        let _ = (exact_input, token_out);
+        let mut state = load_state(&env);
 
-        Self::accrue_fees(env.clone(), fee_amount, 0); // Assume token0 fee
+        let fee_amount = amount_in / 1000; // 0.1% fee
+        let amount_after_fee = amount_in.saturating_sub(fee_amount);
+        let zero_for_one = token_in == state.token_0;
+
+        let mut new_price = next_sqrt_price_from_input(
+            state.sqrt_price_x96,
+            state.liquidity,
+            amount_after_fee,
+            zero_for_one,
+        );
+        // Respect the caller's price limit (0 = no limit for the buying side).
+        if zero_for_one {
+            if new_price < sqrt_price_limit_x96 {
+                new_price = sqrt_price_limit_x96;
+            }
+        } else if new_price > sqrt_price_limit_x96 {
+            new_price = sqrt_price_limit_x96;
+        }
+
+        let amount_out = if zero_for_one {
+            get_amount_1_out(state.liquidity, new_price, state.sqrt_price_x96)
+        } else {
+            get_amount_0_out(state.liquidity, state.sqrt_price_x96, new_price)
+        };
+
+        state.sqrt_price_x96 = new_price;
+        state.tick = sqrt_price_to_tick(new_price);
+        env.storage().instance().set(&KEY_STATE, &state);
+
+        Self::accrue_fees(env.clone(), fee_amount, 0); // token0 fee
+
+        // Record the post-swap observation with the oracle adapter (if wired).
+        // Failing loudly here — rather than skipping — keeps the TWAP honest:
+        // a wired oracle must never silently miss a swap. Raw cross-contract
+        // invoke keeps the oracle-adapter out of this crate's wasm (its `name`
+        // export would collide with ours at link time).
+        if let Some(oracle) = env.storage().instance().get::<_, Address>(&KEY_ORACLE) {
+            env.invoke_contract::<()>(
+                &oracle,
+                &Symbol::new(&env, "write_observation"),
+                soroban_sdk::vec![
+                    &env,
+                    new_price.into_val(&env),
+                    state.liquidity.into_val(&env),
+                ],
+            );
+        }
 
         SwapResult {
             amount_in,
-            amount_out: amount_in - fee_amount,
+            amount_out,
         }
     }
 
@@ -584,6 +701,9 @@ impl Pool {
         env.storage().instance().set(&KEY_STATE, &state);
     }
 }
+
+#[cfg(test)]
+mod test;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -616,10 +736,15 @@ fn mul_div(a: u128, b: u128, denominator: u128) -> u128 {
         .unwrap_or(0)
 }
 
-/// Decompose a compressed tick into (word_pos, bit_pos).
+/// Decompose a compressed tick into (word_pos, bit_pos) for 128-bit words.
+///
+/// The bitmap stores one 128-bit word per 128 compressed ticks, so a word
+/// holds compressed ticks [word*128, word*128 + 127]. This keeps the bit
+/// shift inside `0..128` — the previous `& 0xFF` (256 per word) panicked with
+/// "attempt to shift left with overflow" for any negative tick.
 fn tick_position(compressed: i32) -> (i32, u8) {
-    let word_pos = (compressed >> 8) as i32;
-    let bit_pos = (compressed & 0xFF) as u8;
+    let word_pos = compressed >> 7;
+    let bit_pos = (compressed & 0x7F) as u8;
     (word_pos, bit_pos)
 }
 
@@ -686,7 +811,50 @@ fn update_tick(env: &Env, tick: i32, liquidity_delta: i128, upper: bool, state: 
     flipped
 }
 
+/// Compute the next sqrt price given an exact input amount, using the active
+/// liquidity. Mirrors the constant-product curve of the CL pool.
+fn next_sqrt_price_from_input(
+    sqrt_price: u128,
+    liquidity: u128,
+    amount_in: u128,
+    zero_for_one: bool,
+) -> u128 {
+    if liquidity == 0 {
+        return sqrt_price;
+    }
+    if zero_for_one {
+        // price decreases: new = L * sqrt / (L + amount * sqrt / Q96)
+        let denom = liquidity + amount_in * sqrt_price / Q96;
+        if denom == 0 {
+            return sqrt_price;
+        }
+        liquidity * sqrt_price / denom
+    } else {
+        // price increases: new = sqrt + amount * Q96 / L
+        sqrt_price + amount_in * Q96 / liquidity
+    }
+}
+
+fn get_amount_1_out(liquidity: u128, new_sqrt: u128, old_sqrt: u128) -> u128 {
+    if old_sqrt <= new_sqrt {
+        return 0;
+    }
+    liquidity * (old_sqrt - new_sqrt) / Q96
+}
+
+fn get_amount_0_out(liquidity: u128, old_sqrt: u128, new_sqrt: u128) -> u128 {
+    if new_sqrt == 0 || old_sqrt == 0 || new_sqrt >= old_sqrt {
+        return 0;
+    }
+    liquidity * Q96 / new_sqrt - liquidity * Q96 / old_sqrt
+}
+
 /// Approximate sqrt(1.0001^tick) * 2^96 using integer arithmetic.
+///
+/// Computes 1.0001^|tick| at 1e12 fixed-point scale and takes the integer
+/// square root, which yields ~6 decimal digits of precision. The previous
+/// 1e4 scale floored small ticks to the same value (e.g. ticks 0..≈200 all
+/// mapped to Q96), so `sqrt_price_to_tick(Q96)` returned ~199 instead of 0.
 ///
 /// # Arguments
 /// * `tick` - Tick index in the range `[MIN_TICK, MAX_TICK]`.
@@ -697,30 +865,30 @@ pub fn tick_to_sqrt_price(tick: i32) -> u128 {
     if tick == 0 {
         return Q96;
     }
-    // Use the ratio 1.0001 ≈ 10001/10000 and repeated squaring.
+    // Use the ratio 1.0001 ≈ 10001/10000 and repeated squaring at 1e12 scale.
     // For negative ticks compute the reciprocal.
+    const SCALE: u128 = 1_000_000_000_000;
     let abs = tick.unsigned_abs() as u64;
-    let mut result: u128 = 10000; // represents 1.0 scaled by 10000
-    let mut base: u128 = 10001;
+    let mut result: u128 = SCALE; // represents 1.0
+    let mut base: u128 = 10001 * SCALE / 10000; // ≈ 1.0001
     let mut exp = abs;
     while exp > 0 {
         if exp & 1 == 1 {
-            result = result.saturating_mul(base) / 10000;
+            result = result.saturating_mul(base) / SCALE;
         }
-        base = base.saturating_mul(base) / 10000;
+        base = base.saturating_mul(base) / SCALE;
         exp >>= 1;
     }
+    // result ≈ 1.0001^abs at 1e12 scale; sqrt ≈ 1.00005^abs at 1e6 scale.
+    let sqrt = isqrt(result);
     if tick > 0 {
-        // result ≈ 1.0001^tick * 10000; sqrt * Q96
-        let sqrt = isqrt(result);
-        sqrt.saturating_mul(Q96 / 100)
+        sqrt.saturating_mul(Q96 / 1_000_000)
     } else {
-        // reciprocal
-        let sqrt = isqrt(result);
+        // reciprocal: Q96 * 1.00005^(-abs)
         if sqrt == 0 {
             return Q96;
         }
-        (Q96 / 100).saturating_mul(10000) / sqrt
+        Q96.saturating_mul(1_000_000) / sqrt
     }
 }
 
@@ -767,27 +935,32 @@ fn isqrt(n: u128) -> u128 {
     x
 }
 
+/// Token0 required for `liquidity` in `[sqrt_lower, sqrt_upper]` given the
+/// current price, using the standard Uniswap v3 formulas:
+///   above range: 0
+///   in range:    L * (1/sqrt_current - 1/sqrt_upper)
+///   below range: L * (1/sqrt_lower  - 1/sqrt_upper)
 fn get_amount_0(liquidity: u128, sqrt_lower: u128, sqrt_upper: u128, sqrt_current: u128) -> u128 {
-    let sa = sqrt_current.max(sqrt_lower);
-    let sb = sqrt_current.min(sqrt_upper);
-    if sa >= sb || sqrt_lower == 0 || sqrt_upper == 0 {
+    if sqrt_current >= sqrt_upper || sqrt_lower == 0 || sqrt_upper == 0 {
         return 0;
     }
-    // amount0 = L * (1/sa - 1/sb) = L * (sb - sa) / (sa * sb / Q96)
-    let num = liquidity.saturating_mul(sb.saturating_sub(sa));
-    let denom = (sa / Q96).saturating_mul(sb).max(1);
-    num / denom
+    let sa = sqrt_current.max(sqrt_lower);
+    let term1 = liquidity.saturating_mul(Q96) / sa;
+    let term2 = liquidity.saturating_mul(Q96) / sqrt_upper;
+    term1.saturating_sub(term2)
 }
 
+/// Token1 required for `liquidity` in `[sqrt_lower, sqrt_upper]` given the
+/// current price:
+///   below range: 0
+///   in range:    L * (sqrt_current - sqrt_lower)
+///   above range: L * (sqrt_upper   - sqrt_lower)
 fn get_amount_1(liquidity: u128, sqrt_lower: u128, sqrt_upper: u128, sqrt_current: u128) -> u128 {
-    let sa = sqrt_current.max(sqrt_lower);
-    let sb = sqrt_current.min(sqrt_upper);
-    if sa >= sb {
+    if sqrt_current <= sqrt_lower {
         return 0;
     }
-    liquidity
-        .saturating_mul(sb.saturating_sub(sa))
-        / Q96
+    let sb = sqrt_current.min(sqrt_upper);
+    liquidity.saturating_mul(sb.saturating_sub(sqrt_lower)) / Q96
 }
 
 fn get_fee_growth_inside(env: &Env, tick_lower: i32, tick_upper: i32, tick_current: i32, state: &PoolState) -> (u128, u128) {

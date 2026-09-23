@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Pool } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { PoolListQuery, PoolListResult, PoolSnapshot } from './pool.types';
+import { PoolListQuery, PoolListResult, PoolSnapshot, ClPoolView } from './pool.types';
 
 type PoolStatePatch = {
   currentPrice?: string;
@@ -15,23 +15,34 @@ export interface TickData {
   feeGrowthOutside1X128: string;
 }
 
+/**
+ * Repository that owns the pool source of truth (SoT).
+ *
+ * Invariant (see CONTRACTS.md): the `pool` record is authoritative for
+ * liquidity and state. Any `cl-pool` data is a *derived view* computed from
+ * the pool SoT and MUST NOT be treated as an independent authority.
+ */
 @Injectable()
 export class PoolsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async listActivePools(query: PoolListQuery): Promise<PoolListResult> {
     const search = query.search?.trim().toLowerCase();
+    const includeInactive = query.includeInactive === true;
 
     const pools = await this.prisma.pool.findMany({
-      where: search
-        ? {
-            OR: [
-              { id: { contains: search, mode: 'insensitive' } },
-              { token0Address: { contains: search, mode: 'insensitive' } },
-              { token1Address: { contains: search, mode: 'insensitive' } },
-            ],
-          }
-        : undefined,
+      where: {
+        ...(!includeInactive ? { active: true } : {}),
+        ...(search
+          ? {
+              OR: [
+                { id: { contains: search, mode: 'insensitive' } },
+                { token0Address: { contains: search, mode: 'insensitive' } },
+                { token1Address: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
     });
     const snapshots = pools.map((pool) => this.toSnapshot(pool));
     const sorted = snapshots.sort((a, b) => {
@@ -51,6 +62,32 @@ export class PoolsRepository {
     return {
       items,
       total: snapshots.length,
+    };
+  }
+
+  /**
+   * Derive the cl-pool view from the authoritative pool record.
+   *
+   * This is the single SoT path for cl-pool data: callers must go through the
+   * pool record rather than reading cl-pool state from a parallel source.
+   */
+  async findClPoolView(poolId: string): Promise<ClPoolView | null> {
+    const pool = await this.prisma.pool.findUnique({ where: { id: poolId } });
+    if (!pool) {
+      return null;
+    }
+    return this.deriveClPoolView(pool);
+  }
+
+  private deriveClPoolView(pool: Pool): ClPoolView {
+    return {
+      poolId: pool.id,
+      // cl-pool fields are derived from the pool SoT; no parallel authority.
+      liquidity: pool.liquidity,
+      tickSpacing: pool.tickSpacing,
+      currentTick: pool.currentTick,
+      sqrtPriceX96: pool.sqrtPriceX96,
+      derivedFromPool: true,
     };
   }
 
@@ -93,9 +130,7 @@ export class PoolsRepository {
       volume24h: this.asFiniteNumber(pool.volume24h),
       feeApr: this.asFiniteNumber(pool.feeApr),
       currentPrice: this.asFiniteNumber(pool.currentPrice),
-      // Closed pools are deleted from the current schema, so every row is an
-      // active pool. This preserves the API contract without transient memory.
-      active: true,
+      active: pool.active,
       updatedAt: pool.updatedAt.getTime(),
     };
   }

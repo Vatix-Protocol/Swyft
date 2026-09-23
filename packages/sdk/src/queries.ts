@@ -3,10 +3,20 @@ import {
   Contract,
   xdr,
   scValToNative,
-  Transaction,
-  FeeBumpTransaction,
+  Account,
+  TransactionBuilder,
+  Networks,
+  BASE_FEE,
 } from '@stellar/stellar-sdk';
-import { PoolState, PositionState, TickState, SwyftRpcError } from './types';
+import {
+  PoolState,
+  PositionState,
+  TickState,
+  SwyftRpcError,
+  GetPoolParams,
+  GetPositionParams,
+  GetTickParams,
+} from './types';
 
 /**
  * Explanatory copy for empty position state.
@@ -14,7 +24,7 @@ import { PoolState, PositionState, TickState, SwyftRpcError } from './types';
  */
 export const EMPTY_POSITION_MESSAGE = 'No positions found. Make a deposit to get started.';
 
-async function callContract(
+export async function callContract(
   rpcUrl: string,
   contractAddress: string,
   method: string,
@@ -25,13 +35,24 @@ async function callContract(
   const op = contract.call(method, ...args);
 
   try {
-    // stellar-sdk's simulateTransaction requires a built Transaction or FeeBumpTransaction.
-    // The Operation returned by contract.call() is cast here because the stub simulation
-    // path only needs the operation XDR; replace with a fully-built transaction once
-    // the Soroban signing flow is wired up.
-    const result = await server.simulateTransaction(
-      op as unknown as Transaction | FeeBumpTransaction
+    // Build a proper Transaction envelope from the contract operation.
+    // simulateTransaction ignores the source account for read-only calls,
+    // so a zero-balance placeholder is sufficient here. The key requirement
+    // is that the Transaction is structurally valid (has an operation, fee,
+    // and network passphrase).
+    const placeholderAccount = new Account(
+      'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+      '0',
     );
+    const tx = new TransactionBuilder(placeholderAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(op)
+      .setTimeout(30)
+      .build();
+
+    const result = await server.simulateTransaction(tx);
 
     if (rpc.Api.isSimulationError(result)) {
       throw new SwyftRpcError(`Simulation failed for ${method}: ${result.error}`);
@@ -120,13 +141,7 @@ function extractNumber(
  * @returns Promise resolving to the pool's current state
  * @throws {SwyftRpcError} If the RPC call fails or returns an unexpected shape
  */
-export async function getPool({
-  rpcUrl,
-  poolAddress,
-}: {
-  rpcUrl: string;
-  poolAddress: string;
-}): Promise<PoolState> {
+export async function getPool({ rpcUrl, poolAddress }: GetPoolParams): Promise<PoolState> {
   const retval = await callContract(rpcUrl, poolAddress, 'get_state');
   const raw = assertRawObject(scValToNative(retval), poolAddress);
 
@@ -154,10 +169,7 @@ export async function getPool({
 export async function getPosition({
   rpcUrl,
   positionNftId,
-}: {
-  rpcUrl: string;
-  positionNftId: string;
-}): Promise<PositionState | null> {
+}: GetPositionParams): Promise<PositionState | null> {
   // positionNftId is the NFT contract address that holds the position
   const retval = await callContract(rpcUrl, positionNftId, 'get_position');
   if (retval.switch().name === 'scvVoid') return null;
@@ -207,10 +219,7 @@ export async function getPosition({
 export async function getPositionWithLoading({
   rpcUrl,
   positionNftId,
-}: {
-  rpcUrl: string;
-  positionNftId: string;
-}): Promise<PositionState | null> {
+}: GetPositionParams): Promise<PositionState | null> {
   await Promise.resolve();
   return getPosition({ rpcUrl, positionNftId });
 }
@@ -225,15 +234,7 @@ export async function getPositionWithLoading({
  * @returns Promise resolving to the tick's current state
  * @throws {SwyftRpcError} If the RPC call fails or returns an unexpected shape
  */
-export async function getTick({
-  rpcUrl,
-  poolAddress,
-  tick,
-}: {
-  rpcUrl: string;
-  poolAddress: string;
-  tick: number;
-}): Promise<TickState> {
+export async function getTick({ rpcUrl, poolAddress, tick }: GetTickParams): Promise<TickState> {
   const tickArg = xdr.ScVal.scvI32(tick);
   const retval = await callContract(rpcUrl, poolAddress, 'get_tick', [tickArg]);
   const raw = assertRawObject(scValToNative(retval), `tick ${tick} on ${poolAddress}`);

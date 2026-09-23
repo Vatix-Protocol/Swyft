@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/constants';
+import { apiFetch } from '@/lib/api-fetch';
 
 export interface TokenInfo {
   address: string;
@@ -41,7 +42,7 @@ export function usePoolDetail(poolId: string | null) {
     queryKey: ['poolDetail', poolId],
     queryFn: async () => {
       if (!poolId) throw new Error('Pool ID required');
-      const res = await fetch(`${API_BASE}/pools/${poolId}`);
+      const res = await apiFetch(`${API_BASE}/pools/${poolId}`);
       if (!res.ok) throw new Error(`Failed to fetch pool: ${res.status}`);
       return res.json();
     },

@@ -6,11 +6,17 @@
  * request is ever made. BullMQ queues are stubbed to avoid Redis dependency.
  */
 
+jest.mock('@prisma/client', () => ({
+  PrismaClient: jest.fn().mockImplementation(() => ({})),
+  Prisma: {},
+}));
+
+import { ConfigService } from '@nestjs/config';
 import { CacheService } from '../cache/cache.service';
 import { IndexerCursorService } from '../indexer/indexer-cursor.service';
 import { PoolsService } from '../pools/pools.service';
 import { PriceService } from '../price/price.service';
-import { HorizonService } from './horizon.service';
+import { HorizonService, HorizonTimeoutError } from './horizon.service';
 
 // ── Stub factories ────────────────────────────────────────────────────────────
 
@@ -36,6 +42,16 @@ function buildEffectsChain(records: object[]) {
 }
 
 function buildService(horizonServer: object) {
+  const config = {
+    get: jest.fn((key: string) =>
+      key === 'stellar'
+        ? {
+            horizonUrl: 'https://horizon.test',
+            poolContractId: 'GPOOL_CONTRACT',
+          }
+        : undefined,
+    ),
+  } as unknown as ConfigService;
   const priceService = { broadcastPrice: jest.fn() } as unknown as PriceService;
   const poolsService = {
     handlePoolStateUpdate: jest.fn().mockResolvedValue(undefined),
@@ -52,22 +68,26 @@ function buildService(horizonServer: object) {
   const swapProcessedQueue = buildQueueMock();
   const positionMintedQueue = buildQueueMock();
   const positionBurnedQueue = buildQueueMock();
+  const feesCollectedQueue = buildQueueMock();
 
   const service = new HorizonService(
+    config,
     priceService,
     poolsService,
     cache,
     cursorService,
-    poolCreatedQueue as any,
-    swapProcessedQueue as any,
-    positionMintedQueue as any,
-    positionBurnedQueue as any,
+    poolCreatedQueue as never,
+    swapProcessedQueue as never,
+    positionMintedQueue as never,
+    positionBurnedQueue as never,
+    feesCollectedQueue as never,
   );
 
   // Inject stubbed Horizon server (bypasses real network)
   (service as any).server = horizonServer;
-  // Set contractId so the poller is active
-  (service as any).contractId = 'GPOOL_CONTRACT';
+  // Track the legacy pool contract so the poller is active
+  (service as any).trackedAccounts.add('GPOOL_CONTRACT');
+  (service as any).cursors.set('GPOOL_CONTRACT', 'now');
 
   return {
     service,
@@ -79,6 +99,7 @@ function buildService(horizonServer: object) {
     swapProcessedQueue,
     positionMintedQueue,
     positionBurnedQueue,
+    feesCollectedQueue,
   };
 }
 
@@ -88,7 +109,7 @@ describe('HorizonService — poller (Horizon mocked)', () => {
   beforeEach(() => jest.clearAllMocks());
 
   describe('ledger checkpoint', () => {
-    it('advances the checkpoint after successfully processing an effect', async () => {
+    it('does not advance the durable ledger checkpoint after enqueue (worker owns writes)', async () => {
       const { server } = buildEffectsChain([
         {
           paging_token: 'cursor-1',
@@ -102,10 +123,61 @@ describe('HorizonService — poller (Horizon mocked)', () => {
       await (service as any).poll();
 
       expect(poolsService.handlePoolStateUpdate).toHaveBeenCalled();
-      expect(cursorService.advanceLedger).toHaveBeenCalledWith(900);
+      expect(cursorService.advanceLedger).not.toHaveBeenCalled();
     });
 
-    it('does not write a checkpoint when the ledger is invalid (negative)', async () => {
+    it('leaves the paging cursor unchanged when a ledger-window enqueue fails', async () => {
+      const { server } = buildEffectsChain([
+        {
+          paging_token: 'cursor-fail-a',
+          ledger: 910,
+          created_at: '2026-06-24T12:00:00.000Z',
+          eventType: 'swap_processed',
+          eventId: 'evt-ok',
+          poolId: 'pool-abc',
+          sender: 'GSENDER',
+          recipient: 'GRECIPIENT',
+          amount0: '1',
+          amount1: '1',
+          sqrtPrice: '1',
+          liquidity: '1',
+          tick: 0,
+        },
+        {
+          paging_token: 'cursor-fail-b',
+          ledger: 911,
+          created_at: '2026-06-24T12:00:01.000Z',
+          eventType: 'swap_processed',
+          eventId: 'evt-fail',
+          poolId: 'pool-abc',
+          sender: 'GSENDER',
+          recipient: 'GRECIPIENT',
+          amount0: '1',
+          amount1: '1',
+          sqrtPrice: '1',
+          liquidity: '1',
+          tick: 0,
+        },
+      ]);
+      const { service, swapProcessedQueue, cursorService } =
+        buildService(server);
+      (service as any).cursors.set('GPOOL_CONTRACT', 'before');
+
+      swapProcessedQueue.addBulk
+        .mockResolvedValueOnce([])
+        .mockRejectedValueOnce(new Error('redis write failed mid-batch'));
+
+      await (service as any).poll();
+
+      // First ledger window enqueued successfully → paging advances to that window.
+      // Second window failed → durable checkpoint untouched; no skip past failure.
+      expect((service as any).cursors.get('GPOOL_CONTRACT')).toBe(
+        'cursor-fail-a',
+      );
+      expect(cursorService.advanceLedger).not.toHaveBeenCalled();
+    });
+
+    it('does not write a durable checkpoint when the ledger is invalid (negative)', async () => {
       const { server } = buildEffectsChain([
         {
           paging_token: 'cursor-2',
@@ -141,14 +213,17 @@ describe('HorizonService — poller (Horizon mocked)', () => {
 
       await (service as any).poll();
 
-      expect(poolCreatedQueue.add).toHaveBeenCalledWith(
-        'evt-pool-1',
-        expect.objectContaining({
-          poolId: 'pool-abc',
-          tokenA: 'TOKENA',
-          tokenB: 'TOKENB',
-        }),
-        expect.any(Object),
+      expect(poolCreatedQueue.addBulk).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'evt-pool-1',
+            data: expect.objectContaining({
+              poolId: 'pool-abc',
+              tokenA: 'TOKENA',
+              tokenB: 'TOKENB',
+            }),
+          }),
+        ]),
       );
     });
 
@@ -178,7 +253,10 @@ describe('HorizonService — poller (Horizon mocked)', () => {
         expect.arrayContaining([
           expect.objectContaining({
             name: 'evt-swap-1',
-            data: expect.objectContaining({ sender: 'GSENDER', recipient: 'GRECIPIENT' }),
+            data: expect.objectContaining({
+              sender: 'GSENDER',
+              recipient: 'GRECIPIENT',
+            }),
           }),
         ]),
       );
@@ -255,7 +333,10 @@ describe('HorizonService — poller (Horizon mocked)', () => {
         expect.arrayContaining([
           expect.objectContaining({
             name: 'evt-pos-1',
-            data: expect.objectContaining({ owner: 'GOWNER', tokenId: 'nft-1' }),
+            data: expect.objectContaining({
+              owner: 'GOWNER',
+              tokenId: 'nft-1',
+            }),
           }),
         ]),
       );
@@ -285,6 +366,44 @@ describe('HorizonService — poller (Horizon mocked)', () => {
   });
 
   describe('error resilience', () => {
+    it('surfaces a typed timeout and releases the poller', async () => {
+      jest.useFakeTimers();
+      const { service } = buildService({});
+      (service as any).timeoutMs = 25;
+
+      const request = (service as any).withTimeout(new Promise(() => {}));
+      jest.advanceTimersByTime(25);
+
+      await expect(request).rejects.toBeInstanceOf(HorizonTimeoutError);
+      jest.useRealTimers();
+    });
+
+    it('backs off after failure and recovers on a later poll', async () => {
+      const call = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('Horizon unavailable'))
+        .mockResolvedValueOnce({ records: [] });
+      const server = {
+        effects: () => ({
+          forAccount: () => ({
+            cursor: () => ({ order: () => ({ limit: () => ({ call }) }) }),
+          }),
+        }),
+      };
+      const { service } = buildService(server);
+      const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+
+      await (service as any).poll();
+      await (service as any).poll();
+      expect(call).toHaveBeenCalledTimes(1);
+
+      now.mockReturnValue(2_000);
+      await (service as any).poll();
+      expect(call).toHaveBeenCalledTimes(2);
+      expect((service as any).consecutiveFailures).toBe(0);
+      now.mockRestore();
+    });
+
     it('does not throw when Horizon.call() rejects — logs a warning instead', async () => {
       const server = {
         effects: () => ({
@@ -292,7 +411,9 @@ describe('HorizonService — poller (Horizon mocked)', () => {
             cursor: () => ({
               order: () => ({
                 limit: () => ({
-                  call: jest.fn().mockRejectedValue(new Error('network timeout')),
+                  call: jest
+                    .fn()
+                    .mockRejectedValue(new Error('network timeout')),
                 }),
               }),
             }),

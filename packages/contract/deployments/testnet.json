@@ -1,6 +1,28 @@
 {
   "network": "testnet",
+  "networkPassphrase": "Test SDF Network ; September 2015",
+  "rpcUrl": "https://soroban-testnet.stellar.org",
+  "horizonUrl": "https://horizon-testnet.stellar.org",
   "deployer": "",
   "contracts": {},
-  "deployedAt": {}
+  "deployedAt": {},
+  "wasmHashes": {},
+  "wasmHashPolicy": {
+    "sourceOfTruth": "on-chain",
+    "immutable": true,
+    "network": "testnet",
+    "mainnetSeparated": true,
+    "redeployRequiresAuth": true,
+    "idempotent": true,
+    "failClosed": true,
+    "driftDetection": "strict",
+    "errorCodes": {
+      "WASM_HASH_MISSING": "registry entry has no recorded wasm hash",
+      "WASM_HASH_MISMATCH": "recorded wasm hash does not match on-chain hash",
+      "WASM_HASH_IMMUTABLE": "deployed wasm hash cannot be mutated in place",
+      "WASM_HASH_NETWORK_MISMATCH": "hash belongs to a different network",
+      "WASM_HASH_UNAUTHORIZED": "caller is not authorized to redeploy",
+      "WASM_HASH_RPC_UNAVAILABLE": "RPC/DB/Redis unavailable; write refused (fail-closed)"
+    }
+  }
 }

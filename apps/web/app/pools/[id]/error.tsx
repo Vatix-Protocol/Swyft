@@ -34,19 +34,30 @@ export default function PoolDetailError({
           All Pools
         </Link>
       </div>
-      <div className="text-center py-12">
+      <div role="alert" className="text-center py-12">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-white mb-2">
           Something went wrong
         </h2>
         <p className="text-sm text-zinc-500 mb-4">
           We couldn&apos;t load this pool. This might be a temporary issue.
         </p>
-        <button
-          onClick={unstable_retry}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
-        >
-          Try again
-        </button>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={unstable_retry}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
+          >
+            Try again
+          </button>
+          <Link
+            href="/pools"
+            className="rounded-lg border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+          >
+            Back to pools
+          </Link>
+        </div>
+        {error.digest && (
+          <p className="mt-4 text-xs text-zinc-400">Reference: {error.digest}</p>
+        )}
       </div>
     </main>
   );

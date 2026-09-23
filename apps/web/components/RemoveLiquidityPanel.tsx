@@ -34,6 +34,7 @@ export function RemoveLiquidityPanel({
   const router = useRouter();
   const [pct, setPct] = useState(100);
   const [customInput, setCustomInput] = useState('100');
+  const [confirming, setConfirming] = useState(false);
   const { status, txError, txHash, removeLiquidity, collectFees, reset } = useRemoveLiquidity(
     position,
     authToken
@@ -87,12 +88,14 @@ export function RemoveLiquidityPanel({
   }, [status, pct, router, onSuccess]);
 
   function handlePctInput(v: string) {
+    setConfirming(false);
     setCustomInput(v);
     const n = parseFloat(v);
     if (!isNaN(n) && n >= 1 && n <= 100) setPct(Math.round(n));
   }
 
   function handlePreset(p: number) {
+    setConfirming(false);
     setPct(p);
     setCustomInput(String(p));
   }
@@ -213,6 +216,7 @@ export function RemoveLiquidityPanel({
             value={pct}
             onChange={(e) => {
               const v = Number(e.target.value);
+              setConfirming(false);
               setPct(v);
               setCustomInput(String(v));
             }}
@@ -296,18 +300,67 @@ export function RemoveLiquidityPanel({
           </p>
         )}
 
+        {/* Confirm summary — shown before the wallet prompt is triggered */}
+        {confirming && status !== 'success' && (
+          <div
+            role="alertdialog"
+            aria-label="Confirm liquidity removal"
+            className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-950/30"
+          >
+            <p className="mb-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+              Confirm removal of {pct}% liquidity
+            </p>
+            <div className="mb-3 flex flex-col gap-1 text-xs text-amber-700 dark:text-amber-400">
+              <div className="flex justify-between">
+                <span>{token0Symbol}</span>
+                <span className="font-semibold tabular-nums">
+                  {estimatesLoading ? '…' : estimates.amount0}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>{token1Symbol}</span>
+                <span className="font-semibold tabular-nums">
+                  {estimatesLoading ? '…' : estimates.amount1}
+                </span>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                className="flex-1 rounded-lg border border-amber-300 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-900/40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirming(false);
+                  removeLiquidity(pct);
+                }}
+                disabled={estimatesLoading}
+                className="flex-1 rounded-lg bg-red-600 py-2 text-xs font-semibold text-white transition-colors hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Confirm remove
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Remove button */}
-        <button
-          type="button"
-          onClick={() => removeLiquidity(pct)}
-          disabled={isBusy || alreadyClosed || status === 'success' || estimatesLoading}
-          className="w-full rounded-xl bg-red-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {status === 'signing' && 'Waiting for signature…'}
-          {status === 'submitting' && 'Submitting…'}
-          {(status === 'idle' || status === 'error') && `Remove ${pct}% liquidity`}
-          {status === 'success' && 'Removed ✓'}
-        </button>
+        {!confirming && (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            disabled={isBusy || alreadyClosed || status === 'success' || estimatesLoading}
+            className="w-full rounded-xl bg-red-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {status === 'signing' && 'Waiting for signature…'}
+            {status === 'submitting' && 'Submitting…'}
+            {(status === 'idle' || status === 'error') && `Remove ${pct}% liquidity`}
+            {status === 'success' && 'Removed ✓'}
+          </button>
+        )}
       </div>
     </div>
   );

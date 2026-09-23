@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
-import { usePools } from '@/hooks/usePoolTicks';
+import { renderHook, waitFor, act } from '@testing-library/react';
+import { usePools, usePoolTicks } from '@/hooks/usePoolTicks';
 
 const mockPools = [
   {
@@ -149,6 +149,124 @@ describe('usePools', () => {
 
     await waitFor(() => {
       expect(result.current.pools).toHaveLength(0);
+    });
+  });
+});
+
+describe('usePoolTicks', () => {
+  const mockTicks = [
+    { tick: -60, liquidityNet: '1000', liquidityGross: '1000' },
+    { tick: 0, liquidityNet: '2000', liquidityGross: '2000' },
+    { tick: 60, liquidityNet: '1000', liquidityGross: '1000' },
+  ];
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns empty ticks and no error when poolId is null', () => {
+    const { result } = renderHook(() => usePoolTicks(null));
+
+    expect(result.current.ticks).toEqual([]);
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('loads real tick data on success with no error', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockTicks,
+    });
+
+    const { result } = renderHook(() => usePoolTicks('pool-1'));
+
+    expect(result.current.loading).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.ticks).toEqual(mockTicks);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('falls back to synthetic ticks and surfaces an error on HTTP failure', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+    });
+
+    const { result } = renderHook(() => usePoolTicks('pool-1'));
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.error).toContain('503');
+    expect(result.current.ticks.length).toBeGreaterThan(0);
+    // Synthetic fallback ticks are not the real data returned by the API.
+    expect(result.current.ticks).not.toEqual(mockTicks);
+  });
+
+  it('falls back to synthetic ticks and surfaces an error on network failure mid-fetch', async () => {
+    global.fetch = vi.fn().mockRejectedValueOnce(new Error('RPC connection reset'));
+
+    const { result } = renderHook(() => usePoolTicks('pool-1'));
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.error).toBe('RPC connection reset');
+    expect(result.current.ticks.length).toBeGreaterThan(0);
+  });
+
+  it('retry() re-fetches and clears the error once the retry succeeds', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 500 })
+      .mockResolvedValueOnce({ ok: true, json: async () => mockTicks });
+    global.fetch = fetchMock;
+
+    const { result } = renderHook(() => usePoolTicks('pool-1'));
+
+    await waitFor(() => {
+      expect(result.current.error).not.toBeNull();
+    });
+
+    act(() => {
+      result.current.retry();
+    });
+
+    await waitFor(() => {
+      expect(result.current.error).toBeNull();
+    });
+
+    expect(result.current.ticks).toEqual(mockTicks);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not update state after unmount', async () => {
+    let resolveFetch: () => void;
+    global.fetch = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = () => resolve({ ok: true, json: async () => mockTicks });
+        })
+    );
+
+    const { result, unmount } = renderHook(() => usePoolTicks('pool-1'));
+    expect(result.current.loading).toBe(true);
+
+    unmount();
+    resolveFetch!();
+
+    await waitFor(() => {
+      expect(result.current.ticks).toEqual([]);
     });
   });
 });

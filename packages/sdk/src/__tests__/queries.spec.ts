@@ -2,6 +2,10 @@ import { getPool, getPosition, getTick } from '../queries';
 import { SwyftRpcError } from '../types';
 import { rpc, xdr, scValToNative } from '@stellar/stellar-sdk';
 
+const mockBuild = jest.fn().mockReturnValue({});
+const mockSetTimeout = jest.fn().mockReturnValue({ build: mockBuild });
+const mockAddOperation = jest.fn().mockReturnValue({ setTimeout: mockSetTimeout });
+
 jest.mock('@stellar/stellar-sdk', () => {
   return {
     rpc: {
@@ -17,6 +21,12 @@ jest.mock('@stellar/stellar-sdk', () => {
         scvI32: jest.fn(),
       },
     },
+    Account: jest.fn(),
+    TransactionBuilder: jest.fn().mockImplementation(() => ({
+      addOperation: mockAddOperation,
+    })),
+    Networks: { TESTNET: 'Test SDF Network ; September 2015' },
+    BASE_FEE: '100',
   };
 });
 
@@ -25,6 +35,11 @@ const mockCall = jest.fn().mockReturnValue({});
 
 beforeEach(() => {
   jest.clearAllMocks();
+
+  // Reset the chained mock returns
+  mockAddOperation.mockReturnValue({ setTimeout: mockSetTimeout });
+  mockSetTimeout.mockReturnValue({ build: mockBuild });
+  mockBuild.mockReturnValue({});
 
   (rpc.Server as unknown as jest.Mock).mockImplementation(() => ({
     simulateTransaction: mockSimulate,
@@ -46,6 +61,26 @@ describe('getPool', () => {
     await getPool({ rpcUrl: 'https://rpc.example.com', poolAddress: 'CPOOL' });
 
     expect(mockCall).toHaveBeenCalledWith('get_state');
+  });
+
+  it('builds a proper Transaction before calling simulateTransaction', async () => {
+    mockSimulate.mockResolvedValue({ result: { retval: {} }, error: undefined });
+    (scValToNative as unknown as jest.Mock).mockReturnValue({
+      sqrt_price: '0', current_tick: 0, liquidity: '0', fee_tier: 0, token0: '', token1: '',
+    });
+
+    await getPool({ rpcUrl: 'https://rpc.example.com', poolAddress: 'CPOOL' });
+
+    // Verify TransactionBuilder was used instead of unsafe cast
+    const { TransactionBuilder, Account } = jest.requireMock('@stellar/stellar-sdk') as {
+      TransactionBuilder: jest.Mock;
+      Account: jest.Mock;
+    };
+    expect(Account).toHaveBeenCalled();
+    expect(TransactionBuilder).toHaveBeenCalled();
+    expect(mockAddOperation).toHaveBeenCalled();
+    expect(mockSetTimeout).toHaveBeenCalledWith(30);
+    expect(mockBuild).toHaveBeenCalled();
   });
 
   it('returns typed PoolState on success', async () => {

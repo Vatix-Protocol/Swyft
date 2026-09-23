@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# Lint only the turbo packages affected since origin/main — keeps pre-push
+# fast by skipping unaffected packages instead of linting the full monorepo.
+# Skip entirely with SWYFT_SKIP_PRE_PUSH_LINT=1 (see CONTRIBUTING.md).
+
+if [ -n "$SWYFT_SKIP_PRE_PUSH_LINT" ]; then
+  echo "pre-push: SWYFT_SKIP_PRE_PUSH_LINT set, skipping lint"
+  exit 0
+fi
+
+BASE_REF="origin/main"
+git rev-parse --verify "$BASE_REF" >/dev/null 2>&1 || BASE_REF="main"
+
+pnpm turbo run lint --filter="[$BASE_REF]"

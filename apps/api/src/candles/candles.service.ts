@@ -351,7 +351,15 @@ export class CandlesService {
         correlationId,
       );
       for (const b of buckets) {
-        this.accumulate(byPool, b.poolId, b.open, b.high, b.low, b.close, b.volumeUsd);
+        this.accumulate(
+          byPool,
+          b.poolId,
+          b.open,
+          b.high,
+          b.low,
+          b.close,
+          b.volumeUsd,
+        );
       }
     } else {
       const swaps = await this.prisma.swapProcessed.findMany({

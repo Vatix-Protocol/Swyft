@@ -251,9 +251,12 @@ curl "http://localhost:3000/pools/clx1234567890123456789012/ticks?limit=1000&cur
 
 ## Future Enhancements
 
-1. **Compression**: Enable gzip compression for large tick datasets
-2. **Streaming**: Consider streaming responses for very large datasets
-3. **Metrics**: Expand monitoring for cache hit rates and response times
+1. **Pagination**: Add pagination for pools with many ticks
+2. **Compression**: Enable gzip compression for large tick datasets
+3. **Streaming**: Consider streaming responses for very large datasets
+4. **Metrics**: Expand monitoring for cache hit rates and response times
+
+Rate limiting is enforced via `TICKS_RATE_LIMIT_PER_MINUTE` / `INTERNAL_TICKS_RATE_LIMIT_PER_MINUTE` — see `docs/RATE_LIMITING.md`.
 
 ## Dependencies
 

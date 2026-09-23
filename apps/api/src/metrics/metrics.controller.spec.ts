@@ -38,6 +38,20 @@ describe('MetricsController (smoke)', () => {
     })
       .overrideProvider(CacheService)
       .useValue({ get: jest.fn().mockResolvedValue(null), set: noop })
+      .overrideProvider(IndexerMonitorService)
+      .useValue({
+        onModuleInit: () => {},
+        onModuleDestroy: () => {},
+        getMetrics: jest.fn().mockResolvedValue({
+          lastIndexedLedger: 100,
+          latestLedger: 105,
+          lagLedgers: 5,
+          lagSeconds: 25,
+          status: 'healthy',
+        }),
+      })
+      .overrideProvider(DbMetricsService)
+      .useValue({})
       .compile();
 
     app = module.createNestApplication();
@@ -46,12 +60,16 @@ describe('MetricsController (smoke)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    await app?.close();
   });
 
-  it('GET /metrics/worker-lag returns indexer metrics', async () => {
+  it('GET /metrics/indexer returns indexer metrics', async () => {
+    const prev = process.env.INTERNAL_API_KEY;
+    process.env.INTERNAL_API_KEY = 'test-internal-key';
+
     const result = await request(app.getHttpServer())
-      .get('/metrics/worker-lag')
+      .get('/metrics/indexer')
+      .set('x-internal-key', 'test-internal-key')
       .expect(200)
       .then((res) => res.body);
 
@@ -60,5 +78,8 @@ describe('MetricsController (smoke)', () => {
     expect(result).toHaveProperty('lagLedgers');
     expect(result).toHaveProperty('lagSeconds');
     expect(result).toHaveProperty('status');
+
+    if (prev === undefined) delete process.env.INTERNAL_API_KEY;
+    else process.env.INTERNAL_API_KEY = prev;
   });
 });

@@ -1,5 +1,6 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -22,7 +23,11 @@ import { StatsModule } from './stats/stats.module';
 import { TokensModule } from './tokens/tokens.module';
 import { SearchModule } from './search/search.module';
 import { TicksModule } from './ticks/ticks.module';
+import { FeeCollectorModule } from './fee-collector/fee-collector.module';
+import { TransactionsModule } from './transactions/transactions.module';
+import { BalancesModule } from './balances/balances.module';
 import { stellarConfig } from './config/stellar.config';
+import { infraConfig } from './config/infra.config';
 
 @Module({
   imports: [
@@ -30,10 +35,14 @@ import { stellarConfig } from './config/stellar.config';
     // namespaces throughout the application via ConfigService injection.
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [stellarConfig],
+      load: [stellarConfig, infraConfig],
       // Do not throw on extra keys; only the declared vars are validated.
       ignoreEnvVars: false,
     }),
+    // Registered once here so any module can inject @Cron/@Interval/@Timeout
+    // schedulers without re-registering the global scheduler (which throws
+    // if bound more than once in the same Nest application graph).
+    ScheduleModule.forRoot(),
     CacheModule,
     PrismaModule,
     MetricsModule,
@@ -53,6 +62,12 @@ import { stellarConfig } from './config/stellar.config';
     SearchModule,
     TokensModule,
     TicksModule,
+    // Fee collector: fee accumulation + FEE_COLLECTOR_AUTH (issue #965).
+    // Registered after AuthModule so the deny-by-default guard can resolve
+    // the auth service; writes fail closed when dependencies are unavailable.
+    FeeCollectorModule,
+    TransactionsModule,
+    BalancesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

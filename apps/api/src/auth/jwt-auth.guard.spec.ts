@@ -16,10 +16,15 @@ function makeContext(token: string | undefined): ExecutionContext {
 
 function issueToken(
   payload: Record<string, unknown>,
-  opts: { issuer?: string; audience?: string; secret?: string } = {},
+  opts: {
+    issuer?: string;
+    audience?: string;
+    secret?: string;
+    expiresIn?: string | number;
+  } = {},
 ) {
   return sign(payload, opts.secret ?? SECRET, {
-    expiresIn: '1h',
+    expiresIn: opts.expiresIn ?? '1h',
     ...(opts.issuer ? { issuer: opts.issuer } : {}),
     ...(opts.audience ? { audience: opts.audience } : {}),
   });
@@ -47,6 +52,51 @@ describe('JwtAuthGuard', () => {
   it('throws when Authorization header is missing', () => {
     const ctx = makeContext(undefined);
     expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+  });
+
+  // ── Fail-closed on malformed / invalid / expired tokens ────────────────────
+
+  describe('fail-closed token validation', () => {
+    it('rejects a malformed token', () => {
+      expect(() => guard.canActivate(makeContext('not-a-jwt'))).toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('rejects a token signed with the wrong secret', () => {
+      const token = issueToken(
+        { sub: WALLET, walletAddress: WALLET },
+        { secret: 'wrong-secret' },
+      );
+      expect(() => guard.canActivate(makeContext(token))).toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('rejects an expired token', () => {
+      const token = issueToken(
+        { sub: WALLET, walletAddress: WALLET },
+        { expiresIn: -10 },
+      );
+      expect(() => guard.canActivate(makeContext(token))).toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('rejects a token with no subject/wallet identity', () => {
+      const token = issueToken({ role: 'user' });
+      expect(() => guard.canActivate(makeContext(token))).toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('fails closed when JWT_SECRET is not configured', () => {
+      delete process.env.JWT_SECRET;
+      const token = issueToken({ sub: WALLET, walletAddress: WALLET });
+      expect(() => guard.canActivate(makeContext(token))).toThrow(
+        UnauthorizedException,
+      );
+    });
   });
 
   // ── Issuer validation ──────────────────────────────────────────────────────

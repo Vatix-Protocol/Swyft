@@ -27,7 +27,13 @@ describe('AnalyticsController', () => {
       providers: [
         { provide: AnalyticsService, useValue: mockService },
         { provide: AdminAuditService, useValue: mockAuditService },
-        { provide: AdminAuditInterceptor, useValue: { intercept: (_: unknown, next: { handle: () => unknown }) => next.handle() } },
+        {
+          provide: AdminAuditInterceptor,
+          useValue: {
+            intercept: (_: unknown, next: { handle: () => unknown }) =>
+              next.handle(),
+          },
+        },
         { provide: InternalKeyGuard, useValue: { canActivate: () => true } },
       ],
     }).compile();
@@ -68,16 +74,31 @@ describe('AnalyticsController', () => {
   });
 
   it('returns fee totals', async () => {
-    mockService.getFees.mockResolvedValue({ byPool: [{ poolId: 'p1', feesAmount0: '10', feesAmount1: '20' }] });
+    mockService.getFees.mockResolvedValue({
+      byPool: [{ poolId: 'p1', feesAmount0: '10', feesAmount1: '20' }],
+    });
 
     const result = await controller.getFees();
 
     expect(mockService.getFees).toHaveBeenCalled();
-    expect(result).toEqual({ byPool: [{ poolId: 'p1', feesAmount0: '10', feesAmount1: '20' }] });
+    expect(result).toEqual({
+      byPool: [{ poolId: 'p1', feesAmount0: '10', feesAmount1: '20' }],
+    });
   });
 
   it('returns audit log entries with defaults', async () => {
-    const entries = [{ id: '1', actor: 'abc', action: 'GET /admin/analytics/overview', resource: 'analytics', meta: '{}', ip: null, statusCode: 200, createdAt: new Date() }];
+    const entries = [
+      {
+        id: '1',
+        actor: 'abc',
+        action: 'GET /admin/analytics/overview',
+        resource: 'analytics',
+        meta: '{}',
+        ip: null,
+        statusCode: 200,
+        createdAt: new Date(),
+      },
+    ];
     mockAuditService.findRecent.mockResolvedValue(entries);
 
     const result = await controller.getAuditLog(undefined, undefined);

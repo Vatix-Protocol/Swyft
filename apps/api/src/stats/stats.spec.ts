@@ -22,7 +22,14 @@ jest.mock('bullmq', () => ({
 }));
 
 const mockPools = [
-  { id: 'pool-1', token0Address: 'TOKENA', token1Address: 'TOKENB', feeTier: 3000 },
+  {
+    id: 'pool-1',
+    token0Address: 'TOKENA',
+    token1Address: 'TOKENB',
+    feeTier: 3000,
+    liquidity: '1000000000',
+    currentSqrtPrice: '79228162514264337593543950336', // price = 1
+  },
 ];
 
 const mockSwaps24h = [
@@ -42,27 +49,33 @@ const mockFindManyPools = jest.fn().mockResolvedValue(mockPools);
 const mockFindManySwaps = jest.fn();
 const mockFindManyPositions = jest.fn().mockResolvedValue(mockPositions);
 
-jest.mock('@prisma/client', () => ({
-  PrismaClient: jest.fn().mockImplementation(() => ({
-    pool: { findMany: mockFindManyPools, update: mockPoolUpdate },
-    swap: { findMany: mockFindManySwaps },
-    position: { findMany: mockFindManyPositions },
-    $disconnect: jest.fn().mockResolvedValue(undefined),
-  })),
-}));
+const mockFindUniqueToken = jest.fn().mockResolvedValue({ decimals: 0 });
+
+const mockPrismaService = {
+  pool: { findMany: mockFindManyPools, update: mockPoolUpdate },
+  swap: { findMany: mockFindManySwaps },
+  position: { findMany: mockFindManyPositions },
+  token: { findUnique: mockFindUniqueToken },
+};
 
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
 
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { StatsScheduler, STATS_QUEUE } from './stats.scheduler';
 import { StatsWorker } from './stats.worker';
 import { StatsModule } from './stats.module';
 import { CacheService } from '../cache/cache.service';
+import { IndexerMonitorService } from '../metrics/indexer-monitor.service';
+import { DbMetricsService } from '../metrics/db-metrics.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { TvlAlertService } from './tvl-alert.service';
 import { STATS_JOB_NAME } from './stats.queue';
 import { defaultJobOptions } from '../indexer/queues';
 import { Job } from 'bullmq';
 import { STATS_CACHE_KEY } from './stats.worker';
+import { STELLAR_CONFIG_KEY } from '../config/stellar.config';
 
 // ─── StatsScheduler (#354) ────────────────────────────────────────────────────
 
@@ -134,14 +147,38 @@ describe('StatsModule', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    module = await Test.createTestingModule({ imports: [StatsModule] })
+    module = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          load: [
+            () => ({
+              [STELLAR_CONFIG_KEY]: {
+                rpcUrl: 'https://soroban-testnet.stellar.org',
+                horizonUrl: 'https://horizon-testnet.stellar.org',
+                network: 'testnet',
+                poolContractId: '',
+              },
+            }),
+          ],
+        }),
+        StatsModule,
+      ],
+    })
       .overrideProvider(CacheService)
       .useValue(mockCacheService)
+      .overrideProvider(PrismaService)
+      .useValue({})
+      .overrideProvider(IndexerMonitorService)
+      .useValue({ onModuleInit: () => {}, onModuleDestroy: () => {} })
+      .overrideProvider(DbMetricsService)
+      .useValue({})
       .compile();
+    await module.init();
   });
 
   afterEach(async () => {
-    await module.close();
+    await module?.close();
   });
 
   it('compiles without errors', () => {
@@ -177,8 +214,10 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
         const now = Date.now();
         const ms24h = 24 * 60 * 60 * 1000;
         const ms7d = 7 * ms24h;
-        if (Math.abs(cutoff - (now - ms24h)) < 60_000) return Promise.resolve(mockSwaps24h);
-        if (Math.abs(cutoff - (now - ms7d)) < 60_000) return Promise.resolve(mockSwaps7d);
+        if (Math.abs(cutoff - (now - ms24h)) < 60_000)
+          return Promise.resolve(mockSwaps24h);
+        if (Math.abs(cutoff - (now - ms7d)) < 60_000)
+          return Promise.resolve(mockSwaps7d);
         return Promise.resolve([]);
       },
     );
@@ -186,7 +225,15 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
     module = await Test.createTestingModule({
       providers: [
         StatsWorker,
+        { provide: PrismaService, useValue: mockPrismaService },
         { provide: CacheService, useValue: mockCacheService },
+        {
+          provide: TvlAlertService,
+          useValue: {
+            recordTvlSnapshot: jest.fn().mockResolvedValue(undefined),
+            checkAndTriggerAlerts: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
@@ -194,13 +241,15 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
     worker.onModuleInit();
 
     // Extract the process callback registered with the BullMQ Worker constructor
-    const workerCall = MockWorker.mock.calls.find((c) => c[0] === 'stats.aggregate');
+    const workerCall = MockWorker.mock.calls.find(
+      (c) => c[0] === 'stats.aggregate',
+    );
     processJob = workerCall![1] as (job: Job) => Promise<void>;
     await processJob({} as Job);
   });
 
   afterEach(async () => {
-    await module.close();
+    await module?.close();
   });
 
   it('queries swaps using a Date-based timestamp filter', () => {
@@ -216,14 +265,23 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
   it('uses Swap.timestamp (not job-enqueue time) as both the 24h and 7d window cutoffs', () => {
     const now = Date.now();
     const cutoffs = mockFindManySwaps.mock.calls
-      .filter((c: [{ where?: { timestamp?: { gte?: Date } } }]) => c[0]?.where?.timestamp?.gte)
-      .map((c: [{ where: { timestamp: { gte: Date } } }]) => c[0].where.timestamp.gte.getTime());
+      .filter(
+        (c: [{ where?: { timestamp?: { gte?: Date } } }]) =>
+          c[0]?.where?.timestamp?.gte,
+      )
+      .map((c: [{ where: { timestamp: { gte: Date } } }]) =>
+        c[0].where.timestamp.gte.getTime(),
+      );
 
     const ago24h = now - 24 * 60 * 60 * 1000;
     const ago7d = now - 7 * 24 * 60 * 60 * 1000;
 
-    expect(cutoffs.some((t: number) => Math.abs(t - ago24h) < 60_000)).toBe(true);
-    expect(cutoffs.some((t: number) => Math.abs(t - ago7d) < 60_000)).toBe(true);
+    expect(cutoffs.some((t: number) => Math.abs(t - ago24h) < 60_000)).toBe(
+      true,
+    );
+    expect(cutoffs.some((t: number) => Math.abs(t - ago7d) < 60_000)).toBe(
+      true,
+    );
   });
 
   it('computes volume24h as sum of |amount0| + |amount1| across 24h swaps (price=1)', () => {
@@ -251,8 +309,9 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
 
   it('computes feeApr from actual swap feeAmount fields (not feeTier * volume)', () => {
     // fees24h = (3000 + 6000) * priceA(1) = 9000
-    // tvl = liquidity(1000000000) * (priceA+priceB)/2 = 1000000000
-    // feeApr = (9000 / 1000000000) * 365 * 100 ≈ 0.3285
+    // tvl = reserve0(1000000000) * priceA(1) + reserve1(1000000000) * priceB(1) = 2000000000
+    //   (reserve0 = liquidity/sqrtPrice, reserve1 = liquidity*sqrtPrice, sqrtPrice=1)
+    // feeApr = (9000 / 2000000000) * 365 * 100 ≈ 0.164
     const updateCall = mockPoolUpdate.mock.calls[0][0];
     const feeApr = Number(updateCall.data.feeApr);
     expect(feeApr).toBeGreaterThan(0);
@@ -261,11 +320,11 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
     // The feeAmount-based value (9000) differs from the volume estimate (13500).
     const volumeBasedEstimate = 4500000 * (3000 / 1_000_000);
     expect(feeApr).not.toBeCloseTo(
-      (volumeBasedEstimate / 1000000000) * 365 * 100,
+      (volumeBasedEstimate / 2000000000) * 365 * 100,
       5,
     );
     // Verify the actual value matches fees24h / tvl * 365 * 100
-    const expectedFeeApr = (9000 / 1000000000) * 365 * 100;
+    const expectedFeeApr = (9000 / 2000000000) * 365 * 100;
     expect(feeApr).toBeCloseTo(expectedFeeApr, 5);
   });
 

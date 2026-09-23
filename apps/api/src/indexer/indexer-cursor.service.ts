@@ -17,7 +17,7 @@ export class IndexerCursorService {
    */
   async getLastLedger(): Promise<number> {
     const cached = await this.cache.get<number>(LAST_INDEXED_LEDGER_KEY);
-    if (Number.isSafeInteger(cached) && cached >= 0) {
+    if (cached != null && Number.isSafeInteger(cached) && cached >= 0) {
       return cached;
     }
 

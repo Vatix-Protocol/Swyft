@@ -1,7 +1,17 @@
-export { calculateSwapQuote, EMPTY_QUOTE, isEmptyQuote } from './quote';
+export {
+  calculateSwapQuote,
+  calculateExactOutputQuote,
+  getSwapQuote,
+  EMPTY_QUOTE,
+  EMPTY_EXACT_OUTPUT_QUOTE,
+  isEmptyQuote,
+  QuoteValidationError,
+} from './quote';
 export type {
   SwapQuoteParams,
   SwapQuote,
+  ExactOutputQuoteParams,
+  ExactOutputQuote,
   LocalSwapQuoteParams,
   LocalSwapQuote,
   PoolStateWithTicks,
@@ -10,6 +20,9 @@ export type {
 export {
   buildBurnTx,
   buildCollectTx,
+  buildAddLiquidityTx,
+  buildRerangeTx,
+  detectPoolType,
   estimateRemoveAmounts,
   estimateRemoveAmountsAsync,
   ValidationError,
@@ -17,9 +30,14 @@ export {
 export type {
   BurnTxParams,
   CollectTxParams,
+  AddLiquidityTxParams,
+  RerangeTxParams,
+  PoolType,
   UnsignedTx,
   BurnUnsignedTx,
   CollectUnsignedTx,
+  AddLiquidityUnsignedTx,
+  RerangeUnsignedTx,
   RemoveAmountsResult,
   RemoveAmountsParams,
 } from './liquidity';
@@ -32,10 +50,48 @@ export {
   getTick,
   EMPTY_POSITION_MESSAGE,
 } from './queries';
-export type { PoolState, PositionState, TickState } from './types';
+export type {
+  PoolState,
+  PositionState,
+  TickState,
+  GetPoolParams,
+  GetPositionParams,
+  GetTickParams,
+} from './types';
 export { SwyftRpcError } from './types';
 
-export { buildSwapTx, toStellarAddress, toRawAmount, toXdrBase64, SwapValidationError } from './swap';
-export type { PoolId, SwapTxParams, SwapUnsignedTx, StellarAddress, RawAmount, XdrBase64 } from './swap';
+export {
+  buildSwapTx,
+  buildExactOutputSwapTx,
+  toStellarAddress,
+  toRawAmount,
+  toXdrBase64,
+  SwapValidationError,
+} from './swap';
+export type {
+  PoolId,
+  SwapTxParams,
+  ExactOutputSwapTxParams,
+  SwapUnsignedTx,
+  StellarAddress,
+  RawAmount,
+  XdrBase64,
+} from './swap';
+
+export type {
+  ExactInputSingleParams,
+  SwapResult,
+  RouterError,
+} from './router-types';
+
+// #973 — SDK error mapping from contract errors
+export {
+  SdkError,
+  SdkErrorCode,
+  CONTRACT_ERROR_CODE_MAP,
+  mapContractError,
+  withContractErrorMapping,
+} from './errors';
+export type { RawContractError } from './errors';
 
 export { config } from './config';

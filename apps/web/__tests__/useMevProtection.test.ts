@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { isValidRpcUrl, resolveRpcUrl } from '../hooks/useMevProtection';
+import { isValidRpcUrl, resolveRpcUrl, isMevEndpointConfigured } from '../hooks/useMevProtection';
 
 // ── isValidRpcUrl ─────────────────────────────────────────────────────────────
 
@@ -94,5 +94,41 @@ describe('resolveRpcUrl', () => {
     vi.stubEnv('NEXT_PUBLIC_MEV_PROTECTED_RPC_URL', 'https://mev-rpc.example.com');
     // MEV disabled — should NOT use the MEV URL
     expect(resolveRpcUrl(false)).toBe('https://normal-rpc.example.com');
+  });
+});
+
+// ── isMevEndpointConfigured ──────────────────────────────────────────────────
+
+describe('isMevEndpointConfigured', () => {
+  beforeEach(() => {
+    delete process.env.NEXT_PUBLIC_MEV_PROTECTED_RPC_URL;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('returns false when NEXT_PUBLIC_MEV_PROTECTED_RPC_URL is unset', () => {
+    expect(isMevEndpointConfigured()).toBe(false);
+  });
+
+  it('returns false when NEXT_PUBLIC_MEV_PROTECTED_RPC_URL is empty', () => {
+    vi.stubEnv('NEXT_PUBLIC_MEV_PROTECTED_RPC_URL', '');
+    expect(isMevEndpointConfigured()).toBe(false);
+  });
+
+  it('returns false when NEXT_PUBLIC_MEV_PROTECTED_RPC_URL is invalid', () => {
+    vi.stubEnv('NEXT_PUBLIC_MEV_PROTECTED_RPC_URL', 'not-a-url');
+    expect(isMevEndpointConfigured()).toBe(false);
+  });
+
+  it('returns true when NEXT_PUBLIC_MEV_PROTECTED_RPC_URL is a valid https URL', () => {
+    vi.stubEnv('NEXT_PUBLIC_MEV_PROTECTED_RPC_URL', 'https://mev-rpc.example.com');
+    expect(isMevEndpointConfigured()).toBe(true);
+  });
+
+  it('returns true when NEXT_PUBLIC_MEV_PROTECTED_RPC_URL is a valid http URL (local dev)', () => {
+    vi.stubEnv('NEXT_PUBLIC_MEV_PROTECTED_RPC_URL', 'http://localhost:8001');
+    expect(isMevEndpointConfigured()).toBe(true);
   });
 });

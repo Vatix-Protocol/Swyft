@@ -207,6 +207,116 @@ describe('PoolsController - Ticks Endpoint', () => {
       );
     });
 
+    it('should reject lowerTick not aligned to pool tickSpacing', async () => {
+      poolsService.findPoolById.mockResolvedValue({
+        id: validPoolId,
+        token0: {
+          address: '0x123',
+          symbol: 'USDC',
+          name: 'USD Coin',
+          decimals: 6,
+        },
+        token1: {
+          address: '0x456',
+          symbol: 'ETH',
+          name: 'Ethereum',
+          decimals: 18,
+        },
+        feeTier: 3000,
+        tickSpacing: 60,
+        currentSqrtPrice: '202918467837465283647382910',
+        currentTick: -276324,
+        totalLiquidity: '15000000000000000000',
+        tvl: '45000000.00',
+        volume24h: '1250000.00',
+        volume7d: '8750000.00',
+        feeApr: '0.0234',
+        creationTimestamp: 1709856000,
+        recentSwaps: [],
+      });
+
+      const query = { lowerTick: -276331, upperTick: -276320 };
+
+      await expect(controller.getPoolTicks(validPoolId, query)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(poolsService.getPoolTicks).not.toHaveBeenCalled();
+    });
+
+    it('should reject upperTick not aligned to pool tickSpacing', async () => {
+      poolsService.findPoolById.mockResolvedValue({
+        id: validPoolId,
+        token0: {
+          address: '0x123',
+          symbol: 'USDC',
+          name: 'USD Coin',
+          decimals: 6,
+        },
+        token1: {
+          address: '0x456',
+          symbol: 'ETH',
+          name: 'Ethereum',
+          decimals: 18,
+        },
+        feeTier: 3000,
+        tickSpacing: 60,
+        currentSqrtPrice: '202918467837465283647382910',
+        currentTick: -276324,
+        totalLiquidity: '15000000000000000000',
+        tvl: '45000000.00',
+        volume24h: '1250000.00',
+        volume7d: '8750000.00',
+        feeApr: '0.0234',
+        creationTimestamp: 1709856000,
+        recentSwaps: [],
+      });
+
+      const query = { lowerTick: -276330, upperTick: -276319 };
+
+      await expect(controller.getPoolTicks(validPoolId, query)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(poolsService.getPoolTicks).not.toHaveBeenCalled();
+    });
+
+    it('should reject ticks outside the pool min/max tick range', async () => {
+      poolsService.findPoolById.mockResolvedValue({
+        id: validPoolId,
+        token0: {
+          address: '0x123',
+          symbol: 'USDC',
+          name: 'USD Coin',
+          decimals: 6,
+        },
+        token1: {
+          address: '0x456',
+          symbol: 'ETH',
+          name: 'Ethereum',
+          decimals: 18,
+        },
+        feeTier: 3000,
+        tickSpacing: 60,
+        minTick: -887220,
+        maxTick: 887220,
+        currentSqrtPrice: '202918467837465283647382910',
+        currentTick: -276324,
+        totalLiquidity: '15000000000000000000',
+        tvl: '45000000.00',
+        volume24h: '1250000.00',
+        volume7d: '8750000.00',
+        feeApr: '0.0234',
+        creationTimestamp: 1709856000,
+        recentSwaps: [],
+      });
+
+      const query = { lowerTick: -887280, upperTick: 887280 };
+
+      await expect(controller.getPoolTicks(validPoolId, query)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(poolsService.getPoolTicks).not.toHaveBeenCalled();
+    });
+
     it('should return ticks in ascending order', async () => {
       poolsService.findPoolById.mockResolvedValue({
         id: validPoolId,

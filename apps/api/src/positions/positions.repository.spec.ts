@@ -2,50 +2,48 @@ import { Position, Pool, Token } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PositionsRepository } from './positions.repository';
 
-const makePosition = (overrides: Partial<Position> = {}): Position =>
-  ({
-    id: 'pos-1',
-    poolId: 'pool-1',
-    ownerAddress: 'wallet-owner',
-    tokenId: '1',
-    lowerTick: -60,
-    upperTick: 60,
-    liquidity: '50',
-    feesCollected0: '1',
-    feesCollected1: '2',
-    createdAt: new Date('2026-01-01T00:00:00.000Z'),
-    closedAt: null,
-    ...overrides,
-  }) as Position;
+const makePosition = (overrides: Partial<Position> = {}): Position => ({
+  id: 'pos-1',
+  poolId: 'pool-1',
+  ownerAddress: 'wallet-owner',
+  tokenId: '1',
+  lowerTick: -60,
+  upperTick: 60,
+  liquidity: '50',
+  feesCollected0: '1',
+  feesCollected1: '2',
+  createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  closedAt: null,
+  ...overrides,
+});
 
-const makePool = (overrides: Partial<Pool> = {}): Pool =>
-  ({
-    id: 'pool-1',
-    token0Address: 'USDC-addr',
-    token1Address: 'XLM-addr',
-    feeTier: 30,
-    currentSqrtPrice: '1',
-    currentTick: 0,
-    liquidity: '100', // pool liquidity
-    tvl: '1000', // pool tvl
-    volume24h: '50',
-    feeApr: '2.5',
-    currentPrice: '1.25',
-    createdAt: new Date('2026-01-01T00:00:00.000Z'),
-    updatedAt: new Date('2026-01-02T00:00:00.000Z'),
-    ...overrides,
-  }) as Pool;
+const makePool = (overrides: Partial<Pool> = {}): Pool => ({
+  id: 'pool-1',
+  token0Address: 'USDC-addr',
+  token1Address: 'XLM-addr',
+  feeTier: 30,
+  currentSqrtPrice: '1',
+  currentTick: 0,
+  liquidity: '100', // pool liquidity
+  tvl: '1000', // pool tvl
+  volume24h: '50',
+  feeApr: '2.5',
+  currentPrice: '1.25',
+  active: true,
+  createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+  ...overrides,
+});
 
-const makeToken = (overrides: Partial<Token> = {}): Token =>
-  ({
-    id: 'tok-1',
-    address: 'USDC-addr',
-    symbol: 'USDC',
-    name: 'USD Coin',
-    decimals: 6,
-    logoUri: null,
-    ...overrides,
-  }) as Token;
+const makeToken = (overrides: Partial<Token> = {}): Token => ({
+  id: 'tok-1',
+  address: 'USDC-addr',
+  symbol: 'USDC',
+  name: 'USD Coin',
+  decimals: 6,
+  logoUri: null,
+  ...overrides,
+});
 
 describe('PositionsRepository', () => {
   const prisma = {
@@ -55,6 +53,12 @@ describe('PositionsRepository', () => {
     },
     token: {
       findMany: jest.fn(),
+    },
+    swap: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    feesCollected: {
+      findMany: jest.fn().mockResolvedValue([]),
     },
   };
   let repository: PositionsRepository;
@@ -108,19 +112,39 @@ describe('PositionsRepository', () => {
       id: 'pos-1',
       ownerWallet: 'wallet-owner',
       poolId: 'pool-1',
+      tokenId: '1',
       token0: 'USDC',
       token1: 'XLM',
       lowerTick: -60,
       upperTick: 60,
       liquidity: '50',
       currentValueUsd: 500,
-      uncollectedFeesToken0: '1',
-      uncollectedFeesToken1: '2',
+      uncollectedFeesToken0: '0',
+      uncollectedFeesToken1: '0',
       createdAt: new Date('2026-01-01T00:00:00.000Z').getTime(),
       closedAt: null,
       status: 'active',
       poolCurrentPrice: 1.25,
     });
+  });
+
+  it('includes tokenId from the indexed mint event on each snapshot', async () => {
+    const position = makePosition({ tokenId: 'nft-42' });
+    const pool = makePool();
+    prisma.position.count.mockResolvedValue(1);
+    prisma.position.findMany.mockResolvedValue([{ ...position, pool }]);
+    prisma.token.findMany.mockResolvedValue([
+      makeToken({ address: 'USDC-addr', symbol: 'USDC' }),
+      makeToken({ address: 'XLM-addr', symbol: 'XLM' }),
+    ]);
+
+    const result = await repository.listPositionsByWallet('wallet-owner', {
+      page: 1,
+      limit: 10,
+      status: 'all',
+    });
+
+    expect(result.items[0].tokenId).toBe('nft-42');
   });
 
   it('filters by closed status correctly', async () => {

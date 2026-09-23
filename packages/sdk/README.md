@@ -59,6 +59,102 @@ console.log(tx.xdr);
 
 ---
 
+## Network passphrase guards
+
+Every SDK entrypoint that touches liquidity, trading, or settlement paths is
+guarded by a **fail-closed network passphrase check**. Before any operation
+runs, the SDK validates the configured network passphrase against the expected
+network and rejects the call when the passphrase is missing, malformed, or does
+not match the target network (testnet vs mainnet).
+
+```ts
+import { assertNetworkPassphrase, NetworkPassphraseError } from '@swyft/sdk/config';
+
+try {
+  assertNetworkPassphrase({
+    networkPassphrase: 'Test SDF Network ; September 2015',
+    expected: 'testnet',
+  });
+} catch (err) {
+  if (err instanceof NetworkPassphraseError) {
+    // err.code is a stable, documented error code
+    console.error(err.code, err.message, err.correlationId);
+  }
+}
+```
+
+### Guarded entrypoints
+
+The guard runs automatically on the money-path entrypoints:
+
+| Entrypoint | Path |
+|---|---|
+| `buildSwapTx` | trading |
+| `buildBurnTx` | liquidity |
+| `buildCollectTx` | liquidity / settlement |
+| `getSwapQuote` | trading |
+| `getPool` / `getPosition` / `getTick` | queries |
+
+Untrusted callers cannot bypass network policy: the guard is enforced inside
+the SDK, not left to the caller, and it fails closed (deny-by-default) rather
+than falling back to a default network.
+
+### Stable error codes
+
+`NetworkPassphraseError` carries a stable `code` plus structured metadata
+(`correlationId`, `expected`, `received`) so callers and ops tooling can react
+without parsing messages. No secrets are included in the error payload.
+
+| Code | Meaning |
+|---|---|
+| `SWYFT_NETWORK_PASSPHRASE_MISSING` | No passphrase was configured |
+| `SWYFT_NETWORK_PASSPHRASE_MALFORMED` | Passphrase is not a valid string |
+| `SWYFT_NETWORK_PASSPHRASE_MISMATCH` | Passphrase does not match the expected network |
+
+---
+
+## Contract error mapping
+
+Soroban contract failures surface as raw `code` + `message` pairs. The SDK maps
+these into **typed, stable errors** so callers never have to parse contract
+strings and can branch on a documented `code`.
+
+```ts
+import { mapContractError, SwyftContractError } from '@swyft/sdk/errors';
+
+try {
+  // ...invoke a contract entrypoint...
+} catch (raw) {
+  const err = mapContractError(raw);
+  if (err instanceof SwyftContractError) {
+    // err.code is a stable SDK code; err.contractCode preserves the original
+    console.error(err.code, err.contractCode, err.correlationId);
+  }
+}
+```
+
+### Mapping rules
+
+- The original contract `code` is preserved on `err.contractCode` and the
+  original message on `err.contractMessage`.
+- A `correlationId` is attached to every mapped error for observability. It is
+  propagated from the caller when supplied, otherwise generated. No secrets are
+  included in the payload.
+- **Fail-closed:** unknown or unmapped contract codes are never swallowed and
+  never treated as success. They surface as `SWYFT_CONTRACT_UNKNOWN_ERROR`.
+
+| SDK code | Meaning |
+|---|---|
+| `SWYFT_CONTRACT_INVALID_ARGUMENT` | Contract rejected an argument |
+| `SWYFT_CONTRACT_UNAUTHORIZED` | Caller is not authorized |
+| `SWYFT_CONTRACT_INSUFFICIENT_LIQUIDITY` | Pool lacks liquidity for the operation |
+| `SWYFT_CONTRACT_SLIPPAGE_EXCEEDED` | Slippage bound was exceeded |
+| `SWYFT_CONTRACT_POOL_NOT_FOUND` | Referenced pool does not exist |
+| `SWYFT_CONTRACT_POSITION_NOT_FOUND` | Referenced position does not exist |
+| `SWYFT_CONTRACT_UNKNOWN_ERROR` | Unmapped contract code (fail-closed default) |
+
+---
+
 ## API Reference
 
 ### Swap
@@ -89,9 +185,24 @@ console.log(tx.xdr);
 | `getTick({ rpcUrl, poolAddress, tick })` | Fetch tick state |
 | `SwyftRpcError` | Thrown when an RPC call fails |
 
+### Network Guards
+
+| Export | Description |
+|---|---|
+| `assertNetworkPassphrase(params)` | Fail-closed passphrase guard for money-path entrypoints |
+| `NetworkPassphraseError` | Thrown when the passphrase is missing, malformed, or mismatched |
+
+### Errors
+
+| Export | Description |
+|---|---|
+| `mapContractError(raw, opts?)` | Map a raw contract/Soroban error into a typed SDK error |
+| `SwyftContractError` | Typed error carrying `code`, `contractCode`, `contractMessage`, `correlationId` |
+| `SwyftContractErrorCode` | Union of stable SDK contract error codes |
+
 ### Types
 
-`PoolState`, `PositionState`, `TickState`, `SwapQuote`, `SwapQuoteParams`, `LocalSwapQuote`, `LocalSwapQuoteParams`, `PoolStateWithTicks`, `SwapTxParams`, `SwapUnsignedTx`, `BurnTxParams`, `BurnUnsignedTx`, `CollectTxParams`, `CollectUnsignedTx`, `UnsignedTx`, `RemoveAmountsParams`, `RemoveAmountsResult`, `PoolId`, `StellarAddress`, `RawAmount`, `XdrBase64`.
+`PoolState`, `PositionState`, `TickState`, `SwapQuote`, `SwapQuoteParams`, `LocalSwapQuote`, `LocalSwapQuoteParams`, `PoolStateWithTicks`, `SwapTxParams`, `SwapUnsignedTx`, `BurnTxParams`, `BurnUnsignedTx`, `CollectTxParams`, `CollectUnsignedTx`, `UnsignedTx`, `RemoveAmountsParams`, `RemoveAmountsResult`, `PoolId`, `StellarAddress`, `RawAmount`, `XdrBase64`, `NetworkPassphraseGuardParams`, `NetworkPassphraseErrorCode`, `SwyftContractErrorCode`, `ContractErrorInput`, `MapContractErrorOptions`.
 
 ### Helpers
 
@@ -118,7 +229,7 @@ import { buildSwapTx } from '@swyft/sdk/swap';    // same function, narrower imp
 ```
 
 Available subpaths: `@swyft/sdk/quote`, `@swyft/sdk/liquidity`, `@swyft/sdk/queries`,
-`@swyft/sdk/swap`, `@swyft/sdk/types`, `@swyft/sdk/config`.
+`@swyft/sdk/swap`, `@swyft/sdk/types`, `@swyft/sdk/config`, `@swyft/sdk/errors`.
 
 The package sets `"sideEffects": false` and ships separate `browser` / `import`
 (ESM) / `require` (CJS) conditions per entrypoint, so browser bundlers (webpack,
@@ -144,6 +255,24 @@ const quote = getSwapQuote({
   slippage: 50, // bps
 });
 ```
+
+---
+
+## Math fixtures (contract parity)
+
+Liquidity / position math is pinned against shared golden vectors:
+
+- **Canonical file:** [`fixtures/cl-math-vectors.json`](../../fixtures/cl-math-vectors.json)
+- **Copies for package-local runs:** `packages/sdk/src/__tests__/fixtures/` and `packages/contract/fixtures/`
+- **SDK tests:** `src/__tests__/contract-math-fixtures.spec.ts` (requires ≥3 vectors to pass)
+- **Contract tests:** `cl-pool` `fixture_tests::tick_to_sqrt_price_matches_shared_fixtures`
+
+### Math fixture divergence process
+
+1. Prefer changing **one** source of truth: update `fixtures/cl-math-vectors.json`, then sync the package copies.
+2. Re-run SDK tests (`pnpm --filter @swyft/sdk test`) and `cargo test -p cl-pool` (or workspace) so both sides agree on `tick_to_sqrt_price`.
+3. `amounts_for_liquidity` vectors assert the **SDK** Uniswap-style range-aware formula. The on-chain `cl-pool` helper uses a simpler clamp-based variant — if those diverge intentionally, document the difference in the fixture `$schema_comment` and do **not** silently change expected amounts.
+4. Extreme ticks (e.g. `-20000`) may differ (`cl-pool` saturates to `0`, SDK floors to `1`). Keep shared vectors in the overlapping safe range unless both implementations are updated together.
 
 ---
 

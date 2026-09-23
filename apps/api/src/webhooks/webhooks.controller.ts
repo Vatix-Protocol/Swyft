@@ -8,12 +8,7 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiBody,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WebhooksService } from './webhooks.service';
 import {
@@ -22,6 +17,7 @@ import {
   verifyWebhookSignature,
 } from './webhook.types';
 import { SWAGGER_TAGS } from '../swagger.constants';
+import { CreateWebhookDto } from './dto/create-webhook.dto';
 
 interface AuthRequest {
   user: { walletAddress: string };
@@ -67,16 +63,7 @@ export class WebhooksController {
       },
     },
   })
-  create(
-    @Request() req: AuthRequest,
-    @Body()
-    body: {
-      url: string;
-      eventTypes: WebhookEventType[];
-      secret?: string;
-      largeSwapUsd?: number;
-    },
-  ) {
+  create(@Request() req: AuthRequest, @Body() body: CreateWebhookDto) {
     return this.service.create(
       req.user.walletAddress,
       body.url,
@@ -118,7 +105,9 @@ export class WebhooksController {
    * @returns Resolves when the record has been removed (no-op if not found or not owned).
    */
   @Get('audit')
-  @ApiOperation({ summary: 'Webhook CRUD audit log for the authenticated wallet' })
+  @ApiOperation({
+    summary: 'Webhook CRUD audit log for the authenticated wallet',
+  })
   auditLog(@Request() req: AuthRequest) {
     return this.service.auditLog(req.user.walletAddress);
   }
@@ -169,9 +158,9 @@ export class WebhooksController {
   ping(
     @Param('id') id: string,
     @Request() req: AuthRequest,
-    @Body() body?: { testEventType?: string },
+    @Body() body?: { testEventType?: WebhookEventType },
   ) {
-    const eventType = body?.testEventType || 'swap';
+    const eventType: WebhookEventType = body?.testEventType ?? 'swap';
     return this.service.ping(id, req.user.walletAddress, eventType);
   }
 
@@ -197,7 +186,9 @@ export class WebhooksController {
   verifySignature(
     @Body() body: { payload: string; signature: string; secret: string },
   ) {
-    return { valid: verifyWebhookSignature(body.payload, body.signature, body.secret) };
+    return {
+      valid: verifyWebhookSignature(body.payload, body.signature, body.secret),
+    };
   }
 
   @Delete(':id')

@@ -1,13 +1,15 @@
 /**
- * #407 — AppModule smoke test: all public (unauthenticated) routes return 200.
+ * #407 — AppModule smoke test: core routes return 200.
  *
  * The entire module graph is bootstrapped but every external dependency
  * (Prisma, Redis, BullMQ, Horizon, JWT) is replaced with lightweight stubs so
- * the test runs without a live database or message broker.
+ * the test runs without a live database or message broker. ApiKeyGuard is
+ * overridden since this suite only asserts route wiring, not auth.
  */
 
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { WsAdapter } from '@nestjs/platform-ws';
 import request from 'supertest';
 
 // ── Stub helpers ──────────────────────────────────────────────────────────────
@@ -27,7 +29,11 @@ const emptyPage = jest.fn().mockResolvedValue({
 const prismaMock = {
   $connect: noop,
   $disconnect: noop,
-  pool: { findMany: emptyList, findUnique: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(0) },
+  pool: {
+    findMany: emptyList,
+    findUnique: jest.fn().mockResolvedValue(null),
+    count: jest.fn().mockResolvedValue(0),
+  },
   token: { findMany: emptyList },
   swap: { findMany: emptyList, count: jest.fn().mockResolvedValue(0) },
   position: { findMany: emptyList, count: jest.fn().mockResolvedValue(0) },
@@ -37,7 +43,10 @@ const prismaMock = {
   priceCandle: { findMany: emptyList },
   indexerCursor: { findUnique: jest.fn().mockResolvedValue(null) },
   poolCreated: { findMany: emptyList },
-  swapProcessed: { findMany: emptyList },
+  swapProcessed: {
+    findMany: emptyList,
+    findFirst: jest.fn().mockResolvedValue(null),
+  },
   $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]),
 };
 
@@ -50,24 +59,41 @@ const redisMock = {
   publish: jest.fn().mockResolvedValue(1),
   subscribe: jest.fn().mockResolvedValue(undefined),
   on: jest.fn(),
+  connect: jest.fn().mockResolvedValue(undefined),
   quit: jest.fn().mockResolvedValue(undefined),
   duplicate: jest.fn(),
 };
 redisMock.duplicate.mockReturnValue(redisMock);
 
 // BullMQ Queue stub
-const queueMock = { add: jest.fn().mockResolvedValue({ id: '1' }), close: jest.fn().mockResolvedValue(undefined) };
+const queueMock = {
+  add: jest.fn().mockResolvedValue({ id: '1' }),
+  close: jest.fn().mockResolvedValue(undefined),
+  upsertJobScheduler: jest.fn().mockResolvedValue(undefined),
+  getRepeatableJobs: jest.fn().mockResolvedValue([]),
+  removeRepeatableByKey: jest.fn().mockResolvedValue(undefined),
+  getJobs: jest.fn().mockResolvedValue([]),
+};
 
 // BullMQ Worker / QueueEvents stubs (prevents real Redis connection in IndexerWorker)
 jest.mock('bullmq', () => ({
-  Worker: jest.fn().mockImplementation(() => ({ on: jest.fn(), close: jest.fn().mockResolvedValue(undefined), client: Promise.resolve({ llen: jest.fn().mockResolvedValue(0) }) })),
+  Worker: jest.fn().mockImplementation(() => ({
+    on: jest.fn(),
+    close: jest.fn().mockResolvedValue(undefined),
+    client: Promise.resolve({ llen: jest.fn().mockResolvedValue(0) }),
+  })),
   Queue: jest.fn().mockImplementation(() => queueMock),
-  QueueEvents: jest.fn().mockImplementation(() => ({ on: jest.fn(), close: jest.fn().mockResolvedValue(undefined) })),
+  QueueEvents: jest.fn().mockImplementation(() => ({
+    on: jest.fn(),
+    close: jest.fn().mockResolvedValue(undefined),
+  })),
   Job: jest.fn(),
 }));
 
 // Prisma client stub
-jest.mock('@prisma/client', () => ({ PrismaClient: jest.fn().mockImplementation(() => prismaMock) }));
+jest.mock('@prisma/client', () => ({
+  PrismaClient: jest.fn().mockImplementation(() => prismaMock),
+}));
 
 // IORedis stub
 jest.mock('ioredis', () => jest.fn().mockImplementation(() => redisMock));
@@ -78,6 +104,7 @@ import { AppModule } from './app.module';
 import { PrismaService } from './prisma/prisma.service';
 import { CacheService } from './cache/cache.service';
 import { REDIS_CLIENT } from './redis/redis.constants';
+import { ApiKeyGuard } from './auth/api-key.guard';
 
 // ── Test suite ─────────────────────────────────────────────────────────────────
 
@@ -99,19 +126,30 @@ describe('AppModule — public routes smoke test', () => {
         ping: jest.fn().mockResolvedValue(true),
         setMaxNumber: jest.fn().mockResolvedValue(true),
         subscribe: jest.fn(),
+        createSubscriber: jest.fn().mockReturnValue({
+          on: jest.fn(),
+          subscribe: jest.fn().mockResolvedValue(undefined),
+          unsubscribe: jest.fn().mockResolvedValue(undefined),
+          quit: jest.fn().mockResolvedValue(undefined),
+        }),
       })
       .overrideProvider(REDIS_CLIENT)
       .useValue(redisMock)
+      .overrideGuard(ApiKeyGuard)
+      .useValue({ canActivate: () => true })
       .compile();
 
     app = module.createNestApplication();
+    app.useWebSocketAdapter(new WsAdapter(app));
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
-    app.setGlobalPrefix('v1', { exclude: ['health', 'docs', 'docs-json', '/'] });
+    app.setGlobalPrefix('v1', {
+      exclude: ['health', 'docs', 'docs-json', '/'],
+    });
     await app.init();
   });
 
   afterAll(async () => {
-    await app.close();
+    await app?.close();
   });
 
   it('GET / returns 200', () =>

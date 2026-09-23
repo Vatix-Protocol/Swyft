@@ -14,6 +14,9 @@ export const SWAGGER_TAGS = {
   /** Position lifecycle and ownership endpoints. */
   POSITIONS: 'positions',
 
+  /** Swap history and quote endpoints. */
+  SWAPS: 'swaps',
+
   /** Search and discovery endpoints. */
   SEARCH: 'search',
 
@@ -23,6 +26,12 @@ export const SWAGGER_TAGS = {
   /** Authentication and authorization endpoints. */
   AUTH: 'auth',
 
+  /** Token metadata endpoints. */
+  TOKENS: 'tokens',
+
+  /** Protocol statistics and alert endpoints. */
+  STATS: 'stats',
+
   /** Indexer status and queue-health endpoints. */
   INDEXER: 'indexer',
 
@@ -31,6 +40,9 @@ export const SWAGGER_TAGS = {
 
   /** Transaction relay endpoints. */
   TRANSACTIONS: 'transactions',
+
+  /** Wallet on-chain token balance endpoints. */
+  BALANCES: 'balances',
 } as const;
 
 /** Valid Swagger tag values supported by the Swyft API. */

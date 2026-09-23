@@ -1,22 +1,26 @@
 /**
- * Raw contract response object structure for pool state queries.
+ * Parameters for fetching the current state of a liquidity pool.
  */
-interface RawPoolStateResponse {
-  [key: string]: unknown;
+export interface GetPoolParams {
+  readonly rpcUrl: string;
+  readonly poolAddress: string;
 }
 
 /**
- * Raw contract response object structure for position queries.
+ * Parameters for fetching the state of a concentrated liquidity position (NFT).
  */
-interface RawPositionResponse {
-  [key: string]: unknown;
+export interface GetPositionParams {
+  readonly rpcUrl: string;
+  readonly positionNftId: string;
 }
 
 /**
- * Raw contract response object structure for tick queries.
+ * Parameters for fetching the state of a specific tick in a liquidity pool.
  */
-interface RawTickResponse {
-  [key: string]: unknown;
+export interface GetTickParams {
+  readonly rpcUrl: string;
+  readonly poolAddress: string;
+  readonly tick: number;
 }
 
 /**

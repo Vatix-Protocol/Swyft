@@ -1,37 +1,72 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
-import type { SwapQuote } from '@swyft/sdk';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { getNetwork } from '@stellar/freighter-api';
+import type { SwapQuote, ExactOutputQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
 import { PriceImpactBadge } from '@swyft/ui';
 import { useSwapExecution } from '@/hooks/useSwapExecution';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { getExplorerTxUrl } from '@/lib/constants';
 
-interface Props {
-  poolId: string;
-  tokenIn: Token;
-  tokenOut: Token;
-  amountIn: string;
-  quote: SwapQuote;
-  walletAddress: string;
-  onClose: () => void;
-  onSuccess: () => void;
-}
+type Props =
+  | {
+      mode?: 'exactIn';
+      poolId: string;
+      tokenIn: Token;
+      tokenOut: Token;
+      amountIn: string;
+      quote: SwapQuote;
+      walletAddress: string;
+      onClose: () => void;
+      onSuccess: () => void;
+    }
+  | {
+      mode: 'exactOut';
+      /** Pool fee tier to route through, required by `exact_output_single`. */
+      fee: number;
+      tokenIn: Token;
+      tokenOut: Token;
+      amountOut: string;
+      quote: ExactOutputQuote;
+      walletAddress: string;
+      onClose: () => void;
+      onSuccess: () => void;
+    };
 
-export function SwapConfirmModal({
-  poolId,
-  tokenIn,
-  tokenOut,
-  amountIn,
-  quote,
-  walletAddress,
-  onClose,
-  onSuccess,
-}: Props) {
-  const { status, error, txHash, execute, reset } = useSwapExecution();
+export function SwapConfirmModal(props: Props) {
+  const { tokenIn, tokenOut, walletAddress, onClose, onSuccess } = props;
+  const mode = props.mode ?? 'exactIn';
+  const { status, error, txHash, execute, executeExactOutput, reset } = useSwapExecution();
   const { network } = useNetworkContext();
   const overlayRef = useRef<HTMLDivElement>(null);
+
+  // A wallet can be on a different network than the app (e.g. switched in
+  // the extension after connecting). Signing/submitting would then fail, so
+  // re-check on mount, whenever the window regains focus (the user may have
+  // just switched networks in the extension), and again right before
+  // allowing a confirm.
+  const [networkMismatch, setNetworkMismatch] = useState(false);
+
+  const checkNetwork = useCallback(async (): Promise<boolean> => {
+    try {
+      const result = await getNetwork();
+      const walletNetwork = 'network' in result ? result.network : result;
+      const mismatch = (walletNetwork as string).toUpperCase() !== network;
+      setNetworkMismatch(mismatch);
+      return mismatch;
+    } catch {
+      // If we can't determine the wallet's network, don't block the user —
+      // sign/submit will surface a real error if it's actually mismatched.
+      return false;
+    }
+  }, [network]);
+
+  useEffect(() => {
+    void checkNetwork();
+    window.addEventListener('focus', checkNetwork);
+    return () => window.removeEventListener('focus', checkNetwork);
+  }, [checkNetwork]);
 
   // Trap focus / close on Escape
   useEffect(() => {
@@ -53,13 +88,39 @@ export function SwapConfirmModal({
     if (e.target === overlayRef.current && !isBusy) onClose();
   }
 
-  function handleConfirm() {
-    execute({ poolId, tokenIn, tokenOut, amountIn, quote, walletAddress });
+  function submit() {
+    if (props.mode === 'exactOut') {
+      executeExactOutput({
+        fee: props.fee,
+        tokenIn,
+        tokenOut,
+        amountOut: props.amountOut,
+        quote: props.quote,
+        walletAddress,
+      });
+    } else {
+      execute({
+        poolId: props.poolId,
+        tokenIn,
+        tokenOut,
+        amountIn: props.amountIn,
+        quote: props.quote,
+        walletAddress,
+      });
+    }
+  }
+
+  async function handleConfirm() {
+    // The last check can go stale if the user switches networks in the
+    // wallet extension without triggering a window focus event — re-verify
+    // right before signing so a mismatched network is never sent to the wallet.
+    if (await checkNetwork()) return;
+    submit();
   }
 
   function handleRetry() {
     reset();
-    execute({ poolId, tokenIn, tokenOut, amountIn, quote, walletAddress });
+    submit();
   }
 
   return (
@@ -104,13 +165,17 @@ export function SwapConfirmModal({
             <div className="flex items-center justify-between rounded-xl bg-zinc-50 px-4 py-3 dark:bg-zinc-800/50">
               <span className="text-sm text-zinc-500 dark:text-zinc-400">You pay</span>
               <span className="text-sm font-semibold text-zinc-900 dark:text-white">
-                {parseFloat(amountIn).toFixed(6)} {tokenIn.symbol}
+                {props.mode === 'exactOut' ? '≈' : ''}
+                {parseFloat(props.mode === 'exactOut' ? props.quote.amountIn : props.amountIn).toFixed(6)}{' '}
+                {tokenIn.symbol}
               </span>
             </div>
             <div className="flex items-center justify-between rounded-xl bg-zinc-50 px-4 py-3 dark:bg-zinc-800/50">
               <span className="text-sm text-zinc-500 dark:text-zinc-400">You receive</span>
               <span className="text-sm font-semibold text-zinc-900 dark:text-white">
-                ≈{parseFloat(quote.amountOut).toFixed(6)} {tokenOut.symbol}
+                {props.mode === 'exactOut' ? '' : '≈'}
+                {parseFloat(props.mode === 'exactOut' ? props.amountOut : props.quote.amountOut).toFixed(6)}{' '}
+                {tokenOut.symbol}
               </span>
             </div>
           </div>
@@ -120,30 +185,40 @@ export function SwapConfirmModal({
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
               <span>Rate</span>
               <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                1 {tokenIn.symbol} = {parseFloat(quote.executionPrice).toFixed(6)} {tokenOut.symbol}
+                1 {tokenIn.symbol} = {parseFloat(props.quote.executionPrice).toFixed(6)}{' '}
+                {tokenOut.symbol}
               </span>
             </div>
-            <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
-              <span>Min. received</span>
-              <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                {parseFloat(quote.minimumReceived).toFixed(6)} {tokenOut.symbol}
-              </span>
-            </div>
+            {props.mode === 'exactOut' ? (
+              <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
+                <span>Max. spent</span>
+                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                  {parseFloat(props.quote.maximumIn).toFixed(6)} {tokenIn.symbol}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
+                <span>Min. received</span>
+                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                  {parseFloat(props.quote.minimumReceived).toFixed(6)} {tokenOut.symbol}
+                </span>
+              </div>
+            )}
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
               <span>Price impact</span>
-              <PriceImpactBadge impact={quote.priceImpact} />
+              <PriceImpactBadge impact={props.quote.priceImpact} />
             </div>
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
               <span>LP fee</span>
               <span>
-                {parseFloat(quote.lpFee).toFixed(7)} {tokenIn.symbol}
+                {parseFloat(props.quote.lpFee).toFixed(7)} {tokenIn.symbol}
               </span>
             </div>
-            {parseFloat(quote.protocolFee) > 0 && (
+            {parseFloat(props.quote.protocolFee) > 0 && (
               <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
                 <span>Protocol fee</span>
                 <span>
-                  {parseFloat(quote.protocolFee).toFixed(7)} {tokenIn.symbol}
+                  {parseFloat(props.quote.protocolFee).toFixed(7)} {tokenIn.symbol}
                 </span>
               </div>
             )}
@@ -218,6 +293,19 @@ export function SwapConfirmModal({
             </div>
           )}
 
+          {/* Network mismatch warning */}
+          {networkMismatch && status === 'idle' && (
+            <div
+              role="alert"
+              className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950"
+            >
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                Your wallet is on a different Stellar network than this app ({network}). Switch
+                networks in your wallet to continue.
+              </p>
+            </div>
+          )}
+
           {/* Action buttons */}
           {status === 'success' ? (
             <button
@@ -231,7 +319,7 @@ export function SwapConfirmModal({
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={isBusy || status === 'error'}
+              disabled={isBusy || status === 'error' || networkMismatch}
               className="w-full min-h-[44px] rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 flex items-center justify-center gap-2"
             >
               {status === 'signing' && (

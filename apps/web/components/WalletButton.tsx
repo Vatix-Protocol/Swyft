@@ -44,6 +44,7 @@ export function WalletButton() {
       <div ref={ref} className="relative">
         <button
           onClick={() => setOpen((o) => !o)}
+          aria-label={`Connected wallet ${truncate(address)}`}
           className="flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-black dark:hover:bg-zinc-300 transition-colors"
           title={address}
         >
@@ -65,6 +66,7 @@ export function WalletButton() {
             <div className="p-2 flex flex-col gap-1">
               <button
                 onClick={copyAddress}
+                aria-label="Copy wallet address to clipboard"
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
               >
                 {copied ? 'Copied!' : 'Copy address'}
