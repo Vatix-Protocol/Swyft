@@ -27,17 +27,70 @@ export interface ReplaySummary {
 }
 
 /**
+ * Stable error codes for DLQ replay entrypoints. Callers (controllers, ops
+ * tooling) can branch on these without parsing messages, and they are safe to
+ * surface to clients/logs (no payload or secret leakage).
+ */
+export const REPLAY_ERROR_CODES = {
+  INVALID_CURSOR: 'REPLAY_INVALID_CURSOR',
+  DEPENDENCY_UNAVAILABLE: 'REPLAY_DEPENDENCY_UNAVAILABLE',
+  REPLAY_IN_PROGRESS: 'REPLAY_IN_PROGRESS',
+} as const;
+
+export type ReplayErrorCode =
+  (typeof REPLAY_ERROR_CODES)[keyof typeof REPLAY_ERROR_CODES];
+
+/**
+ * Typed error thrown by replay entrypoints. Carries a stable `code` and the
+ * `correlationId` of the originating request so ops can trace a failure end to
+ * end without inspecting payload contents.
+ */
+export class ReplayError extends Error {
+  constructor(
+    readonly code: ReplayErrorCode,
+    message: string,
+    readonly correlationId: string,
+  ) {
+    super(message);
+    this.name = 'ReplayError';
+  }
+}
+
+export interface ReplayRequest {
+  fromLedger: number;
+  /** Caller-supplied idempotency key; concurrent replays with the same key dedupe. */
+  idempotencyKey: string;
+  /** Correlation id propagated through logs/metrics for this request. */
+  correlationId: string;
+}
+
+export interface ReplayResult extends ReplaySummary {
+  correlationId: string;
+  idempotencyKey: string;
+  /** True when this call was deduped against an in-flight/previous replay. */
+  deduped: boolean;
+}
+
+/**
  * Re-enqueues persisted events from `fromLedger` onward onto their BullMQ
  * queues so they're reprojected. Handlers upsert on eventId, so replayed
  * events that already landed are safely re-applied rather than duplicated.
  * Rows persisted before the `ledger` column existed have `ledger: null` and
  * are not replayable — only events tagged with a ledger can be selected.
+ *
+ * Replay is a privileged, money-path-adjacent operation: entrypoints must be
+ * authorized by the caller (deny-by-default) and are idempotent per
+ * `idempotencyKey`. Dependency outages fail closed — no partial enqueue is
+ * reported as success.
  */
 @Injectable()
 export class IndexerReplayService {
   private readonly logger = new Logger(IndexerReplayService.name);
   private readonly prisma = new PrismaClient();
   private static readonly ENQUEUE_OPTS = { removeOnComplete: true };
+
+  /** In-flight replays keyed by idempotency key, for concurrent dedupe. */
+  private readonly inFlight = new Map<string, Promise<ReplaySummary>>();
 
   constructor(
     @Inject(QUEUE_POOL_CREATED)
@@ -52,20 +105,80 @@ export class IndexerReplayService {
     private readonly feesCollectedQueue: Queue<FeesCollectedJobData>,
   ) {}
 
-  async replayFromLedger(fromLedger: number): Promise<ReplaySummary> {
-    const [
-      poolCreated,
-      swapProcessed,
-      positionMinted,
-      positionBurned,
-      feesCollected,
-    ] = await Promise.all([
-      this.replayPoolCreated(fromLedger),
-      this.replaySwapProcessed(fromLedger),
-      this.replayPositionMinted(fromLedger),
-      this.replayPositionBurned(fromLedger),
-      this.replayFeesCollected(fromLedger),
-    ]);
+  /**
+   * Typed, idempotent replay entrypoint. Validates the cursor, dedupes
+   * concurrent/replayed requests by `idempotencyKey`, and fails closed on
+   * dependency outage. Emits ops-safe metrics/logs (counts only, no payloads).
+   */
+  async replay(request: ReplayRequest): Promise<ReplayResult> {
+    const { fromLedger, idempotencyKey, correlationId } = request;
+
+    if (!Number.isInteger(fromLedger) || fromLedger < 0) {
+      this.logger.warn(
+        `replay rejected code=${REPLAY_ERROR_CODES.INVALID_CURSOR} correlationId=${correlationId}`,
+      );
+      throw new ReplayError(
+        REPLAY_ERROR_CODES.INVALID_CURSOR,
+        'fromLedger must be a non-negative integer',
+        correlationId,
+      );
+    }
+
+    const existing = this.inFlight.get(idempotencyKey);
+    if (existing) {
+      this.logger.log(
+        `replay deduped correlationId=${correlationId} idempotencyKey=${idempotencyKey}`,
+      );
+      const summary = await existing;
+      return { ...summary, correlationId, idempotencyKey, deduped: true };
+    }
+
+    const run = this.replayFromLedger(fromLedger, correlationId);
+    this.inFlight.set(idempotencyKey, run);
+    try {
+      const summary = await run;
+      return { ...summary, correlationId, idempotencyKey, deduped: false };
+    } finally {
+      this.inFlight.delete(idempotencyKey);
+    }
+  }
+
+  async replayFromLedger(
+    fromLedger: number,
+    correlationId = 'n/a',
+  ): Promise<ReplaySummary> {
+    let poolCreated: number;
+    let swapProcessed: number;
+    let positionMinted: number;
+    let positionBurned: number;
+    let feesCollected: number;
+
+    try {
+      [
+        poolCreated,
+        swapProcessed,
+        positionMinted,
+        positionBurned,
+        feesCollected,
+      ] = await Promise.all([
+        this.replayPoolCreated(fromLedger),
+        this.replaySwapProcessed(fromLedger),
+        this.replayPositionMinted(fromLedger),
+        this.replayPositionBurned(fromLedger),
+        this.replayFeesCollected(fromLedger),
+      ]);
+    } catch (err) {
+      // Fail closed: a DB/Redis/RPC outage must not be reported as success.
+      this.logger.error(
+        `replay failed code=${REPLAY_ERROR_CODES.DEPENDENCY_UNAVAILABLE} ` +
+          `correlationId=${correlationId} fromLedger=${fromLedger}`,
+      );
+      throw new ReplayError(
+        REPLAY_ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+        'replay dependency unavailable',
+        correlationId,
+      );
+    }
 
     const total =
       poolCreated +
@@ -75,10 +188,10 @@ export class IndexerReplayService {
       feesCollected;
 
     this.logger.log(
-      `Replay from ledger ${fromLedger} enqueued ${total} event(s) ` +
+      `replay from ledger ${fromLedger} enqueued ${total} event(s) ` +
         `(pool.created=${poolCreated}, swap.processed=${swapProcessed}, ` +
         `position.minted=${positionMinted}, position.burned=${positionBurned}, ` +
-        `fees.collected=${feesCollected})`,
+        `fees.collected=${feesCollected}) correlationId=${correlationId}`,
     );
 
     return {
