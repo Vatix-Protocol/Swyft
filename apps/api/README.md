@@ -1,113 +1,60 @@
 # Swyft API
 
-The Swyft API is the server-side entrypoint for liquidity, trading, and settlement flows. It talks to Stellar (Horizon + Soroban RPC) and to the Swyft contracts deployed on testnet.
+Backend API for Swyft, including the Horizon service used for liquidity, trading, and settlement operations.
 
-## Environment wiring (testnet)
+## Horizon service
 
-The API is configured entirely through environment variables. The canonical source of truth for testnet identifiers is [`packages/contract/deployments/TESTNET.md`](../../packages/contract/deployments/TESTNET.md). Copy [`apps/api/.env.example`](./.env.example) to `.env` and fill in the values documented there.
+The Horizon service lives in `apps/api/src/horizon/`. It exposes typed entrypoints for
+Horizon-backed operations and is the source of truth for balances, swaps, and admin actions.
 
-Required variables:
+### Fail-closed write semantics
 
-| Variable | Purpose |
-| --- | --- |
-| `STELLAR_NETWORK` | Network name (`testnet`). Mainnet is rejected by config validation. |
-| `STELLAR_NETWORK_PASSPHRASE` | Must match the passphrase for `STELLAR_NETWORK`. |
-| `STELLAR_HORIZON_URL` | Horizon endpoint for the selected network. |
-| `STELLAR_SOROBAN_RPC_URL` | Soroban RPC endpoint for the selected network. |
-| `SWYFT_CONTRACT_ID` | Deployed Swyft contract id (testnet). |
-| `SWYFT_ASSET_ISSUER` | Public issuer account for the Swyft asset (testnet). |
+All Horizon **write** operations are fail-closed. If a required dependency is unavailable,
+the write is rejected rather than partially applied:
 
-### Fail-closed behavior
+- **RPC / Horizon outage** — writes return `HORIZON_UNAVAILABLE` and are not retried blindly.
+  Retries are only attempted for idempotent, explicitly retryable operations.
+- **DB outage** — writes return `DB_UNAVAILABLE`; no in-memory state is treated as committed.
+- **Redis outage** — idempotency/lock state is unavailable, so writes return `REDIS_UNAVAILABLE`
+  instead of proceeding without dedupe guarantees.
 
-`apps/api/src/config/stellar.config.ts` validates the environment at startup and **fails closed**:
+Reads may degrade gracefully; writes never do.
 
-- A mainnet passphrase or unknown network is rejected.
-- Missing contract ids or asset issuers are rejected.
-- A passphrase that does not match the declared network is rejected (address/network drift).
+### Stable error codes
 
-Validation errors use stable error codes so operators and tests can assert on them. The API will not start with an invalid Stellar configuration.
+Horizon entrypoints return stable, machine-readable error codes so clients can react
+predictably. Every error response includes a `correlationId` for tracing across logs and
+metrics. Codes are part of the public contract and must not be renamed without a migration.
 
-### Secrets
+### Idempotency
 
-Only public testnet identifiers and URLs belong in `.env.example`. Never commit secret keys, seed phrases, or private credentials. Do not log secret values; log only the stable error codes and non-sensitive identifiers.
+Concurrent or replayed Horizon write requests must be idempotent. Clients supply an
+idempotency key; the service dedupes on that key and returns the original result for
+replays. If the dedupe store is unavailable, the write fails closed (see above).
 
-## Development
+### Authorization
 
-See the repository root README for workspace setup. Run the API from `apps/api` after populating `.env` from `.env.example`.
+Horizon entrypoints are deny-by-default. Untrusted clients cannot bypass policy:
 
-## Tests
+- Every external entrypoint is authenticated and authorized before any state change.
+- New privileged surfaces default to denied until explicitly granted.
+- Expired credentials or wrong roles are rejected with stable auth error codes.
 
-Config validation is covered by `apps/api/src/config/stellar.config.spec.ts`, including valid testnet configuration and negative cases (mainnet passphrase, missing variables, address drift).
+### Observability
 
-## Service endpoints
+Horizon emits ops-safe metrics and structured logs on money paths (writes, retries,
+fail-closed rejections). Logs and metrics never include secrets, tokens, or raw
+credentials. Correlation ids tie client requests to server-side traces.
 
-| Service    | Default URL                                           |
-| ---------- | ----------------------------------------------------- |
-| NestJS API | http://localhost:3001                                 |
-| PostgreSQL | `postgresql://postgres:postgres@localhost:5432/swyft` |
-| Redis      | `redis://localhost:6379`                              |
+### Feature flags / kill switch
 
-## Health and CORS
+Money-path or mainnet-affecting Horizon changes must land behind a feature flag or kill
+switch. Document the rollback procedure in the PR description before enabling on mainnet.
 
-`GET /health` returns `{ status, checks: { postgres, redis } }`; status is
-`ok` only when both dependency probes pass. CORS allows `WEB_APP_ORIGIN` (or
-`CORS_ORIGIN`) as a comma-separated origin list and defaults to
-`http://localhost:3000`.
+## Contributing (Stellar Wave)
 
-Request logging automatically redacts sensitive headers and body fields such as
-`Authorization`, `x-api-key`, and password/API-key payload values before they
-are written to logs.
-
-## Indexer recovery
-
-Each successfully persisted indexer event with a valid `ledger` field advances
-the monotonic `indexer:last_ledger` high-water mark in Redis and Postgres.
-Horizon only advances its in-memory paging token after a ledger window is
-successfully enqueued — it does **not** advance the durable checkpoint. The
-Postgres `indexer_cursor` row remains the durable recovery source when Redis is
-cold or unavailable. BullMQ retries stalled jobs, Prisma upserts keyed by
-`eventId` make the replay safe after a worker restart, and jobs that exhaust
-their retries are recorded in `indexer_dead_letter` for operator recovery.
-
-### Replay APIs (internal — `x-internal-key`)
-
-| Endpoint | Body | Behaviour |
-|---|---|---|
-| `POST /indexer/replay` | `{ "fromLedger": N }` | Re-enqueue canonical rows with `ledger >= N` |
-| `POST /indexer/dead-letters/replay` | `{ "jobId": "…" }` (optional) | Re-enqueue one DLQ job, or all unrecovered when omitted |
-
-Dead-letter replay is idempotent: workers upsert on `eventId` (and pool /
-position natural keys), and replayed BullMQ jobs use a stable
-`dlq-replay:<jobId>` id so a second call is a no-op or upsert-safe.
-
-## Running tests
-
-```bash
-pnpm test          # unit tests
-pnpm test:e2e      # end-to-end tests
-pnpm test:cov      # coverage report
-```
-
-## Stopping the stack
-
-```bash
-docker compose down
-```
-
-## Horizon indexer
-
-Set `POOL_CONTRACT_ID` and, optionally, `HORIZON_URL` to enable the poller.
-It reads Horizon effects every five seconds, converts recognized
-`pool_created`, `swap_processed`, `position_minted`, and `position_burned`
-events to BullMQ jobs, and stores its paging cursor in `indexer_cursor`.
-
-Each job uses the Horizon event ID as its stable idempotency key. The workers
-retain the raw event tables for auditability and project the data into the
-canonical `Pool`, `Token`, `Swap`, and `Position` tables. Position events must
-include their pool-local `tokenId`; `liquidity` is the resulting position
-liquidity, so a value of `0` closes the position.
-
-When `OTEL_EXPORTER_OTLP_ENDPOINT` is configured, the indexer worker emits
-OpenTelemetry spans for the fetch/write/project stages of pool-created,
-swap-processed, position, and fees-collected jobs so operators can inspect the
-batch-processing pipeline via their tracing backend.
+- Keep Horizon write paths fail-closed; do not add best-effort writes.
+- Add unit tests for invariants and auth negatives, plus integration/e2e coverage on the
+  critical path.
+- Update this README and any related runbooks when changing Horizon behavior.
+- See `SECURITY.md` for reporting and secret-handling policy.

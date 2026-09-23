@@ -18,8 +18,6 @@ interface JwtPayload {
   scope?: string | string[];
   iss?: string;
   aud?: string | string[];
-  role?: string;
-  roles?: string[];
   exp?: number;
 }
 
