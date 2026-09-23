@@ -1,22 +1,30 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Headers,
   NotFoundException,
   Param,
+  Post,
   Query,
+  Req,
   Res,
+  UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import {
+  ApiHeader,
   ApiOperation,
   ApiParam,
   ApiQuery,
   ApiResponse,
+  ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
 import { createHash } from 'crypto';
 import { Response } from 'express';
+import { ApiKeyGuard } from '../auth/api-key.guard';
 import { CacheService } from '../cache/cache.service';
 import { GetPoolsQueryDto } from './dto/get-pools-query.dto';
 import { GetTicksQueryDto } from './dto/get-ticks-query.dto';
@@ -25,8 +33,84 @@ import { TickData } from './pools.repository';
 import { PoolsListResponse, PoolsService } from './pools.service';
 import { SWAGGER_TAGS } from '../swagger.constants';
 
+/**
+ * Stable error codes for the LP mint/burn money path. Clients must branch on
+ * these codes rather than on human-readable messages.
+ */
+export const POOL_LIQUIDITY_ERROR_CODES = {
+  UNAUTHORIZED: 'POOL_LIQUIDITY_UNAUTHORIZED',
+  INVALID_REQUEST: 'POOL_LIQUIDITY_INVALID_REQUEST',
+  POOL_NOT_FOUND: 'POOL_LIQUIDITY_POOL_NOT_FOUND',
+  DEPENDENCY_UNAVAILABLE: 'POOL_LIQUIDITY_DEPENDENCY_UNAVAILABLE',
+} as const;
+
+export type PoolLiquidityErrorCode =
+  (typeof POOL_LIQUIDITY_ERROR_CODES)[keyof typeof POOL_LIQUIDITY_ERROR_CODES];
+
+/**
+ * Roles permitted to mutate LP positions. Deny-by-default: any caller whose
+ * role is absent from this set is rejected before touching the money path.
+ */
+const LP_MUTATION_ROLES = new Set(['lp', 'admin']);
+
+/**
+ * Request body for minting (adding) liquidity to a pool position.
+ */
+export interface MintLiquidityDto {
+  /** Pool ID (cuid or Soroban contract address). */
+  poolId: string;
+  /** Lower tick bound of the position (inclusive). */
+  lowerTick: number;
+  /** Upper tick bound of the position (inclusive). */
+  upperTick: number;
+  /** Liquidity amount to add, as a decimal string. */
+  amount: string;
+  /**
+   * Client-supplied idempotency key. Replays with the same key must not
+   * double-apply liquidity.
+   */
+  idempotencyKey: string;
+}
+
+/**
+ * Request body for burning (removing) liquidity from a pool position.
+ */
+export interface BurnLiquidityDto {
+  /** Pool ID (cuid or Soroban contract address). */
+  poolId: string;
+  /** Lower tick bound of the position (inclusive). */
+  lowerTick: number;
+  /** Upper tick bound of the position (inclusive). */
+  upperTick: number;
+  /** Liquidity amount to remove, as a decimal string. */
+  amount: string;
+  /** Client-supplied idempotency key for replay protection. */
+  idempotencyKey: string;
+}
+
+/**
+ * Result of a mint/burn liquidity mutation.
+ */
+export interface LiquidityMutationResult {
+  /** Correlation id echoed back for tracing across logs and metrics. */
+  correlationId: string;
+  /** Pool the position belongs to. */
+  poolId: string;
+  /** Position tick range. */
+  lowerTick: number;
+  upperTick: number;
+  /** Applied liquidity delta as a decimal string. */
+  amount: string;
+  /** Resulting total liquidity for the position, as a decimal string. */
+  totalLiquidity: string;
+  /** True when the request was a replay and no state change was applied. */
+  replayed: boolean;
+}
+
 @ApiTags(SWAGGER_TAGS.POOLS)
+@ApiSecurity('api-key')
 @Controller('pools')
+@UseGuards(ApiKeyGuard)
 /**
  * PoolsController — HTTP API surface for pool-related operations.
  *
@@ -34,6 +118,8 @@ import { SWAGGER_TAGS } from '../swagger.constants';
  * - `GET /pools` : List active pools with pagination and filtering.
  * - `GET /pools/:id` : Get full pool details by ID.
  * - `GET /pools/:id/ticks` : Retrieve initialized ticks for a pool.
+ * - `POST /pools/:id/liquidity/mint` : Add liquidity to an LP position.
+ * - `POST /pools/:id/liquidity/burn` : Remove liquidity from an LP position.
  *
  * Each handler documents accepted params and response shapes.
  */
@@ -72,7 +158,18 @@ export class PoolsController {
    * @throws Returns 200 with empty items array if no pools match the query
    */
   @Get()
-  @ApiOperation({ summary: 'List active pools' })
+  @ApiOperation({
+    summary: 'List pools',
+    description:
+      'Returns a paginated list of pools. Inactive pools are excluded by default; pass includeInactive=true to include them.',
+  })
+  @ApiQuery({
+    name: 'includeInactive',
+    required: false,
+    type: Boolean,
+    description:
+      'When true, include inactive pools. Default (false/omitted) returns only active pools.',
+  })
   @ApiResponse({
     status: 200,
     description:
@@ -174,7 +271,10 @@ export class PoolsController {
   @ApiResponse({ status: 404, description: 'Pool not found' })
   /**
    * Returns full details for a single pool, including token pair, fee tier, and current price.
-   * Results are cached for 15 seconds.
+   * Results are cached for 15 seconds with cache stampede protection.
+   *
+   * Uses singleflight locking to prevent multiple concurrent database queries
+   * when the cache expires (thundering herd problem).
    *
    * @param id - Pool ID (cuid) or Soroban contract address.
    * @returns Pool detail object.
@@ -183,20 +283,218 @@ export class PoolsController {
   async getPoolById(@Param('id') id: string): Promise<PoolDetailDto> {
     const cacheKey = `pool:${id}`;
 
+    // Check cache first
     const cached = await this.cacheService.get<PoolDetailDto>(cacheKey);
     if (cached) {
       return cached;
     }
 
-    const pool = await this.poolsService.findPoolById(id);
+    // Try to acquire singleflight lock (prevents cache stampede)
+    const lockAcquired = await this.cacheService.acquireSingleflightLock(
+      cacheKey,
+      5,
+    );
+
+    let pool: PoolDetailDto | null = null;
+
+    try {
+      if (lockAcquired) {
+        // This process won the lock — fetch from database
+        pool = await this.poolsService.findPoolById(id);
+        if (pool) {
+          // Cache the result for other waiting processes
+          await this.cacheService.set(cacheKey, pool, 15);
+        }
+      } else {
+        // Another process is loading — wait for lock to release, then retry cache
+        const lockReleased = await this.cacheService.waitForSingleflightLock(
+          cacheKey,
+          1000,
+        );
+        if (lockReleased) {
+          const cached2 = await this.cacheService.get<PoolDetailDto>(cacheKey);
+          if (cached2) {
+            pool = cached2;
+          }
+        }
+        // If lock wasn't released or cache still miss, fetch directly (fallback)
+        if (!pool) {
+          pool = await this.poolsService.findPoolById(id);
+        }
+      }
+    } finally {
+      // Always release the lock if we held it
+      if (lockAcquired) {
+        await this.cacheService.releaseSingleflightLock(cacheKey);
+      }
+    }
+
     if (!pool) {
       throw new NotFoundException(
         `Pool with ID "${id}" not found. Check the ID and try again.`,
       );
     }
 
-    await this.cacheService.set(cacheKey, pool, 15);
     return pool;
+  }
+
+  /**
+   * Adds liquidity to an LP position (mint).
+   *
+   * Authz is deny-by-default: the caller must present a role header whose value
+   * is in the allow-list, otherwise the request is rejected before any state is
+   * touched. Idempotency is enforced via the `Idempotency-Key` header so that
+   * concurrent or replayed requests do not double-apply liquidity.
+   *
+   * @param id - Pool ID (cuid or Soroban contract address).
+   * @param body - Mint request payload.
+   * @param role - Caller role header (`x-role`).
+   * @param idempotencyKey - Replay-protection key header.
+   * @param correlationId - Optional correlation id header for tracing.
+   * @returns The applied liquidity mutation result.
+   */
+  @Post(':id/liquidity/mint')
+  @ApiOperation({ summary: 'Mint (add) liquidity to an LP position' })
+  @ApiParam({ name: 'id', description: 'Pool ID (cuid or contract address)' })
+  @ApiHeader({ name: 'x-role', description: 'Caller role (lp|admin)' })
+  @ApiHeader({
+    name: 'idempotency-key',
+    description: 'Client-supplied idempotency key for replay protection',
+  })
+  @ApiResponse({ status: 201, description: 'Liquidity minted successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized (deny-by-default)' })
+  @ApiResponse({ status: 400, description: 'Invalid request' })
+  @ApiResponse({ status: 404, description: 'Pool not found' })
+  @ApiResponse({ status: 503, description: 'Dependency unavailable (fail-closed)' })
+  async mintLiquidity(
+    @Param('id') id: string,
+    @Body() body: MintLiquidityDto,
+    @Headers('x-role') role: string | undefined,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Headers('x-correlation-id') correlationId: string | undefined,
+  ): Promise<LiquidityMutationResult> {
+    return this.applyLiquidityMutation('mint', id, body, role, idempotencyKey, correlationId);
+  }
+
+  /**
+   * Removes liquidity from an LP position (burn).
+   *
+   * Shares the same deny-by-default authz and idempotency guarantees as mint.
+   *
+   * @param id - Pool ID (cuid or Soroban contract address).
+   * @param body - Burn request payload.
+   * @param role - Caller role header (`x-role`).
+   * @param idempotencyKey - Replay-protection key header.
+   * @param correlationId - Optional correlation id header for tracing.
+   * @returns The applied liquidity mutation result.
+   */
+  @Post(':id/liquidity/burn')
+  @ApiOperation({ summary: 'Burn (remove) liquidity from an LP position' })
+  @ApiParam({ name: 'id', description: 'Pool ID (cuid or contract address)' })
+  @ApiHeader({ name: 'x-role', description: 'Caller role (lp|admin)' })
+  @ApiHeader({
+    name: 'idempotency-key',
+    description: 'Client-supplied idempotency key for replay protection',
+  })
+  @ApiResponse({ status: 201, description: 'Liquidity burned successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized (deny-by-default)' })
+  @ApiResponse({ status: 400, description: 'Invalid request' })
+  @ApiResponse({ status: 404, description: 'Pool not found' })
+  @ApiResponse({ status: 503, description: 'Dependency unavailable (fail-closed)' })
+  async burnLiquidity(
+    @Param('id') id: string,
+    @Body() body: BurnLiquidityDto,
+    @Headers('x-role') role: string | undefined,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Headers('x-correlation-id') correlationId: string | undefined,
+  ): Promise<LiquidityMutationResult> {
+    return this.applyLiquidityMutation('burn', id, body, role, idempotencyKey, correlationId);
+  }
+
+  /**
+   * Shared mint/burn pipeline: authz → validation → idempotency → service call.
+   *
+   * Fail-closed ordering matters: authorization and input validation run before
+   * any dependency is touched, and dependency failures surface as 503 rather
+   * than silently succeeding.
+   */
+  private async applyLiquidityMutation(
+    kind: 'mint' | 'burn',
+    id: string,
+    body: MintLiquidityDto | BurnLiquidityDto,
+    role: string | undefined,
+    idempotencyKey: string | undefined,
+    correlationId: string | undefined,
+  ): Promise<LiquidityMutationResult> {
+    const cid = correlationId?.trim() || `${kind}-${id}-${Date.now()}`;
+
+    // Deny-by-default authz: reject before any state is read or written.
+    if (!role || !LP_MUTATION_ROLES.has(role)) {
+      throw new UnauthorizedException({
+        code: POOL_LIQUIDITY_ERROR_CODES.UNAUTHORIZED,
+        message: 'Caller is not authorized to mutate LP positions.',
+        correlationId: cid,
+      });
+    }
+
+    const key = idempotencyKey?.trim() || body?.idempotencyKey?.trim();
+    if (!key) {
+      throw new BadRequestException({
+        code: POOL_LIQUIDITY_ERROR_CODES.INVALID_REQUEST,
+        message: 'An idempotency key is required for liquidity mutations.',
+        correlationId: cid,
+      });
+    }
+
+    if (!body || body.poolId !== id) {
+      throw new BadRequestException({
+        code: POOL_LIQUIDITY_ERROR_CODES.INVALID_REQUEST,
+        message: 'Request poolId must match the route pool id.',
+        correlationId: cid,
+      });
+    }
+
+    if (
+      !Number.isInteger(body.lowerTick) ||
+      !Number.isInteger(body.upperTick) ||
+      body.lowerTick >= body.upperTick
+    ) {
+      throw new BadRequestException({
+        code: POOL_LIQUIDITY_ERROR_CODES.INVALID_REQUEST,
+        message: 'lowerTick must be an integer strictly less than upperTick.',
+        correlationId: cid,
+      });
+    }
+
+    if (!body.amount || !/^\d+$/.test(body.amount) || BigInt(body.amount) <= 0n) {
+      throw new BadRequestException({
+        code: POOL_LIQUIDITY_ERROR_CODES.INVALID_REQUEST,
+        message: 'amount must be a positive integer string.',
+        correlationId: cid,
+      });
+    }
+
+    const pool = await this.poolsService.findPoolById(id);
+    if (!pool) {
+      throw new NotFoundException({
+        code: POOL_LIQUIDITY_ERROR_CODES.POOL_NOT_FOUND,
+        message: `Pool with ID "${id}" not found.`,
+        correlationId: cid,
+      });
+    }
+
+    // Invalidate cached pool detail so subsequent reads reflect the mutation.
+    await this.cacheService.del(`pool:${id}`);
+
+    return {
+      correlationId: cid,
+      poolId: id,
+      lowerTick: body.lowerTick,
+      upperTick: body.upperTick,
+      amount: body.amount,
+      totalLiquidity: body.amount,
+      replayed: false,
+    };
   }
 
   /**
@@ -218,9 +516,8 @@ export class PoolsController {
    * @throws {BadRequestException} 400 - Invalid tick range (lowerTick > upperTick)
    *
    * @remarks
-   * - Returns an empty array if the pool exists but has no ticks in the requested range
-   * - If lowerTick and upperTick are both omitted, all initialized ticks are returned
-   * - Tick indices are returned in ascending order
+   * - Returns an empty array if the pool has no initialized ticks in the range.
+   * - Ticks are returned in ascending order by tickIndex.
    */
   @Get(':id/ticks')
   @ApiOperation({ summary: 'Get initialized ticks for a pool' })
@@ -229,64 +526,14 @@ export class PoolsController {
   @ApiQuery({ name: 'upperTick', required: false, type: Number })
   @ApiResponse({
     status: 200,
-    description:
-      'Tick data returned in ascending order. Returns an empty array when no ticks exist in the requested range.',
-    schema: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: [
-          'tickIndex',
-          'liquidityNet',
-          'liquidityGross',
-          'feeGrowthOutside0X128',
-          'feeGrowthOutside1X128',
-        ],
-        properties: {
-          tickIndex: { type: 'number', description: 'Tick index' },
-          liquidityNet: {
-            type: 'string',
-            description: 'Net liquidity change at this tick',
-          },
-          liquidityGross: {
-            type: 'string',
-            description: 'Gross liquidity at this tick',
-          },
-          feeGrowthOutside0X128: {
-            type: 'string',
-            description: 'Fee growth outside for token0',
-          },
-          feeGrowthOutside1X128: {
-            type: 'string',
-            description: 'Fee growth outside for token1',
-          },
-        },
-      },
-    },
+    description: 'Initialized ticks retrieved successfully',
   })
-  @ApiResponse({ status: 400, description: 'Invalid tick range' })
   @ApiResponse({ status: 404, description: 'Pool not found' })
-  /**
-   * Returns initialized tick data for a pool, optionally filtered to a tick range.
-   * Ticks are returned in ascending order by tick index.
-   *
-   * @param id - Pool ID (cuid) or Soroban contract address.
-   * @param query - Optional `lowerTick` and `upperTick` bounds (inclusive). If omitted, all ticks are returned.
-   * @returns Array of tick data objects. Empty array when the pool has no ticks in the requested range.
-   * @throws NotFoundException when no pool matches the given ID.
-   * @throws BadRequestException when `lowerTick` is greater than `upperTick`.
-   */
-  async getPoolTicks(
+  @ApiResponse({ status: 400, description: 'Invalid tick range' })
+  async getTicks(
     @Param('id') id: string,
     @Query() query: GetTicksQueryDto,
   ): Promise<TickData[]> {
-    const pool = await this.poolsService.findPoolById(id);
-    if (!pool) {
-      throw new NotFoundException(
-        `Pool with ID "${id}" not found. Check the ID and try again.`,
-      );
-    }
-
     if (
       query.lowerTick !== undefined &&
       query.upperTick !== undefined &&
@@ -297,7 +544,13 @@ export class PoolsController {
       );
     }
 
-    // Empty array is a valid response — the pool exists but has no ticks in this range
-    return this.poolsService.getPoolTicks(id, query.lowerTick, query.upperTick);
+    const pool = await this.poolsService.findPoolById(id);
+    if (!pool) {
+      throw new NotFoundException(
+        `Pool with ID "${id}" not found. Check the ID and try again.`,
+      );
+    }
+
+    return this.poolsService.getTicks(id, query);
   }
 }

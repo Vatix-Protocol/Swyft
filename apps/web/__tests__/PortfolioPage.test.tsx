@@ -49,6 +49,14 @@ vi.mock('@/context/WalletContext', () => ({
   useWalletContext: () => mockUseWalletContext(),
 }));
 
+vi.mock('@/context/NetworkContext', () => ({
+  useNetworkContext: () => ({
+    network: 'TESTNET',
+    apiBase: 'http://localhost:3001/v1',
+    setNetwork: () => {},
+  }),
+}));
+
 // PositionCard is a child component — render a lightweight stub so tests stay
 // focused on PortfolioPage behaviour rather than card internals.
 vi.mock('@/components/PositionCard', () => ({

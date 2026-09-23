@@ -9,6 +9,7 @@ const makeSnapshot = (
   id: 'pos-1',
   ownerWallet: 'wallet-owner-1',
   poolId: 'pool-1',
+  tokenId: '1',
   token0: 'USDC',
   token1: 'XLM',
   lowerTick: -60,
@@ -87,6 +88,36 @@ describe('PositionsService', () => {
       });
 
       expect(result.items[0].ownerWallet).toBe(snapshot.ownerWallet);
+    });
+
+    it('includes tokenId from the snapshot in the API response', async () => {
+      repository.listPositionsByWallet.mockResolvedValue({
+        items: [makeSnapshot({ tokenId: 'nft-99' })],
+        total: 1,
+      });
+
+      const result = await service.getPositions('wallet-owner-1', {
+        status: 'all',
+        page: 1,
+        limit: 20,
+      });
+
+      expect(result.items[0].tokenId).toBe('nft-99');
+    });
+
+    it('passes through null tokenId when the snapshot has no NFT id', async () => {
+      repository.listPositionsByWallet.mockResolvedValue({
+        items: [makeSnapshot({ tokenId: null })],
+        total: 1,
+      });
+
+      const result = await service.getPositions('wallet-owner-1', {
+        status: 'all',
+        page: 1,
+        limit: 20,
+      });
+
+      expect(result.items[0].tokenId).toBeNull();
     });
 
     it('returns an empty items array when there are no positions', async () => {

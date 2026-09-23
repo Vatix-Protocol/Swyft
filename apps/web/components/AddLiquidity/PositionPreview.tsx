@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import type { TxStatus } from '@/hooks/useAddLiquidity';
+import { FEE_APR_DOC_URL } from '@/lib/constants';
 
 export interface PositionPreviewProps {
   token0Symbol: string;
@@ -38,9 +40,34 @@ export interface PositionPreviewProps {
 }
 
 interface RowProps {
-  label: string;
+  label: ReactNode;
   value: string;
   valueClassName?: string;
+}
+
+/** Info link pointing to the fee APR calculation doc, shown next to the "Est. APR" label. */
+function AprInfoLink() {
+  return (
+    <a
+      href={FEE_APR_DOC_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Estimated APR is annualized trailing-24h fees / TVL, scaled by how concentrated your selected range is. See the fee APR calculation assumptions."
+      aria-label="Fee APR calculation assumptions"
+      className="text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+    >
+      <svg
+        className="h-3 w-3"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <circle cx="12" cy="12" r="9" />
+        <path strokeLinecap="round" d="M12 16v-4.5M12 8h.01" />
+      </svg>
+    </a>
+  );
 }
 
 export function PositionPreview({
@@ -64,6 +91,7 @@ export function PositionPreview({
 }: PositionPreviewProps) {
   const isBusy = txStatus === 'signing' || txStatus === 'submitting';
   const hasAmounts = parseFloat(amount0 || '0') > 0 || parseFloat(amount1 || '0') > 0;
+  const aprAvailable = estimatedApr !== 'N/A' && estimatedApr !== '—';
 
   return (
     <div className="flex flex-col gap-3">
@@ -113,9 +141,18 @@ export function PositionPreview({
           />
           <Row label="Share of pool" value={`${shareOfPool}%`} />
           <Row
-            label="Est. APR"
-            value={`${estimatedApr}%`}
-            valueClassName="text-emerald-600 dark:text-emerald-400 font-bold"
+            label={
+              <span className="inline-flex items-center gap-1">
+                Est. APR
+                <AprInfoLink />
+              </span>
+            }
+            value={aprAvailable ? `${estimatedApr}%` : 'N/A'}
+            valueClassName={
+              aprAvailable
+                ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                : 'text-zinc-400 dark:text-zinc-500'
+            }
           />
           <Row
             label="Status"

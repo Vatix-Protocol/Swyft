@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { API_BASE } from '@/lib/constants';
+import { apiFetch } from '@/lib/api-fetch';
 
 export type Interval = '1m' | '5m' | '1h' | '1d';
 
@@ -45,15 +46,14 @@ function mapApiCandleToCandle(c: ApiCandle): Candle {
   };
 }
 
+/** Derives the WS base from the API host (apps/api, :3001), not the Next.js host. */
 function getWsBase(): string {
-  if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_WS_URL) {
+  if (process.env.NEXT_PUBLIC_WS_URL) {
     return process.env.NEXT_PUBLIC_WS_URL;
   }
 
-  const protocol =
-    typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
-  return `${protocol}://${host}`;
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+  return apiUrl.replace(/^http/, 'ws');
 }
 
 export function usePriceCandles(tokenA: string | null, tokenB: string | null, interval: Interval) {
@@ -66,7 +66,7 @@ export function usePriceCandles(tokenA: string | null, tokenB: string | null, in
     if (!tokenA || !tokenB) return;
     setLoading(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/prices/${tokenA}/${tokenB}/candles?interval=${interval}&limit=168`
       );
       if (!res.ok) {
@@ -101,42 +101,63 @@ export function usePriceCandles(tokenA: string | null, tokenB: string | null, in
 
     wsRef.current?.close();
 
-    let ws: WebSocket;
+    let ws: WebSocket | null = null;
     let reconnectTimer: NodeJS.Timeout | null = null;
-    try {
-      ws = new WebSocket(`${getWsBase()}/price`);
-    } catch {
-      return;
+    let attempts = 0;
+    let disposed = false;
+
+    function scheduleReconnect() {
+      if (disposed || reconnectTimer) return;
+      const delay = Math.min(30_000, 1_000 * 2 ** attempts++);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
     }
-    wsRef.current = ws;
 
-    ws.onopen = () => {
-      if (poolId) {
-        ws.send(JSON.stringify({ action: 'subscribe', poolId }));
-      }
-    };
-
-    ws.onmessage = (e) => {
+    function connect() {
+      if (disposed) return;
       try {
-        const msg = JSON.parse(e.data as string);
-        if (msg.event === 'price' && msg.data?.poolId === poolId) {
-          setCandles((prev) => {
-            if (prev.length === 0) return [msg.data as Candle];
-            const last = prev[prev.length - 1];
-            if (last.time === (msg.data as Candle).time) {
-              return [...prev.slice(0, -1), msg.data as Candle];
-            }
-            return [...prev.slice(-167), msg.data as Candle];
-          });
-        }
+        ws = new WebSocket(`${getWsBase()}/price`);
       } catch {
-        // ignore malformed messages
+        scheduleReconnect();
+        return;
       }
-    };
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        attempts = 0;
+        if (poolId) {
+          ws?.send(JSON.stringify({ action: 'subscribe', poolId }));
+        }
+      };
+      ws.onclose = scheduleReconnect;
+      ws.onerror = () => ws?.close();
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data as string);
+          if (msg.event === 'price' && msg.data?.poolId === poolId) {
+            setCandles((prev) => {
+              if (prev.length === 0) return [msg.data as Candle];
+              const last = prev[prev.length - 1];
+              if (last.time === (msg.data as Candle).time) {
+                return [...prev.slice(0, -1), msg.data as Candle];
+              }
+              return [...prev.slice(-167), msg.data as Candle];
+            });
+          }
+        } catch {
+          // ignore malformed messages
+        }
+      };
+    }
+
+    connect();
 
     return () => {
+      disposed = true;
       clearTimeout(reconnectTimer ?? undefined);
-      ws.close();
+      ws?.close();
     };
   }, [tokenA, tokenB, interval, poolId]);
 

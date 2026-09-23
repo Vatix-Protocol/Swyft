@@ -1,117 +1,225 @@
-# API CORS Configuration
+# CORS Configuration Guide
 
-Production-grade CORS for the Swyft API. This document is the source of truth for
-how the API decides which browser origins may call it, and how that policy is
-configured per environment.
+## Overview
 
-Related: `apps/api/src/cors.ts` (implementation), `SECURITY.md` (reporting and
-policy), `README.md` (local setup).
+Swyft API uses CORS (Cross-Origin Resource Sharing) to control which origins can make browser requests to the API. Configuration differs between development and production environments.
 
-## Invariants
+## Environment Variables
 
-1. **Deny by default.** An origin that is not explicitly listed in the active
-   environment's allowlist receives **no** CORS headers. The API never reflects
-   an arbitrary `Origin` back to the caller.
-2. **No wildcard with credentials.** `Access-Control-Allow-Origin: *` is never
-   emitted when `Access-Control-Allow-Credentials: true`. Credentialed requests
-   are only allowed for exact, allowlisted origins.
-3. **Exact-match origins.** Origins are compared as full scheme + host + port
-   (`https://app.swyft.example`). No substring, suffix, or regex matching, so
-   lookalike domains (`https://app.swyft.example.evil.com`) are rejected.
-4. **Environment isolation.** Testnet and mainnet use separate allowlists. A
-   testnet origin is never valid on mainnet and vice versa.
-5. **Fail closed.** If configuration is missing or malformed, the API starts
-   with an empty allowlist (no cross-origin access) rather than an open one.
+### `WEB_APP_ORIGIN` (Primary)
 
-## Configuration
+Comma-separated list of allowed origins. Used in both dev and production.
 
-CORS is driven by environment variables. Values are comma-separated and are
-parsed into a typed, frozen allowlist at startup.
-
-| Variable | Required | Description |
-| --- | --- | --- |
-| `CORS_ALLOWED_ORIGINS` | yes (prod) | Comma-separated exact origins permitted for the current environment. |
-| `CORS_ALLOW_CREDENTIALS` | no | `true`/`false`. Defaults to `false`. When `true`, wildcard is forbidden. |
-| `CORS_MAX_AGE_SECONDS` | no | Preflight cache lifetime. Defaults to `600`. |
-
-Example (mainnet):
-
-```
-CORS_ALLOWED_ORIGINS=https://app.swyft.example,https://admin.swyft.example
-CORS_ALLOW_CREDENTIALS=true
-CORS_MAX_AGE_SECONDS=600
+**Example:**
+```bash
+WEB_APP_ORIGIN="https://app.swyft.example,https://www.swyft.example"
 ```
 
-Example (testnet):
+### `CORS_ORIGIN` (Fallback)
 
+Fallback if `WEB_APP_ORIGIN` not set. Same format as `WEB_APP_ORIGIN`.
+
+```bash
+CORS_ORIGIN="https://app.example.com"
 ```
-CORS_ALLOWED_ORIGINS=https://app.testnet.swyft.example
-CORS_ALLOW_CREDENTIALS=true
+
+**Priority:** `WEB_APP_ORIGIN` > `CORS_ORIGIN` > (dev default: `http://localhost:3000`)
+
+---
+
+## Development Mode (`NODE_ENV=development`)
+
+**Behavior:**
+- If neither `WEB_APP_ORIGIN` nor `CORS_ORIGIN` is set, defaults to `http://localhost:3000`
+- Allows local web app to make requests without explicit config
+- Simplifies local testing
+
+**Example:**
+```bash
+# No env vars needed — defaults to http://localhost:3000
+npm run dev
 ```
 
-### Parsing rules
+Or with explicit origins:
+```bash
+export WEB_APP_ORIGIN="http://localhost:3000,http://localhost:5173"
+npm run dev
+```
 
-- Whitespace around entries is trimmed; empty entries are dropped.
-- Entries must be absolute origins (`scheme://host[:port]`). Invalid entries are
-  discarded and logged (without echoing secrets) rather than widening the policy.
-- Duplicate entries are de-duplicated.
-- If `CORS_ALLOWED_ORIGINS` is unset or yields zero valid entries, the allowlist
-  is empty and all cross-origin requests are denied.
+---
 
-## Behavior
+## Production Mode (`NODE_ENV=production`)
 
-- **Allowed origin:** the response includes `Access-Control-Allow-Origin` set to
-  that exact origin, plus `Vary: Origin` so caches do not serve one origin's
-  response to another.
-- **Disallowed origin:** no CORS headers are added. The request is not rejected
-  at the CORS layer (the browser enforces the block); authorization still applies
-  to the actual endpoint.
-- **Preflight (`OPTIONS`):** allowed methods and headers are returned only for
-  allowlisted origins. Disallowed origins get no preflight approval.
-- **Credentials:** `Access-Control-Allow-Credentials: true` is emitted only when
-  `CORS_ALLOW_CREDENTIALS=true` and the origin is allowlisted.
+**Behavior:**
+- **Rejects** any requests from origins not in the allowlist
+- **Requires** explicit `WEB_APP_ORIGIN` or `CORS_ORIGIN` — no fallback to localhost
+- **Blocks** localhost and 127.0.0.1 even if explicitly configured
+- **Blocks** the wildcard origin `*` — the API always sends `credentials: true`,
+  and a wildcard origin cannot legally be combined with credentialed requests
+  (browsers reject it, and some proxies fail open by reflecting the request
+  origin instead)
+- Fails fast at startup if config is missing
 
-## Edge cases & failure modes
+**Error if misconfigured:**
+```
+Production CORS: WEB_APP_ORIGIN or CORS_ORIGIN must be set. 
+No fallback to localhost allowed in production.
+```
 
-- **Missing/blank config:** empty allowlist, deny all cross-origin. Fail closed.
-- **Malformed entry:** dropped and logged; never treated as a wildcard.
-- **`null` origin** (sandboxed iframes, some redirects): treated as untrusted and
-  denied unless explicitly listed.
-- **Environment drift:** testnet and mainnet allowlists are configured
-  independently; do not copy one into the other.
-- **Adversarial origins:** exact-match comparison prevents suffix/substring
-  bypasses.
+**Correct production setup:**
+```bash
+export NODE_ENV="production"
+export WEB_APP_ORIGIN="https://app.swyft.example,https://www.swyft.example"
+node dist/main.js
+```
 
-## Security considerations
+---
 
-- CORS is **not** an authorization mechanism. Every endpoint still enforces its
-  own authz; CORS only governs browser cross-origin reads.
-- Never place secrets, tokens, or internal hostnames in the allowlist.
-- Deny-by-default applies to any new privileged surface; adding an origin is an
-  explicit, reviewed change.
-- Logs record rejected origins at debug level only and never include request
-  bodies, cookies, or authorization headers.
+## How CORS Works
 
-## Operations
+When a browser makes a request from **Origin A** to the API (Origin B):
 
-- **Metrics:** count of allowed vs. denied origin checks, labeled by environment
-  (no origin values in labels to avoid cardinality blowup).
-- **Rollback / kill-switch:** to disable cross-origin access immediately, unset
-  `CORS_ALLOWED_ORIGINS` (or set it to an empty value) and restart. This fails
-  closed with no code change.
-- **Change process:** allowlist changes are config-only and reviewed like any
-  other production change; document the reason in the PR.
+1. Browser sends `Origin: https://origina.example` header
+2. API checks if origin is in allowlist
+   - **If allowed:** Responds with `Access-Control-Allow-Origin: https://origina.example` → browser allows response
+   - **If rejected:** No `Access-Control-Allow-Origin` header → browser blocks response (CORS error)
 
-## Testnet vs mainnet
+**Example CORS error in browser console:**
+```
+Access to XMLHttpRequest at 'https://api.example.com/v1/pools' 
+from origin 'https://unknown.example.com' has been blocked by CORS policy: 
+The value of the 'Access-Control-Allow-Origin' header in the response 
+must not be the wildcard '*' when the request's credentials mode (include) is 'include'.
+```
 
-| Environment | Allowlist source | Notes |
-| --- | --- | --- |
-| Local | `CORS_ALLOWED_ORIGINS` (e.g. `http://localhost:3000`) | Dev only. |
-| Testnet | `CORS_ALLOWED_ORIGINS` (testnet hosts) | Never reuse mainnet origins. |
-| Mainnet | `CORS_ALLOWED_ORIGINS` (mainnet hosts) | Reviewed, minimal set. |
+---
 
-## References
+## Deployment Checklist
 
-- `apps/api/src/cors.ts` — implementation of the allowlist and header logic.
-- `SECURITY.md` — vulnerability reporting and security policy.
-- `README.md` — local development setup.
+### Before deploying to production:
+
+- [ ] Set `NODE_ENV=production`
+- [ ] Set `WEB_APP_ORIGIN` to your production web domains (comma-separated, no spaces after commas)
+  - Example: `https://swyft.io,https://www.swyft.io,https://app.swyft.io`
+- [ ] Do **NOT** include localhost, 127.0.0.1, or HTTP (use HTTPS only)
+- [ ] Test CORS before going live:
+  ```bash
+  # From your production web domain, open browser console and run:
+  fetch('https://api.example.com/v1/pools', { credentials: 'include' })
+  ```
+  Should succeed. If you see CORS error, check that your domain is in `WEB_APP_ORIGIN`.
+
+---
+
+## Troubleshooting
+
+### CORS error in browser console
+
+**Problem:** Requests from your web app are blocked.
+
+**Solution:**
+1. Check the origin in the error message (e.g., `https://app.example.com`)
+2. Verify it's in `WEB_APP_ORIGIN`:
+   ```bash
+   echo $WEB_APP_ORIGIN
+   # Expected: https://api.example.com,https://app.example.com,...
+   ```
+3. If missing, add it: `export WEB_APP_ORIGIN="https://app.example.com,https://www.example.com"`
+4. Restart the API
+
+### Startup error: "Production CORS must be set"
+
+**Problem:** API refuses to start in production without CORS config.
+
+**Solution:**
+```bash
+# Set the env var BEFORE starting the app
+export NODE_ENV="production"
+export WEB_APP_ORIGIN="https://swyft.io"
+node dist/main.js
+```
+
+### Startup error: "localhost not allowed in production"
+
+**Problem:** You accidentally included `http://localhost:3000` in production config.
+
+**Solution:**
+Remove localhost/127.0.0.1 from `WEB_APP_ORIGIN`:
+```bash
+# BAD (won't start)
+export WEB_APP_ORIGIN="https://app.example.com,http://localhost:3000"
+
+# GOOD (will start)
+export WEB_APP_ORIGIN="https://app.example.com"
+```
+
+### Startup error: "wildcard origin '*' is not allowed in production"
+
+**Problem:** You included `*` in `WEB_APP_ORIGIN`/`CORS_ORIGIN`. The API always
+sends `credentials: true`, and pairing that with a wildcard origin is an
+invalid, unsafe CORS configuration.
+
+**Solution:**
+List explicit origins instead of `*`:
+```bash
+# BAD (won't start)
+export WEB_APP_ORIGIN="*"
+
+# GOOD (will start)
+export WEB_APP_ORIGIN="https://app.example.com,https://www.example.com"
+```
+
+---
+
+## Testing CORS Configuration
+
+### Unit tests
+```bash
+pnpm test -- cors.spec.ts
+```
+
+### Manual test (curl)
+```bash
+# Request WITH origin header (simulates browser)
+curl -i -H "Origin: https://app.example.com" \
+  -H "Access-Control-Request-Method: GET" \
+  https://api.example.com/v1/pools
+
+# Check response for:
+# - "Access-Control-Allow-Origin: https://app.example.com" → allowed
+# - No "Access-Control-Allow-Origin" → blocked
+```
+
+### Browser console test
+```javascript
+// From browser console on your web domain
+fetch('https://api.example.com/v1/pools', { credentials: 'include' })
+  .then(r => r.json())
+  .then(d => console.log('CORS OK:', d))
+  .catch(e => console.error('CORS ERROR:', e))
+```
+
+---
+
+## Related Files
+
+- **Main implementation:** `apps/api/src/cors.ts`
+- **Bootstrap:** `apps/api/src/main.ts` (calls `validateCorsConfig()`)
+- **Tests:** `apps/api/src/cors.spec.ts`
+- **Issue:** #551
+
+---
+
+## Security Notes
+
+- CORS only affects **browser requests** (XHR, fetch, `<script src>`, etc.)
+- Non-browser clients (curl, Postman, mobile apps, backend services) are **NOT blocked by CORS**
+- To fully protect your API, combine CORS with:
+  - Rate limiting
+  - API key validation
+  - OAuth/JWT authentication
+  - WAF (Web Application Firewall) rules
+
+---
+
+*Last updated: 2026-07-26*

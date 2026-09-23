@@ -8,13 +8,25 @@ import { Queue, Worker, Job } from 'bullmq';
 import { createHmac } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebhookPayload } from './webhook.types';
+import {
+  WEBHOOK_RETRY_ATTEMPTS,
+  WEBHOOK_RETRY_BACKOFF_MS,
+} from './webhook-backoff';
+import {
+  assertPublicWebhookUrl,
+  WEBHOOK_FETCH_TIMEOUT_MS,
+} from './webhook-url-guard';
+
+export {
+  WEBHOOK_RETRY_ATTEMPTS,
+  WEBHOOK_RETRY_BACKOFF_MS,
+  webhookBackoffDelayMs,
+  webhookBackoffSchedule,
+} from './webhook-backoff';
 
 export const WEBHOOK_QUEUE = 'webhook-delivery';
 const MAX_CONSECUTIVE_FAILS = Number(
   process.env.WEBHOOK_MAX_CONSECUTIVE_FAILS ?? '10',
-);
-const WEBHOOK_RETRY_ATTEMPTS = Number(
-  process.env.WEBHOOK_RETRY_ATTEMPTS ?? '3',
 );
 const REDIS_CONNECTION = {
   url: process.env.REDIS_URL ?? 'redis://localhost:6379',
@@ -70,7 +82,7 @@ export class WebhookWorker implements OnModuleInit, OnModuleDestroy {
       { webhookId, payload },
       {
         attempts: WEBHOOK_RETRY_ATTEMPTS,
-        backoff: { type: 'exponential', delay: 2000 },
+        backoff: { type: 'exponential', delay: WEBHOOK_RETRY_BACKOFF_MS },
       },
     );
   }
@@ -81,15 +93,14 @@ export class WebhookWorker implements OnModuleInit, OnModuleDestroy {
    */
   async retryFailedDeliveries(webhookId: string): Promise<number> {
     const failedJobs = await this.queue.getJobs(['failed']);
-    const matching = failedJobs.filter(
-      (j) => j.data.webhookId === webhookId,
-    );
+    const matching = failedJobs.filter((j) => j.data.webhookId === webhookId);
     await Promise.all(matching.map((j) => j.retry()));
     return matching.length;
   }
 
   private async deliver(job: Job<WebhookJob>): Promise<void> {
     const { webhookId, payload } = job.data;
+    const attempt = (job.attemptsMade ?? 0) + 1;
     const webhook = await this.prisma.webhook.findUnique({
       where: { id: webhookId },
     });
@@ -104,6 +115,7 @@ export class WebhookWorker implements OnModuleInit, OnModuleDestroy {
     let responseStatus: number | undefined;
 
     try {
+      await assertPublicWebhookUrl(webhook.url);
       const res = await fetch(webhook.url, {
         method: 'POST',
         headers: {
@@ -111,17 +123,36 @@ export class WebhookWorker implements OnModuleInit, OnModuleDestroy {
           ...(signature ? { 'X-Swyft-Signature': signature } : {}),
         },
         body,
+        signal: AbortSignal.timeout(WEBHOOK_FETCH_TIMEOUT_MS),
       });
       responseStatus = res.status;
     } catch {
-      // network failure — BullMQ will retry
+      // network failure, timeout, or blocked address — BullMQ will retry
     }
 
     const deliveryMs = Date.now() - start;
     const success = responseStatus !== undefined && responseStatus < 400;
+    const maxAttempts = job.opts.attempts ?? WEBHOOK_RETRY_ATTEMPTS;
 
     await this.prisma.webhookDelivery.create({
       data: { webhookId, eventType: payload.event, responseStatus, deliveryMs },
+    });
+
+    // Record every delivery attempt in the webhook audit log (attempt count included).
+    await this.prisma.webhookAuditLog.create({
+      data: {
+        webhookId,
+        action: 'delivery_attempt',
+        ownerWallet: webhook.ownerWallet,
+        meta: JSON.stringify({
+          event: payload.event,
+          attempt,
+          maxAttempts,
+          responseStatus: responseStatus ?? null,
+          deliveryMs,
+          success,
+        }),
+      },
     });
 
     if (!success) {
@@ -146,7 +177,7 @@ export class WebhookWorker implements OnModuleInit, OnModuleDestroy {
       data: { consecutiveFails: 0 },
     });
     this.logger.log(
-      `Delivered ${payload.event} to ${webhookId} [${responseStatus}] in ${deliveryMs}ms`,
+      `Delivered ${payload.event} to ${webhookId} attempt=${attempt}/${maxAttempts} [${responseStatus}] in ${deliveryMs}ms`,
     );
   }
 }

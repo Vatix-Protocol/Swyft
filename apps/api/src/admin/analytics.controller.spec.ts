@@ -38,22 +38,16 @@ describe('AnalyticsController (admin analytics + InternalKeyGuard)', () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [AnalyticsController],
       providers: [
-        InternalKeyGuard,
+        { provide: AnalyticsService, useValue: mockService },
+        { provide: AdminAuditService, useValue: mockAuditService },
         {
-          provide: Reflector,
+          provide: AdminAuditInterceptor,
           useValue: {
-            getAllAndOverride: jest.fn((key: string) =>
-              key === INTERNAL_KEY_METADATA ? true : undefined,
-            ),
+            intercept: (_: unknown, next: { handle: () => unknown }) =>
+              next.handle(),
           },
         },
-        {
-          provide: AnalyticsService,
-          useValue: {
-            getOverview: jest.fn(),
-            getVolume: jest.fn(),
-          },
-        },
+        { provide: InternalKeyGuard, useValue: { canActivate: () => true } },
       ],
     }).compile();
 
@@ -100,19 +94,33 @@ describe('AnalyticsController (admin analytics + InternalKeyGuard)', () => {
     });
   });
 
-  describe('analytics reads', () => {
-    it('returns the overview payload with a correlation id', async () => {
-      service.getOverview.mockResolvedValue({ totalVolume: '100', trades: 5 });
-
-      const result = await controller.getOverview({
-        correlationId: 'corr-1',
-      } as never);
-
-      expect(result).toEqual({
-        data: { totalVolume: '100', trades: 5 },
-        correlationId: 'corr-1',
-      });
+  it('returns fee totals', async () => {
+    mockService.getFees.mockResolvedValue({
+      byPool: [{ poolId: 'p1', feesAmount0: '10', feesAmount1: '20' }],
     });
+
+    const result = await controller.getFees();
+
+    expect(mockService.getFees).toHaveBeenCalled();
+    expect(result).toEqual({
+      byPool: [{ poolId: 'p1', feesAmount0: '10', feesAmount1: '20' }],
+    });
+  });
+
+  it('returns audit log entries with defaults', async () => {
+    const entries = [
+      {
+        id: '1',
+        actor: 'abc',
+        action: 'GET /admin/analytics/overview',
+        resource: 'analytics',
+        meta: '{}',
+        ip: null,
+        statusCode: 200,
+        createdAt: new Date(),
+      },
+    ];
+    mockAuditService.findRecent.mockResolvedValue(entries);
 
     it('is idempotent for replayed requests', async () => {
       service.getVolume.mockResolvedValue({ volume: '42' });

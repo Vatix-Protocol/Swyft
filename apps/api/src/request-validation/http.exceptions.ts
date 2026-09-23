@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -12,6 +13,16 @@ import {
 export class InvalidInputException extends BadRequestException {
   constructor(message: string) {
     super({ message, error: 'Bad Request' });
+  }
+}
+
+export class UnknownTokenException extends BadRequestException {
+  constructor(address: string) {
+    super({
+      message: `Unknown token address: ${address}`,
+      error: 'Bad Request',
+      code: 'UNKNOWN_TOKEN',
+    });
   }
 }
 
@@ -88,5 +99,18 @@ export class SlippageExceededException extends UnprocessableEntityException {
       message: 'Swap rejected: slippage tolerance exceeded',
       error: 'Unprocessable Entity',
     });
+  }
+}
+
+// ── 503 ─────────────────────────────────────────────────────────────────────
+
+/**
+ * A downstream Stellar network dependency (Horizon or Soroban RPC) could not
+ * be reached or timed out. Distinct from a "real zero" result — callers must
+ * never substitute an empty/default value for this and should surface it.
+ */
+export class UpstreamServiceException extends ServiceUnavailableException {
+  constructor(message: string) {
+    super({ message, error: 'Service Unavailable' });
   }
 }

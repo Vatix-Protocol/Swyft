@@ -9,6 +9,9 @@ export interface WebhookItem {
   eventTypes: string[];
   disabled: boolean;
   createdAt: string;
+  lastDeliveryStatus?: 'success' | 'failed' | null;
+  lastDeliveryTimestamp?: number | null;
+  lastDeliveryError?: string | null;
 }
 
 export function useWebhooks(authToken: string | null) {

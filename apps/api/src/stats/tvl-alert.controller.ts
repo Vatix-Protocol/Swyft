@@ -40,11 +40,18 @@ export class TvlAlertController {
       properties: {
         poolId: { type: 'string', example: 'pool-123' },
         thresholdUsd: { type: 'number', example: 1000000 },
-        direction: { type: 'string', enum: ['below', 'above'], example: 'below' },
+        direction: {
+          type: 'string',
+          enum: ['below', 'above'],
+          example: 'below',
+        },
       },
     },
   })
-  @ApiResponse({ status: 201, description: 'Alert threshold created or updated' })
+  @ApiResponse({
+    status: 201,
+    description: 'Alert threshold created or updated',
+  })
   async setThreshold(
     @Request() req: AuthRequest,
     @Body() body: TvlAlertThresholdCreate,
@@ -53,7 +60,9 @@ export class TvlAlertController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List all TVL alert thresholds for the authenticated wallet' })
+  @ApiOperation({
+    summary: 'List all TVL alert thresholds for the authenticated wallet',
+  })
   async listThresholds(@Request() req: AuthRequest) {
     return this.tvlAlertService.listThresholds(req.user.walletAddress);
   }
@@ -61,10 +70,7 @@ export class TvlAlertController {
   @Post(':id/disable')
   @ApiOperation({ summary: 'Disable a TVL alert threshold' })
   @ApiParam({ name: 'id', description: 'Alert threshold ID' })
-  async disableThreshold(
-    @Param('id') id: string,
-    @Request() req: AuthRequest,
-  ) {
+  async disableThreshold(@Param('id') id: string, @Request() req: AuthRequest) {
     await this.tvlAlertService.disableThreshold(id, req.user.walletAddress);
     return { success: true };
   }
@@ -72,10 +78,7 @@ export class TvlAlertController {
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a TVL alert threshold' })
   @ApiParam({ name: 'id', description: 'Alert threshold ID' })
-  async deleteThreshold(
-    @Param('id') id: string,
-    @Request() req: AuthRequest,
-  ) {
+  async deleteThreshold(@Param('id') id: string, @Request() req: AuthRequest) {
     await this.tvlAlertService.deleteThreshold(id, req.user.walletAddress);
     return { success: true };
   }
@@ -105,7 +108,7 @@ export class TvlAlertController {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 30);
-    
+
     return this.tvlAlertService.getTvlHistory(poolId, startDate, endDate);
   }
 }

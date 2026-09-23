@@ -1,0 +1,16 @@
+{
+  "network": "testnet",
+  "deployer": "GDEPLOYER",
+  "contracts": {
+    "pool": "CPOOLADDRESS",
+    "router": "CROUTERADDRESS"
+  },
+  "deployedAt": {
+    "pool": "2026-01-01T00:00:00Z",
+    "router": "2026-01-01T00:00:00Z"
+  },
+  "wasmHashes": {
+    "pool": "hash-a",
+    "router": "hash-b"
+  }
+}

@@ -12,9 +12,13 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { CompressionMiddleware } from './compression.middleware';
 import { AllExceptionsFilter } from './request-validation/all-exceptions.filter';
-import { getCorsOrigins } from './cors';
+import { getCorsOrigins, validateCorsConfig } from './cors';
+import { validateInternalApiKeyConfig } from './admin/internal-key.guard';
 
 async function bootstrap() {
+  validateCorsConfig();
+  validateInternalApiKeyConfig();
+
   const app = await NestFactory.create(AppModule);
   app.enableCors({ origin: getCorsOrigins(), credentials: true });
   app.useGlobalPipes(
@@ -53,6 +57,7 @@ async function bootstrap() {
     )
     .setVersion('1.0.0')
     .addBearerAuth()
+    .addApiKey({ type: 'apiKey', name: 'x-api-key', in: 'header' }, 'api-key')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

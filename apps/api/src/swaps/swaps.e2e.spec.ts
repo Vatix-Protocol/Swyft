@@ -1,9 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import * as request from 'supertest';
+import request from 'supertest';
 import { SwapsService } from './swaps.service';
 import { SwapsRepository } from './swaps.repository';
 import { SwapsController } from './swaps.controller';
+import { PoolsService } from '../pools/pools.service';
+import { ApiKeyGuard } from '../auth/api-key.guard';
 
 const mockSwap = {
   id: 'swap-e2e-1',
@@ -19,25 +21,64 @@ const mockSwap = {
   timestamp: 1700000000000,
 };
 
+const mockPoolDetail = {
+  id: 'pool-e2e-1',
+  token0: {
+    address: '0xTokenA',
+    symbol: 'XLM',
+    name: 'Stellar Lumens',
+    decimals: 7,
+  },
+  token1: {
+    address: '0xTokenB',
+    symbol: 'USDC',
+    name: 'USD Coin',
+    decimals: 6,
+  },
+  feeTier: 3000,
+  // Encodes a human price (token1 per token0) of 1, accounting for the
+  // 7 vs 6 decimals difference between token0 and token1 above.
+  currentSqrtPrice: '25054144837504793750611689472', // price = 1
+  currentTick: 0,
+  totalLiquidity: '5000000000000000000000000',
+  tvl: '5000000',
+  volume24h: '1200000',
+  volume7d: '0',
+  feeApr: '0.15',
+  creationTimestamp: 1700000000,
+  recentSwaps: [],
+};
+
 describe('Swaps E2E (mocked RPC)', () => {
   let app: INestApplication;
   let mockRepo: jest.Mocked<SwapsRepository>;
+  let mockPools: { findPoolById: jest.Mock; getPoolTicks: jest.Mock };
 
   beforeEach(async () => {
     mockRepo = {
       listSwaps: jest.fn(),
     } as unknown as jest.Mocked<SwapsRepository>;
+    mockPools = {
+      findPoolById: jest.fn().mockResolvedValue(mockPoolDetail),
+      getPoolTicks: jest.fn().mockResolvedValue([]),
+    };
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       controllers: [SwapsController],
       providers: [
         SwapsService,
         { provide: SwapsRepository, useValue: mockRepo },
+        { provide: PoolsService, useValue: mockPools },
       ],
-    }).compile();
+    })
+      .overrideGuard(ApiKeyGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ transform: true, whitelist: true }),
+    );
     await app.init();
   });
 
@@ -64,9 +105,7 @@ describe('Swaps E2E (mocked RPC)', () => {
     it('returns empty list when no swaps exist', async () => {
       mockRepo.listSwaps.mockResolvedValue({ items: [], total: 0 });
 
-      const res = await request(app.getHttpServer())
-        .get('/swaps')
-        .expect(200);
+      const res = await request(app.getHttpServer()).get('/swaps').expect(200);
 
       expect(res.body.items).toEqual([]);
       expect(res.body.total).toBe(0);
@@ -78,25 +117,26 @@ describe('Swaps E2E (mocked RPC)', () => {
 
       const res = await request(app.getHttpServer())
         .get('/swaps')
-        .query({ pool: 'pool-e2e-1' })
+        .query({ poolId: 'pool-e2e-1' })
         .expect(200);
 
       expect(mockRepo.listSwaps).toHaveBeenCalledWith(
-        expect.objectContaining({ pool: 'pool-e2e-1' }),
+        expect.objectContaining({ poolId: 'pool-e2e-1' }),
       );
       expect(res.body.items[0].poolId).toBe('pool-e2e-1');
     });
 
     it('filters swaps by wallet address', async () => {
+      const wallet = 'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW';
       mockRepo.listSwaps.mockResolvedValue({ items: [mockSwap], total: 1 });
 
       await request(app.getHttpServer())
         .get('/swaps')
-        .query({ wallet: '0xSender' })
+        .query({ wallet })
         .expect(200);
 
       expect(mockRepo.listSwaps).toHaveBeenCalledWith(
-        expect.objectContaining({ wallet: '0xSender' }),
+        expect.objectContaining({ wallet }),
       );
     });
 
@@ -141,6 +181,57 @@ describe('Swaps E2E (mocked RPC)', () => {
         .expect(200);
 
       expect(res.body.totalPages).toBe(3);
+    });
+  });
+
+  describe('POST /swaps/quote', () => {
+    it('returns a quote estimate for a known pool', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/swaps/quote')
+        .send({
+          poolId: 'pool-e2e-1',
+          tokenIn: '0xTokenA',
+          tokenOut: '0xTokenB',
+          amountIn: '100',
+          slippageBps: 50,
+        })
+        .expect(201);
+
+      expect(res.body).toEqual({
+        amountOut: '99.699999',
+        priceImpact: 0,
+        lpFee: '0.3',
+        minimumReceived: '99.201499',
+        executionPrice: '0.9970000',
+      });
+    });
+
+    it('returns 404 for an unknown pool', async () => {
+      mockPools.findPoolById.mockResolvedValue(null);
+
+      await request(app.getHttpServer())
+        .post('/swaps/quote')
+        .send({
+          poolId: 'unknown-pool',
+          tokenIn: '0xTokenA',
+          tokenOut: '0xTokenB',
+          amountIn: '100',
+          slippageBps: 50,
+        })
+        .expect(404);
+    });
+
+    it('returns 400 for a malformed amountIn', async () => {
+      await request(app.getHttpServer())
+        .post('/swaps/quote')
+        .send({
+          poolId: 'pool-e2e-1',
+          tokenIn: '0xTokenA',
+          tokenOut: '0xTokenB',
+          amountIn: 'not-a-number',
+          slippageBps: 50,
+        })
+        .expect(400);
     });
   });
 });

@@ -12,6 +12,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),
+      '@swyft/config': path.resolve(__dirname, '../../packages/config/src/index.ts'),
+      '@swyft/ui': path.resolve(__dirname, '../../packages/ui/src/index.ts'),
+      '@swyft/sdk': path.resolve(__dirname, '../../packages/sdk/src/index.ts'),
     },
   },
 });

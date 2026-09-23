@@ -99,7 +99,10 @@ export class TvlAlertService {
    * Check TVL against thresholds and trigger alerts if needed
    * This should be called from the StatsWorker after updating TVL
    */
-  async checkAndTriggerAlerts(pool: Pool, currentTvlUsd: number): Promise<void> {
+  async checkAndTriggerAlerts(
+    pool: Pool,
+    currentTvlUsd: number,
+  ): Promise<void> {
     const thresholds = await this.prisma.tvlAlertThreshold.findMany({
       where: {
         poolId: pool.id,
@@ -131,10 +134,23 @@ export class TvlAlertService {
 
     for (const threshold of thresholds) {
       try {
+        const breachedAt = new Date();
+        await this.prisma.tvlAlertHistory.create({
+          data: {
+            thresholdId: threshold.id,
+            poolId: pool.id,
+            ownerWallet: threshold.ownerWallet,
+            thresholdUsd: threshold.thresholdUsd,
+            observedTvlUsd: currentTvlUsd,
+            direction: threshold.direction,
+            breachedAt,
+          },
+        });
+
         // Update last triggered time
         await this.prisma.tvlAlertThreshold.update({
           where: { id: threshold.id },
-          data: { lastTriggeredAt: new Date() },
+          data: { lastTriggeredAt: breachedAt },
         });
 
         // Trigger webhook if user has webhooks set up for pool.tvl.milestone
@@ -145,7 +161,7 @@ export class TvlAlertService {
           tvlUsd: currentTvlUsd,
           threshold: threshold.thresholdUsd,
           direction: threshold.direction,
-          crossedAt: new Date().toISOString(),
+          crossedAt: breachedAt.toISOString(),
         });
 
         this.logger.log(
@@ -176,7 +192,6 @@ export class TvlAlertService {
         },
         update: {
           tvlUsd,
-          updatedAt: new Date(),
         },
         create: {
           poolId,
@@ -185,18 +200,16 @@ export class TvlAlertService {
         },
       });
     } catch (error) {
-      this.logger.error(`Failed to record TVL snapshot for pool=${poolId}: ${error}`);
+      this.logger.error(
+        `Failed to record TVL snapshot for pool=${poolId}: ${error}`,
+      );
     }
   }
 
   /**
    * Get historical TVL time series for a pool
    */
-  async getTvlHistory(
-    poolId: string,
-    startDate: Date,
-    endDate: Date,
-  ) {
+  async getTvlHistory(poolId: string, startDate: Date, endDate: Date) {
     return this.prisma.tvlSnapshot.findMany({
       where: {
         poolId,

@@ -29,4 +29,5 @@ export {
   DuplicateResourceException,
   BusinessRuleViolationException,
   SlippageExceededException,
+  UpstreamServiceException,
 } from './http.exceptions';

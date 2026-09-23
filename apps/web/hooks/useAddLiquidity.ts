@@ -1,7 +1,11 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
+import { signTransaction } from '@stellar/freighter-api';
+import { buildAddLiquidityTx } from '@swyft/sdk';
 import type { PoolDetail } from './usePoolTicks';
+import { API_BASE, getNetworkPassphrase } from '@/lib/constants';
+import { useNetworkContext } from '@/context/NetworkContext';
 
 const TICK_BASE = 1.0001;
 const MIN_TICK = -887272;
@@ -70,6 +74,9 @@ export interface AddLiquidityState {
   upperPrice: string;
   amount0: string;
   amount1: string;
+  /** Which amount field was last edited by the user — used to decide which
+   *  amount to recalculate when the range changes. */
+  lastEditedAmount: 'amount0' | 'amount1' | null;
   txStatus: TxStatus;
   txHash: string | null;
   txError: string | null;
@@ -85,6 +92,7 @@ const defaultState: AddLiquidityState = {
   upperPrice: '',
   amount0: '',
   amount1: '',
+  lastEditedAmount: null,
   txStatus: 'idle',
   txHash: null,
   txError: null,
@@ -94,8 +102,38 @@ const defaultState: AddLiquidityState = {
 
 export function useAddLiquidity() {
   const [state, setState] = useState<AddLiquidityState>(defaultState);
+  const { network } = useNetworkContext();
 
   const tickSpacing = state.pool ? feeToTickSpacing(state.pool.feeTier) : 60;
+
+  /**
+   * Recalculate the dependent amount after a range change. Uses
+   * `lastEditedAmount` to decide which amount the user considers the
+   * anchor so we only recalculate the other one.
+   */
+  function syncAmountsForRange(
+    s: AddLiquidityState,
+    newLowerTick: number,
+    newUpperTick: number,
+  ): Pick<AddLiquidityState, 'amount0' | 'amount1'> {
+    if (!s.pool) return { amount0: s.amount0, amount1: s.amount1 };
+    const lp = tickToPrice(newLowerTick);
+    const up = tickToPrice(newUpperTick);
+
+    if (s.lastEditedAmount === 'amount0') {
+      const n0 = parseFloat(s.amount0);
+      if (isNaN(n0) || n0 <= 0) return { amount0: s.amount0, amount1: s.amount1 };
+      const { amount1 } = calcAmounts(s.pool.currentPrice, lp, up, n0, null);
+      return { amount0: s.amount0, amount1: amount1 > 0 ? amount1.toFixed(7) : '' };
+    }
+    if (s.lastEditedAmount === 'amount1') {
+      const n1 = parseFloat(s.amount1);
+      if (isNaN(n1) || n1 <= 0) return { amount0: s.amount0, amount1: s.amount1 };
+      const { amount0 } = calcAmounts(s.pool.currentPrice, lp, up, null, n1);
+      return { amount0: amount0 > 0 ? amount0.toFixed(7) : '', amount1: s.amount1 };
+    }
+    return { amount0: s.amount0, amount1: s.amount1 };
+  }
 
   const setPool = useCallback((pool: PoolDetail) => {
     const spacing = feeToTickSpacing(pool.feeTier);
@@ -123,6 +161,7 @@ export function useAddLiquidity() {
         lowerTick: snapped,
         lowerPrice: tickToPrice(snapped).toFixed(6),
         isFullRange: false,
+        ...syncAmountsForRange(s, snapped, s.upperTick),
       }));
     },
     [tickSpacing]
@@ -136,6 +175,7 @@ export function useAddLiquidity() {
         upperTick: snapped,
         upperPrice: tickToPrice(snapped).toFixed(6),
         isFullRange: false,
+        ...syncAmountsForRange(s, s.lowerTick, snapped),
       }));
     },
     [tickSpacing]
@@ -147,7 +187,13 @@ export function useAddLiquidity() {
         const p = parseFloat(price);
         const tick =
           isNaN(p) || p <= 0 ? s.lowerTick : nearestUsableTick(priceToTick(p), tickSpacing);
-        return { ...s, lowerPrice: price, lowerTick: tick, isFullRange: false };
+        return {
+          ...s,
+          lowerPrice: price,
+          lowerTick: tick,
+          isFullRange: false,
+          ...syncAmountsForRange(s, tick, s.upperTick),
+        };
       });
     },
     [tickSpacing]
@@ -159,7 +205,13 @@ export function useAddLiquidity() {
         const p = parseFloat(price);
         const tick =
           isNaN(p) || p <= 0 ? s.upperTick : nearestUsableTick(priceToTick(p), tickSpacing);
-        return { ...s, upperPrice: price, upperTick: tick, isFullRange: false };
+        return {
+          ...s,
+          upperPrice: price,
+          upperTick: tick,
+          isFullRange: false,
+          ...syncAmountsForRange(s, s.lowerTick, tick),
+        };
       });
     },
     [tickSpacing]
@@ -167,9 +219,9 @@ export function useAddLiquidity() {
 
   const setAmount0 = useCallback((val: string) => {
     setState((s) => {
-      if (!s.pool) return { ...s, amount0: val };
+      if (!s.pool) return { ...s, amount0: val, lastEditedAmount: 'amount0' };
       const n = parseFloat(val);
-      if (isNaN(n) || n <= 0) return { ...s, amount0: val, amount1: '' };
+      if (isNaN(n) || n <= 0) return { ...s, amount0: val, amount1: '', lastEditedAmount: 'amount0' };
       const { amount1 } = calcAmounts(
         s.pool.currentPrice,
         tickToPrice(s.lowerTick),
@@ -177,15 +229,15 @@ export function useAddLiquidity() {
         n,
         null
       );
-      return { ...s, amount0: val, amount1: amount1 > 0 ? amount1.toFixed(7) : '' };
+      return { ...s, amount0: val, amount1: amount1 > 0 ? amount1.toFixed(7) : '', lastEditedAmount: 'amount0' };
     });
   }, []);
 
   const setAmount1 = useCallback((val: string) => {
     setState((s) => {
-      if (!s.pool) return { ...s, amount1: val };
+      if (!s.pool) return { ...s, amount1: val, lastEditedAmount: 'amount1' };
       const n = parseFloat(val);
-      if (isNaN(n) || n <= 0) return { ...s, amount1: val, amount0: '' };
+      if (isNaN(n) || n <= 0) return { ...s, amount1: val, amount0: '', lastEditedAmount: 'amount1' };
       const { amount0 } = calcAmounts(
         s.pool.currentPrice,
         tickToPrice(s.lowerTick),
@@ -193,19 +245,24 @@ export function useAddLiquidity() {
         null,
         n
       );
-      return { ...s, amount1: val, amount0: amount0 > 0 ? amount0.toFixed(7) : '' };
+      return { ...s, amount1: val, amount0: amount0 > 0 ? amount0.toFixed(7) : '', lastEditedAmount: 'amount1' };
     });
   }, []);
 
   const setFullRange = useCallback(() => {
-    setState((s) => ({
-      ...s,
-      lowerTick: MIN_TICK,
-      upperTick: MAX_TICK,
-      lowerPrice: '0.000001',
-      upperPrice: '999999',
-      isFullRange: true,
-    }));
+    setState((s) => {
+      const newLower = MIN_TICK;
+      const newUpper = MAX_TICK;
+      return {
+        ...s,
+        lowerTick: newLower,
+        upperTick: newUpper,
+        lowerPrice: '0.000001',
+        upperPrice: '999999',
+        isFullRange: true,
+        ...syncAmountsForRange(s, newLower, newUpper),
+      };
+    });
   }, []);
 
   const submit = useCallback(
@@ -214,24 +271,65 @@ export function useAddLiquidity() {
       try {
         const { pool, lowerTick, upperTick, amount0, amount1 } = state;
         if (!pool) throw new Error('No pool selected');
-        const payload = JSON.stringify({
-          op: 'mint',
-          pool: pool.id,
+
+        // Calculate liquidity units from token amounts (simplified: use amount0 as proxy)
+        const liquidityAmount = parseFloat(amount0 || '0') > 0
+          ? Math.floor(parseFloat(amount0) * 1e7).toString()
+          : Math.floor(parseFloat(amount1 || '0') * 1e7).toString();
+
+        if (!liquidityAmount || liquidityAmount === '0') {
+          throw new Error('Enter an amount to add');
+        }
+
+        const { xdr } = buildAddLiquidityTx({
+          poolId: pool.id,
+          ownerAddress: walletAddress,
           lowerTick,
           upperTick,
-          amount0,
-          amount1,
-          owner: walletAddress,
+          liquidity: liquidityAmount,
         });
-        const xdr = Buffer.from(payload).toString('base64');
+
         setState((s) => ({ ...s, txStatus: 'submitting' }));
-        await signXdr(xdr);
-        await new Promise((r) => setTimeout(r, 1200));
+
+        const signResult = await signTransaction(xdr, {
+          networkPassphrase: getNetworkPassphrase(network),
+        });
+        const signedXdr =
+          typeof signResult === 'string'
+            ? signResult
+            : 'signedTxXdr' in signResult
+              ? (signResult as { signedTxXdr: string }).signedTxXdr
+              : null;
+
+        if (!signedXdr) {
+          setState((s) => ({ ...s, txStatus: 'error', txError: 'rejected' }));
+          return;
+        }
+
+        const res = await fetch(`${API_BASE}/transactions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('swyft_auth_token') || ''}` },
+          body: JSON.stringify({ xdr: signedXdr }),
+        });
+
+        if (!res.ok) {
+          throw new Error('network');
+        }
+
+        const data = (await res.json()) as { hash: string };
         setState((s) => ({
           ...s,
           txStatus: 'success',
-          txHash: `0x${Math.random().toString(16).slice(2, 18)}`,
-          positionNftId: `pos-${Date.now().toString(36)}`,
+          // Real Horizon-confirmed transaction hash — never fabricated.
+          txHash: data.hash,
+          // The `/transactions` endpoint only echoes back `{ hash }`; it does
+          // not (yet) surface the Soroban contract's return value or events,
+          // so there is no genuine position NFT id available here. This used
+          // to be a fabricated `pos-<timestamp>` placeholder — do not
+          // reintroduce that. Leave it `null` until the API/indexer surfaces
+          // the real id (e.g. by decoding the mint/add_liquidity return value
+          // or looking the new position up once indexed).
+          positionNftId: null,
         }));
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'unknown';
@@ -242,7 +340,7 @@ export function useAddLiquidity() {
         }));
       }
     },
-    [state]
+    [state, network]
   );
 
   const reset = useCallback(() => setState(defaultState), []);
@@ -256,12 +354,30 @@ export function useAddLiquidity() {
     const depositValue = parseFloat(state.amount0 || '0') * cp + parseFloat(state.amount1 || '0');
     const shareOfPool =
       state.pool.tvl > 0 ? ((depositValue / state.pool.tvl) * 100).toFixed(4) : '0.0000';
-    const rangeRatio = Math.min(1, (up - lp) / cp);
-    const boostedApr =
-      rangeRatio > 0
-        ? (state.pool.feeApr / Math.max(0.01, rangeRatio)).toFixed(1)
-        : state.pool.feeApr.toFixed(1);
-    return { shareOfPool, estimatedApr: boostedApr, inRange };
+
+    // Fee APR assumptions live in docs/FEE_APR_CALCULATION.md: the boosted
+    // APR extrapolates from the pool's trailing-24h fee/TVL ratio. Without a
+    // volume24h reading there's no fee data to extrapolate from (distinct
+    // from a *confirmed* zero-volume pool, which the backend already prices
+    // at a real 0% per that doc), so we surface "N/A" rather than a
+    // misleading number.
+    const hasVolumeData =
+      typeof state.pool.volume24h === 'number' && !Number.isNaN(state.pool.volume24h);
+    const hasFeeAprData =
+      typeof state.pool.feeApr === 'number' && !Number.isNaN(state.pool.feeApr);
+
+    let estimatedApr: string;
+    if (!hasVolumeData || !hasFeeAprData) {
+      estimatedApr = 'N/A';
+    } else {
+      const rangeRatio = Math.min(1, (up - lp) / cp);
+      estimatedApr =
+        rangeRatio > 0
+          ? (state.pool.feeApr / Math.max(0.01, rangeRatio)).toFixed(1)
+          : state.pool.feeApr.toFixed(1);
+    }
+
+    return { shareOfPool, estimatedApr, inRange };
   }, [state]);
 
   return {

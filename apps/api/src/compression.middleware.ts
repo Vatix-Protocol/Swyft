@@ -9,6 +9,20 @@ import {
 const MIN_SIZE = 1024; // 1 KB
 const LEVEL = Number(process.env.COMPRESSION_LEVEL ?? 6);
 
+function isCompressible(contentType: string | undefined): boolean {
+  if (!contentType) return false;
+  const type = contentType.split(';', 1)[0].trim().toLowerCase();
+  return (
+    type.startsWith('text/') ||
+    type === 'application/json' ||
+    type.endsWith('+json') ||
+    type === 'application/javascript' ||
+    type === 'application/xml' ||
+    type.endsWith('+xml') ||
+    type === 'image/svg+xml'
+  );
+}
+
 @Injectable()
 export class CompressionMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction) {
@@ -41,8 +55,19 @@ export class CompressionMiddleware implements NestMiddleware {
           Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string),
         );
       const body = Buffer.concat(chunks);
+      const contentEncoding = res.getHeader('Content-Encoding');
+      const contentType = res.getHeader('Content-Type');
+      const normalizedContentType = Array.isArray(contentType)
+        ? contentType[0]
+        : typeof contentType === 'string'
+          ? contentType
+          : undefined;
 
-      if (body.length < MIN_SIZE) {
+      if (
+        body.length < MIN_SIZE ||
+        (contentEncoding && contentEncoding !== 'identity') ||
+        !isCompressible(normalizedContentType)
+      ) {
         // Too small — send uncompressed
         res.write = originalWrite;
         res.end = originalEnd;
@@ -50,6 +75,7 @@ export class CompressionMiddleware implements NestMiddleware {
         return res;
       }
 
+      res.vary('Accept-Encoding');
       if (preferBrotli) {
         res.setHeader('Content-Encoding', 'br');
         res.removeHeader('Content-Length');

@@ -110,22 +110,39 @@ read_address() {
 }
 
 ##
+# wasm_hash() — sha256 hex digest of a compiled .wasm file. Recorded per
+# contract so validate-contracts.js can later detect address drift (a
+# deployed contract whose source has changed since it was deployed).
+# @param $1 wasm  Path to the .wasm file.
+##
+wasm_hash() {
+  if command -v sha256sum &>/dev/null; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+##
 # write_address() — Persist a deployed contract address to testnet.json.
 # Creates the file with an empty manifest if it does not exist.
-# Also records the UTC deployment timestamp under .deployedAt[$key].
+# Also records the UTC deployment timestamp under .deployedAt[$key] and the
+# deployed wasm's sha256 hash under .wasmHashes[$key] (see wasm_hash()).
 # @param $1 key   Contract key (e.g. "mathLib", "poolFactory").
 # @param $2 addr  Soroban contract ID returned by `stellar contract deploy`.
+# @param $3 wasm  Path to the .wasm file that was deployed.
 ##
 write_address() {
-  local key="$1" addr="$2" ts
+  local key="$1" addr="$2" wasm="$3" ts hash
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  hash=$(wasm_hash "$wasm")
   if [[ ! -f "$TESTNET_JSON" ]]; then
-    echo '{"network":"testnet","contracts":{},"deployedAt":{}}' > "$TESTNET_JSON"
+    echo '{"network":"testnet","contracts":{},"deployedAt":{},"wasmHashes":{}}' > "$TESTNET_JSON"
   fi
   local tmp
   tmp=$(mktemp)
-  jq --arg k "$key" --arg v "$addr" --arg t "$ts" \
-    '.contracts[$k] = $v | .deployedAt[$k] = $t' \
+  jq --arg k "$key" --arg v "$addr" --arg t "$ts" --arg h "$hash" \
+    '.contracts[$k] = $v | .deployedAt[$k] = $t | .wasmHashes[$k] = $h' \
     "$TESTNET_JSON" > "$tmp" && mv "$tmp" "$TESTNET_JSON"
 }
 
@@ -187,7 +204,7 @@ deploy_contract() {
     -- "$verify_fn" &>/dev/null \
     || fail "Post-deploy verification failed for $key (fn: $verify_fn)."
 
-  write_address "$key" "$contract_id"
+  write_address "$key" "$contract_id" "$wasm"
   ok "$key deployed and verified: $contract_id"
   echo "$contract_id"
 }
@@ -201,7 +218,33 @@ CL_POOL_ID=$(deploy_contract     "clPool"        "cl_pool"        "name")
 ROUTER_ID=$(deploy_contract      "router"        "router"         "name")
 POSITION_NFT_ID=$(deploy_contract "positionNft"  "position_nft"   "name")
 FEE_COLLECTOR_ID=$(deploy_contract "feeCollector" "fee_collector"  "name")
+# Each pool gets its own oracle-adapter instance — one adapter registers a
+# single pool (the only address allowed to write observations).
 ORACLE_ADAPTER_ID=$(deploy_contract "oracleAdapter" "oracle_adapter" "name")
+CL_POOL_ORACLE_ADAPTER_ID=$(deploy_contract "clPoolOracleAdapter" "oracle_adapter" "name")
+
+# ── Oracle wiring ──────────────────────────────────────────────────────────────
+# Wire each pool to its adapter: oracle.initialize(pool) registers the pool as
+# the only writer, and pool.set_oracle(adapter) makes the pool record a
+# post-swap observation on every swap. Do this before the pools serve swaps.
+log "Wiring oracle adapters to pools..."
+invoke() {
+  # invoke <contract_id> <fn> <arg-name> <arg-value>
+  stellar contract invoke \
+    --id "$1" \
+    --source "$IDENTITY" \
+    --network "$NETWORK" \
+    --rpc-url "$RPC_URL" \
+    --network-passphrase "$NETWORK_PASSPHRASE" \
+    -- "$2" --"$3" "$4" \
+    || fail "Oracle wiring step failed: $1.$2($3=$4)"
+}
+
+invoke "$ORACLE_ADAPTER_ID" "initialize" "pool" "$POOL_ID"
+invoke "$POOL_ID" "set_oracle" "oracle" "$ORACLE_ADAPTER_ID"
+invoke "$CL_POOL_ORACLE_ADAPTER_ID" "initialize" "pool" "$CL_POOL_ID"
+invoke "$CL_POOL_ID" "set_oracle" "oracle" "$CL_POOL_ORACLE_ADAPTER_ID"
+ok "Oracle adapters wired to pool and cl-pool."
 
 # ── Write final manifest ──────────────────────────────────────────────────────
 

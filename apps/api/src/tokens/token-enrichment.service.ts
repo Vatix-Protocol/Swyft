@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaClient } from '@prisma/client';
 import { Contract, rpc, scValToNative } from '@stellar/stellar-sdk';
+import { PrismaService } from '../prisma/prisma.service';
 import { STELLAR_CONFIG_KEY, StellarConfig } from '../config/stellar.config';
 
 interface TokenListEntry {
@@ -19,11 +19,13 @@ interface UniswapTokenList {
 @Injectable()
 export class TokenEnrichmentService implements OnModuleInit {
   private readonly logger = new Logger(TokenEnrichmentService.name);
-  private readonly prisma = new PrismaClient();
   private readonly rpcUrl: string;
   private readonly tokenListUrl: string | undefined;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {
     const stellarCfg = this.config.get<StellarConfig>(STELLAR_CONFIG_KEY)!;
     this.rpcUrl = stellarCfg.rpcUrl;
     this.tokenListUrl = this.config.get<string>('TOKEN_LIST_URL');
@@ -59,24 +61,27 @@ export class TokenEnrichmentService implements OnModuleInit {
     listMap: Map<string, TokenListEntry>,
   ): Promise<void> {
     try {
-      const onChain = await this.fetchOnChainMetadata(contractAddress);
+      const [onChain, existing] = await Promise.all([
+        this.fetchOnChainMetadata(contractAddress),
+        this.prisma.token.findUnique({ where: { address: contractAddress } }),
+      ]);
       const listed = listMap.get(contractAddress.toLowerCase());
+
+      // A transient RPC failure or missing token-list entry must never
+      // regress a token that was already enriched with real metadata back
+      // to the 'UNKNOWN' placeholder — prefer the previously stored value
+      // over the placeholder when this pass finds nothing new.
+      const data = {
+        symbol: onChain.symbol ?? listed?.symbol ?? existing?.symbol ?? 'UNKNOWN',
+        name: onChain.name ?? listed?.name ?? existing?.name ?? contractAddress,
+        decimals: onChain.decimals ?? listed?.decimals ?? existing?.decimals ?? 7,
+        logoUri: listed?.logoURI ?? existing?.logoUri ?? null,
+      };
 
       await this.prisma.token.upsert({
         where: { address: contractAddress },
-        update: {
-          symbol: onChain.symbol ?? listed?.symbol ?? 'UNKNOWN',
-          name: onChain.name ?? listed?.name ?? contractAddress,
-          decimals: onChain.decimals ?? listed?.decimals ?? 7,
-          logoUri: listed?.logoURI ?? null,
-        },
-        create: {
-          address: contractAddress,
-          symbol: onChain.symbol ?? listed?.symbol ?? 'UNKNOWN',
-          name: onChain.name ?? listed?.name ?? contractAddress,
-          decimals: onChain.decimals ?? listed?.decimals ?? 7,
-          logoUri: listed?.logoURI ?? null,
-        },
+        update: data,
+        create: { address: contractAddress, ...data },
       });
     } catch (err) {
       this.logger.warn(

@@ -151,13 +151,21 @@ export class WebhooksService {
     webhookId: string,
     ownerWallet: string,
     testEventType: WebhookEventType,
-  ): Promise<{ sent: boolean; testEvent: WebhookEventType; timestamp: string }> {
+  ): Promise<{
+    sent: boolean;
+    testEvent: WebhookEventType;
+    timestamp: string;
+  }> {
     const webhook = await this.prisma.webhook.findFirst({
       where: { id: webhookId, ownerWallet },
     });
 
     if (!webhook) {
-      return { sent: false, testEvent: testEventType, timestamp: new Date().toISOString() };
+      return {
+        sent: false,
+        testEvent: testEventType,
+        timestamp: new Date().toISOString(),
+      };
     }
 
     const testPayload: WebhookPayload = {
@@ -172,7 +180,11 @@ export class WebhooksService {
     };
 
     await this.worker.dispatch(webhookId, testPayload);
-    
-    return { sent: true, testEvent: testEventType, timestamp: new Date().toISOString() };
+
+    return {
+      sent: true,
+      testEvent: testEventType,
+      timestamp: new Date().toISOString(),
+    };
   }
 }

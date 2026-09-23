@@ -250,6 +250,8 @@ dependencies = [
 name = "cl-pool"
 version = "0.1.0"
 dependencies = [
+ "oracle-adapter",
+ "position-nft",
  "soroban-sdk",
 ]
 
@@ -582,9 +584,9 @@ checksum = "2bfcf67fea2815c2fc3b90873fae90957be12ff417335dfadc7f52927feb03b2"
 
 [[package]]
 name = "ethnum"
-version = "1.5.2"
+version = "1.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca81e6b4777c89fd810c25a4be2b1bd93ea034fbe58e6a75216a34c6b82c539b"
+checksum = "40404c3f5f511ec4da6fe866ddf6a717c309fdbb69fbbad7b0f3edab8f2e835f"
 
 [[package]]
 name = "fee-collector"
@@ -701,13 +703,6 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
-
-[[package]]
-name = "hello-world"
-version = "0.0.0"
-dependencies = [
- "soroban-sdk",
-]
 
 [[package]]
 name = "hex"
@@ -970,6 +965,7 @@ dependencies = [
 name = "pool"
 version = "0.1.0"
 dependencies = [
+ "oracle-adapter",
  "soroban-sdk",
 ]
 

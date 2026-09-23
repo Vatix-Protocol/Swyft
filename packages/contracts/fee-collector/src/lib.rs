@@ -2,12 +2,17 @@
 
 use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, Symbol};
 
+#[cfg(test)]
+mod test;
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
     FeeSwitch,
     Fees(Address),
+    /// Registry of pools allowed to deposit protocol fees.
+    AuthorizedPool(Address),
 }
 
 #[contracttype]
@@ -41,9 +46,44 @@ impl FeeCollector {
             .publish((Symbol::new(&env, "FeeSwitchUpdated"), admin), enabled);
     }
 
+    /// Authorize or revoke a pool contract as a fee depositor.
+    ///
+    /// Only the admin may mutate the registry. Authorized pools may call
+    /// [`deposit_protocol_fees`] (the inbound collect path from pools).
+    pub fn set_authorized_pool(env: Env, pool: Address, authorized: bool) {
+        let admin = read_admin(&env);
+        admin.require_auth();
+
+        if authorized {
+            env.storage()
+                .instance()
+                .set(&DataKey::AuthorizedPool(pool.clone()), &true);
+        } else {
+            env.storage()
+                .instance()
+                .remove(&DataKey::AuthorizedPool(pool.clone()));
+        }
+
+        env.events().publish(
+            (Symbol::new(&env, "PoolAuthUpdated"), admin, pool),
+            authorized,
+        );
+    }
+
+    pub fn is_authorized_pool(env: Env, pool: Address) -> bool {
+        read_authorized_pool(&env, &pool)
+    }
+
+    /// Inbound fee collect path: an authorized pool deposits protocol fees.
+    ///
+    /// Rejects callers that are not in the authorized-pool registry.
     pub fn deposit_protocol_fees(env: Env, token: Address, from: Address, amount: i128) -> i128 {
         if amount <= 0 {
             panic!("fee amount must be positive");
+        }
+
+        if !read_authorized_pool(&env, &from) {
+            panic!("unauthorized pool caller");
         }
 
         if !read_fee_switch(&env) {
@@ -63,6 +103,7 @@ impl FeeCollector {
         next_amount
     }
 
+    /// Admin withdraws accumulated protocol fees to `to`.
     pub fn collect_protocol_fees(env: Env, token: Address, to: Address) -> i128 {
         let admin = read_admin(&env);
         admin.require_auth();
@@ -108,6 +149,13 @@ fn read_fee_switch(env: &Env) -> bool {
     env.storage()
         .instance()
         .get(&DataKey::FeeSwitch)
+        .unwrap_or(false)
+}
+
+fn read_authorized_pool(env: &Env, pool: &Address) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::AuthorizedPool(pool.clone()))
         .unwrap_or(false)
 }
 

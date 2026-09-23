@@ -1,115 +1,73 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
 import { CacheModule } from './cache/cache.module';
-
-/**
- * CORS configuration for the API.
- *
- * Deny-by-default: only origins explicitly listed in the environment are
- * allowed. Credentialed requests never use a wildcard origin. See
- * docs/CORS-CONFIG.md for the production allowlist contract.
- */
-export interface CorsConfig {
-  origins: string[];
-  credentials: boolean;
-}
-
-const DEFAULT_DEV_ORIGINS = ['http://localhost:3000', 'http://localhost:5173'];
-
-/**
- * Parse a comma-separated origin allowlist from the environment.
- * Returns a de-duplicated, trimmed list. Empty entries are dropped so a
- * malformed value fails closed (no origins allowed) rather than opening up.
- */
-export function parseCorsOrigins(raw: string | undefined): string[] {
-  if (!raw) {
-    return [];
-  }
-  const seen = new Set<string>();
-  for (const entry of raw.split(',')) {
-    const origin = entry.trim();
-    if (origin.length > 0) {
-      seen.add(origin);
-    }
-  }
-  return Array.from(seen);
-}
-
-/**
- * Resolve the effective CORS config for the current environment.
- *
- * - Production/mainnet: requires an explicit allowlist; never falls back to
- *   localhost and never allows a wildcard when credentials are enabled.
- * - Non-production: falls back to local dev origins when unset.
- */
-export function resolveCorsConfig(env: NodeJS.ProcessEnv = process.env): CorsConfig {
-  const isProduction = env.NODE_ENV === 'production';
-  const configured = parseCorsOrigins(env.CORS_ALLOWED_ORIGINS);
-
-  let origins = configured;
-  if (origins.length === 0 && !isProduction) {
-    origins = DEFAULT_DEV_ORIGINS;
-  }
-
-  // Credentials require an explicit allowlist; a wildcard is never permitted.
-  const credentials = env.CORS_ALLOW_CREDENTIALS === 'true';
-  if (credentials) {
-    origins = origins.filter((origin) => origin !== '*');
-  }
-
-  return { origins, credentials };
-}
-
-/**
- * Rate limiting configuration for the API.
- *
- * Deny-by-default: every external entrypoint is rate limited. The backing
- * store (Redis) is required for writes; when it is unavailable the limiter
- * fails closed so untrusted clients cannot bypass policy. See
- * docs/RATE_LIMITING.md for the production contract.
- */
-export interface RateLimitConfig {
-  enabled: boolean;
-  windowMs: number;
-  max: number;
-  /** Fail closed on writes when the backing store is unavailable. */
-  failClosed: boolean;
-}
-
-const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
-const DEFAULT_RATE_LIMIT_MAX = 120;
-
-/**
- * Resolve the effective rate-limit config for the current environment.
- *
- * - Production/mainnet: rate limiting is always enabled and fails closed.
- * - Non-production: can be disabled via RATE_LIMIT_ENABLED=false for local
- *   development, but defaults to enabled.
- */
-export function resolveRateLimitConfig(
-  env: NodeJS.ProcessEnv = process.env,
-): RateLimitConfig {
-  const isProduction = env.NODE_ENV === 'production';
-
-  const windowMs = Number.parseInt(env.RATE_LIMIT_WINDOW_MS ?? '', 10);
-  const max = Number.parseInt(env.RATE_LIMIT_MAX ?? '', 10);
-
-  // Production cannot be disabled; non-production defaults to enabled.
-  const enabled = isProduction ? true : env.RATE_LIMIT_ENABLED !== 'false';
-
-  return {
-    enabled,
-    windowMs: Number.isFinite(windowMs) && windowMs > 0 ? windowMs : DEFAULT_RATE_LIMIT_WINDOW_MS,
-    max: Number.isFinite(max) && max > 0 ? max : DEFAULT_RATE_LIMIT_MAX,
-    // Writes always fail closed; production never relaxes this.
-    failClosed: isProduction ? true : env.RATE_LIMIT_FAIL_CLOSED !== 'false',
-  };
-}
+import { PriceModule } from './price/price.module';
+import { HorizonModule } from './horizon/horizon.module';
+import { PoolsModule } from './pools/pools.module';
+import { PositionsModule } from './positions/positions.module';
+import { SwapsModule } from './swaps/swaps.module';
+import { IndexerModule } from './indexer/indexer.module';
+import { PrismaModule } from './prisma/prisma.module';
+import { MetricsModule } from './metrics/metrics.module';
+import { AdminModule } from './admin/admin.module';
+import { LoggingMiddleware } from './logging/logging.middleware';
+import { ApiKeysModule } from './api-keys/api-keys.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
+import { CandlesModule } from './candles/candles.module';
+import { RateLimitModule } from './rate-limit/rate-limit.module';
+import { StatsModule } from './stats/stats.module';
+import { TokensModule } from './tokens/tokens.module';
+import { SearchModule } from './search/search.module';
+import { TicksModule } from './ticks/ticks.module';
+import { FeeCollectorModule } from './fee-collector/fee-collector.module';
+import { TransactionsModule } from './transactions/transactions.module';
+import { BalancesModule } from './balances/balances.module';
+import { stellarConfig } from './config/stellar.config';
+import { infraConfig } from './config/infra.config';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    // Global config — validates env vars at startup and exposes typed config
+    // namespaces throughout the application via ConfigService injection.
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [stellarConfig, infraConfig],
+      // Do not throw on extra keys; only the declared vars are validated.
+      ignoreEnvVars: false,
+    }),
+    // Registered once here so any module can inject @Cron/@Interval/@Timeout
+    // schedulers without re-registering the global scheduler (which throws
+    // if bound more than once in the same Nest application graph).
+    ScheduleModule.forRoot(),
     CacheModule,
+    PrismaModule,
+    MetricsModule,
+    RateLimitModule,
+    AuthModule,
+    PriceModule,
+    PoolsModule,
+    PositionsModule,
+    SwapsModule,
+    HorizonModule,
+    IndexerModule,
+    AdminModule,
+    ApiKeysModule,
+    WebhooksModule,
+    CandlesModule,
+    StatsModule,
+    SearchModule,
+    TokensModule,
+    TicksModule,
+    // Fee collector: fee accumulation + FEE_COLLECTOR_AUTH (issue #965).
+    // Registered after AuthModule so the deny-by-default guard can resolve
+    // the auth service; writes fail closed when dependencies are unavailable.
+    FeeCollectorModule,
+    TransactionsModule,
+    BalancesModule,
   ],
 })
 export class AppModule {

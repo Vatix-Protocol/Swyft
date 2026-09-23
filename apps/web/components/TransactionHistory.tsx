@@ -1,12 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSwaps, SwapSnapshot } from '@/hooks/useSwaps';
 import { useLpActivity, LpActivity, LpActivityType } from '@/hooks/useLpActivity';
 import { useNetworkContext } from '@/context/NetworkContext';
+import { getAuthToken } from '@/lib/auth';
 
 type Tab = 'swaps' | 'lp';
+
+/** Page size sent to the API and used to derive the total page count. */
+const PAGE_SIZE = 20;
 
 /**
  * Props accepted by the transaction history table.
@@ -29,24 +33,61 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
   const [page, setPage] = useState(1);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  const [poolFilter, setPoolFilter] = useState<string>('');
+  const [poolOptions, setPoolOptions] = useState<{ id: string; label: string }[]>([]);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAuthToken(getAuthToken());
+  }, [walletAddress]);
 
   const {
     data: swapsData,
     isLoading: swapsLoading,
     error: swapsError,
-  } = useSwaps(walletAddress, page);
+  } = useSwaps(walletAddress, page, PAGE_SIZE);
   const {
     data: lpData,
     isLoading: lpLoading,
     error: lpError,
-  } = useLpActivity(walletAddress, null, page);
+  } = useLpActivity(walletAddress, authToken, page, PAGE_SIZE, poolFilter || null);
+
+  // Build pool filter options from the unfiltered feed. When a filter is active
+  // the API only returns matching items, so keep the last unfiltered options.
+  const unfilteredItems = poolFilter ? null : lpData?.items;
+  useEffect(() => {
+    if (!unfilteredItems) return;
+    const byPool = new Map<string, string>();
+    for (const activity of unfilteredItems) {
+      byPool.set(activity.poolId, `${activity.token0Symbol}/${activity.token1Symbol}`);
+    }
+    const next = Array.from(byPool, ([id, label]) => ({ id, label }));
+    setPoolOptions((prev) => {
+      if (
+        prev.length === next.length &&
+        prev.every((p, i) => p.id === next[i]?.id && p.label === next[i]?.label)
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [unfilteredItems]);
 
   const filteredSwaps = filterByDate(swapsData?.items || [], startDate, endDate);
   const filteredLpActivity = filterByDate(lpData?.items || [], startDate, endDate);
 
-  const totalPages = Math.ceil(
-    (activeTab === 'swaps' ? (swapsData?.total ?? 0) : (lpData?.total ?? 0)) / 20
-  );
+  const activeTotal = activeTab === 'swaps' ? (swapsData?.total ?? 0) : (lpData?.total ?? 0);
+  const totalPages = Math.ceil(activeTotal / PAGE_SIZE);
+  const activeLoading = activeTab === 'swaps' ? swapsLoading : lpLoading;
+
+  // If the underlying data set shrinks (e.g. items removed, or a stale page
+  // number left over from a previous tab/filter), snap back to the last page
+  // that actually has data instead of showing a page that will always be empty.
+  useEffect(() => {
+    if (!activeLoading && totalPages > 0 && page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [activeLoading, totalPages, page]);
 
   function filterByDate<T extends { timestamp: number }>(
     items: T[],
@@ -106,7 +147,38 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
       </div>
 
       {/* Date Filter */}
-      <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-700 flex gap-4 items-center">
+      <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-700 flex flex-wrap gap-4 items-center">
+        {activeTab === 'lp' && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-zinc-600 dark:text-zinc-400" htmlFor="lp-pool-filter">
+              Pool:
+            </label>
+            <select
+              id="lp-pool-filter"
+              value={poolFilter}
+              onChange={(e) => {
+                setPoolFilter(e.target.value);
+                setPage(1);
+              }}
+              className="rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-1.5 text-sm text-zinc-900 dark:text-zinc-100"
+            >
+              <option value="">All pools</option>
+              {poolOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {poolFilter && (
+              <button
+                onClick={() => setPoolFilter('')}
+                className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <label className="text-sm text-zinc-600 dark:text-zinc-400">From:</label>
           <input
@@ -148,6 +220,9 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
             getExplorerUrl={getExplorerUrl}
             formatDate={formatDate}
             truncateHash={truncateHash}
+            cols={7}
+            page={page}
+            onBackToFirstPage={() => setPage(1)}
           />
         ) : (
           <LpTable
@@ -157,6 +232,10 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
             getExplorerUrl={getExplorerUrl}
             formatDate={formatDate}
             truncateHash={truncateHash}
+            page={page}
+            onBackToFirstPage={() => setPage(1)}
+            poolFilterActive={!!poolFilter}
+            onClearPoolFilter={() => setPoolFilter('')}
           />
         )}
 
@@ -194,6 +273,25 @@ interface SwapTableProps {
   getExplorerUrl: (hash: string) => string;
   formatDate: (timestamp: number) => string;
   truncateHash: (hash: string) => string;
+  cols?: number;
+  page: number;
+  onBackToFirstPage: () => void;
+}
+
+function EmptyPageNotice({ onBackToFirstPage }: { onBackToFirstPage: () => void }) {
+  return (
+    <div className="text-center py-12">
+      <p className="text-zinc-500 dark:text-zinc-400 mb-2">No results on this page</p>
+      <p className="text-sm text-zinc-400 dark:text-zinc-500">
+        <button
+          onClick={onBackToFirstPage}
+          className="underline hover:text-indigo-500 transition-colors"
+        >
+          Back to page 1
+        </button>
+      </p>
+    </div>
+  );
 }
 
 function SkeletonRows({ cols }: { cols: number }) {
@@ -203,7 +301,7 @@ function SkeletonRows({ cols }: { cols: number }) {
         <tr key={i} aria-hidden="true">
           {Array.from({ length: cols }).map((__, j) => (
             <td key={j} className="py-3 px-4">
-              <div className="h-4 rounded bg-zinc-200 dark:bg-zinc-700 animate-pulse" />
+              <div className={`h-4 rounded ${j === 1 ? 'w-32' : 'w-full'} bg-zinc-200 dark:bg-zinc-700 animate-pulse`} />
             </td>
           ))}
         </tr>
@@ -219,12 +317,19 @@ function SwapTable({
   getExplorerUrl,
   formatDate,
   truncateHash,
+  cols = 7,
+  page,
+  onBackToFirstPage,
 }: SwapTableProps) {
   if (error) {
     return <div className="text-center py-8 text-red-500">Failed to load swaps</div>;
   }
 
   if (!loading && swaps.length === 0) {
+    if (page > 1) {
+      return <EmptyPageNotice onBackToFirstPage={onBackToFirstPage} />;
+    }
+
     return (
       <div className="text-center py-12">
         <p className="text-zinc-500 dark:text-zinc-400 mb-2">No swap history yet</p>
@@ -250,6 +355,9 @@ function SwapTable({
             <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
               Pair
             </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Route
+            </th>
             <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
               Input
             </th>
@@ -258,6 +366,9 @@ function SwapTable({
             </th>
             <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
               Price
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Route
             </th>
             <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
               Transaction
@@ -269,7 +380,7 @@ function SwapTable({
         </thead>
         <tbody>
           {loading ? (
-            <SkeletonRows cols={6} />
+            <SkeletonRows cols={cols} />
           ) : (
             swaps.map((swap) => (
               <tr
@@ -279,6 +390,15 @@ function SwapTable({
                 <td className="py-3 px-4 text-sm text-zinc-900 dark:text-zinc-100">
                   {swap.token0Symbol}/{swap.token1Symbol}
                 </td>
+                <td className="py-3 px-4 text-sm text-zinc-700 dark:text-zinc-300">
+                  {swap.routeLeg && swap.routeLeg.length > 0 ? (
+                    <span className="font-mono text-xs">
+                      {swap.routeLeg.join(' → ')}
+                    </span>
+                  ) : (
+                    <span className="text-zinc-400 dark:text-zinc-500">—</span>
+                  )}
+                </td>
                 <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
                   {swap.amount0}
                 </td>
@@ -287,6 +407,9 @@ function SwapTable({
                 </td>
                 <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
                   {swap.priceAtSwap}
+                </td>
+                <td className="py-3 px-4 text-sm text-zinc-600 dark:text-zinc-400 font-mono">
+                  {swap.route && swap.route.length > 0 ? swap.route.join(' → ') : '—'}
                 </td>
                 <td className="py-3 px-4 text-sm">
                   <a
@@ -317,6 +440,10 @@ interface LpTableProps {
   getExplorerUrl: (hash: string) => string;
   formatDate: (timestamp: number) => string;
   truncateHash: (hash: string) => string;
+  page: number;
+  onBackToFirstPage: () => void;
+  poolFilterActive?: boolean;
+  onClearPoolFilter?: () => void;
 }
 
 function LpTable({
@@ -326,6 +453,10 @@ function LpTable({
   getExplorerUrl,
   formatDate,
   truncateHash,
+  page,
+  onBackToFirstPage,
+  poolFilterActive = false,
+  onClearPoolFilter,
 }: LpTableProps) {
   if (error) {
     return (
@@ -338,7 +469,28 @@ function LpTable({
     );
   }
 
+  if (!loading && activities.length === 0 && poolFilterActive) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-zinc-500 dark:text-zinc-400 mb-2">No LP activity for this pool</p>
+        <p className="text-sm text-zinc-400 dark:text-zinc-500 mb-3">
+          Try a different pool or clear the filter to see all activity.
+        </p>
+        <button
+          onClick={onClearPoolFilter}
+          className="text-sm text-indigo-600 underline hover:text-indigo-500 transition-colors"
+        >
+          Clear filter
+        </button>
+      </div>
+    );
+  }
+
   if (!loading && activities.length === 0) {
+    if (page > 1) {
+      return <EmptyPageNotice onBackToFirstPage={onBackToFirstPage} />;
+    }
+
     return (
       <div className="text-center py-12">
         <p className="text-zinc-500 dark:text-zinc-400 mb-2">No LP activity yet</p>

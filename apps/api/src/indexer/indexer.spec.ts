@@ -48,7 +48,11 @@ const mockUpsert = () => jest.fn().mockResolvedValue({});
 
 const mockPrismaClient = {
   token: { upsert: mockUpsert() },
-  pool: { upsert: mockUpsert(), update: mockUpsert() },
+  pool: {
+    upsert: mockUpsert(),
+    update: mockUpsert(),
+    findUnique: jest.fn().mockResolvedValue(null),
+  },
   swap: { upsert: mockUpsert() },
   position: { upsert: mockUpsert() },
   poolCreated: { upsert: mockUpsert() },
@@ -93,13 +97,20 @@ jest.mock('@prisma/client', () => ({
 // ─── Imports (after mocks are set up) ────────────────────────────────────────
 
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule } from '@nestjs/config';
 import { IndexerWorker } from './indexer.worker';
 import { CacheService } from '../cache/cache.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { TokenEnrichmentService } from '../tokens/token-enrichment.service';
-import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
+import {
+  IndexerMonitorService,
+  LAST_INDEXED_LEDGER_KEY,
+} from '../metrics/indexer-monitor.service';
+import { DbMetricsService } from '../metrics/db-metrics.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { IndexerCursorService } from './indexer-cursor.service';
 import { IndexerDeadLetterService } from './indexer-dead-letter.service';
+import { STELLAR_CONFIG_KEY } from '../config/stellar.config';
 import {
   IndexerModule,
   QUEUE_POOL_CREATED,
@@ -225,12 +236,36 @@ describe('IndexerModule', () => {
 
   beforeEach(async () => {
     module = await Test.createTestingModule({
-      imports: [IndexerModule],
-    }).compile();
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          load: [
+            () => ({
+              [STELLAR_CONFIG_KEY]: {
+                rpcUrl: 'https://soroban-testnet.stellar.org',
+                horizonUrl: 'https://horizon-testnet.stellar.org',
+                network: 'testnet',
+                poolContractId: '',
+              },
+            }),
+          ],
+        }),
+        IndexerModule,
+      ],
+    })
+      .overrideProvider(PrismaService)
+      .useValue({})
+      .overrideProvider(IndexerMonitorService)
+      .useValue({ onModuleInit: () => {}, onModuleDestroy: () => {} })
+      .overrideProvider(DbMetricsService)
+      .useValue({})
+      .overrideProvider(CacheService)
+      .useValue({ get: jest.fn(), set: jest.fn(), setMaxNumber: jest.fn() })
+      .compile();
   });
 
   afterEach(async () => {
-    await module.close();
+    await module?.close();
   });
 
   it('compiles without errors', () => {
@@ -289,6 +324,7 @@ describe('IndexerWorker', () => {
     module = await Test.createTestingModule({
       providers: [
         IndexerWorker,
+        { provide: PrismaService, useValue: mockPrismaClient },
         { provide: CacheService, useValue: mockCacheService },
         { provide: WebhooksService, useValue: mockWebhooksService },
         {
@@ -355,14 +391,13 @@ describe('IndexerWorker', () => {
       const failed = mockWorkerOn.mock.calls.find(
         (c) => c[0] === 'failed',
       )?.[1] as
-        | ((job: Job<PoolCreatedJobData>, err: Error) => void)
-        | undefined;
+        ((job: Job<PoolCreatedJobData>, err: Error) => void) | undefined;
 
       failed?.(
         makeJob({
           eventId: 'evt-poison',
           poolId: 'pool',
-        } as PoolCreatedJobData) as Job<PoolCreatedJobData>,
+        } as PoolCreatedJobData),
         new Error('poison event'),
       );
 
@@ -423,13 +458,6 @@ describe('IndexerWorker', () => {
       expect(mockQueueEventsClose).toHaveBeenCalledTimes(
         Object.keys(QUEUE_NAMES).length,
       );
-    });
-
-    it('disconnects Prisma on shutdown', async () => {
-      worker.onModuleInit();
-      await worker.onModuleDestroy();
-
-      expect(mockPrismaClient.$disconnect).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -533,6 +561,7 @@ describe('IndexerWorker', () => {
         12345,
       );
       expect(mockAdvanceLedger).toHaveBeenCalledWith(12345);
+      expect(mockSetMaxNumber).toHaveBeenCalledTimes(1);
     });
 
     it('dispatches a pool.created webhook after successful write', async () => {
@@ -568,8 +597,49 @@ describe('IndexerWorker', () => {
       const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
       await handler(makeJob(data));
 
-      expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(data.tokenA);
-      expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(data.tokenB);
+      expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(
+        data.tokenA,
+      );
+      expect(mockTokenEnrichmentService.enrichToken).toHaveBeenCalledWith(
+        data.tokenB,
+      );
+    });
+
+    it('persists pool createdAt from event timestamp', async () => {
+      const timestamp = '2026-07-26T10:30:00Z';
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      await handler(makeJob({ ...data, timestamp }));
+
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            createdAt: new Date(timestamp),
+          }),
+        }),
+      );
+    });
+
+    it('uses current time for createdAt when timestamp is missing', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      const before = new Date();
+      await handler(makeJob(data));
+      const after = new Date();
+
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            createdAt: expect.any(Date),
+          }),
+        }),
+      );
+
+      // Verify the date is between before and after (within 1s tolerance)
+      const callArgs = (mockPrismaClient.pool.upsert as any).mock.calls[0][0];
+      const createdAt = callArgs.create.createdAt;
+      expect(createdAt.getTime()).toBeGreaterThanOrEqual(
+        before.getTime() - 1000,
+      );
+      expect(createdAt.getTime()).toBeLessThanOrEqual(after.getTime() + 1000);
     });
   });
 
@@ -611,7 +681,9 @@ describe('IndexerWorker', () => {
       expect(call.create.tick).toBe(42);
     });
 
-    it('projects a swap into the canonical Swap and Pool tables', async () => {
+    it('projects a swap into the canonical Swap and Pool tables when pool exists', async () => {
+      mockPrismaClient.pool.findUnique.mockResolvedValueOnce({ id: data.poolId });
+
       const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
       await handler(makeJob(data));
 
@@ -624,10 +696,10 @@ describe('IndexerWorker', () => {
           }),
         }),
       );
-      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+      expect(mockPrismaClient.pool.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: data.poolId },
-          update: expect.objectContaining({
+          data: expect.objectContaining({
             currentSqrtPrice: data.sqrtPriceX96,
             currentTick: data.tick,
             liquidity: data.liquidity,
@@ -636,27 +708,21 @@ describe('IndexerWorker', () => {
       );
     });
 
-    it('creates the pool when a swap arrives before its pool.created event', async () => {
+    it('skips pool state update when swap arrives before pool.created event', async () => {
+      // pool.findUnique returns null — pool does not exist yet
+      mockPrismaClient.pool.findUnique.mockResolvedValueOnce(null);
+
       const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
       await handler(makeJob(data));
 
-      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: data.poolId },
-          create: expect.objectContaining({
-            id: data.poolId,
-            currentSqrtPrice: data.sqrtPriceX96,
-            currentTick: data.tick,
-            liquidity: data.liquidity,
-          }),
-        }),
-      );
+      // Swap row should still be persisted
+      expect(mockPrismaClient.swap.upsert).toHaveBeenCalled();
+      // Pool should NOT be created with unknown token addresses
+      expect(mockPrismaClient.pool.update).not.toHaveBeenCalled();
     });
 
-    it('does not throw when the pool does not exist yet (first state update)', async () => {
-      // Simulate Prisma's real behavior for `update` on a missing row, to
-      // document why `upsert` (not `update`) is required here.
-      mockPrismaClient.pool.upsert.mockResolvedValueOnce({});
+    it('does not throw when the pool does not exist yet', async () => {
+      mockPrismaClient.pool.findUnique.mockResolvedValueOnce(null);
 
       const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
       await expect(handler(makeJob(data))).resolves.not.toThrow();
@@ -689,6 +755,61 @@ describe('IndexerWorker', () => {
       await expect(handler(makeJob(data))).resolves.not.toThrow();
 
       expect(mockPrismaClient.swapProcessed.upsert).toHaveBeenCalled();
+    });
+
+    it('persists feeAmount from the event payload when provided', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await handler(makeJob({ ...data, feeAmount: '42.5' }));
+
+      expect(mockPrismaClient.swap.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            feeAmount: '42.5',
+          }),
+        }),
+      );
+    });
+
+    it('derives feeAmount from pool feeTier when event does not include it', async () => {
+      mockPrismaClient.pool.findUnique.mockResolvedValueOnce({ feeTier: 3000 });
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await handler(makeJob(data));
+
+      // fee = |amount0| * (feeTier / 1_000_000) = 1000000 * 0.003 = 3000
+      expect(mockPrismaClient.swap.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            feeAmount: '3000',
+          }),
+        }),
+      );
+    });
+
+    it('defaults feeAmount to "0" when pool is not found and event has no fee', async () => {
+      mockPrismaClient.pool.findUnique.mockResolvedValueOnce(null);
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await handler(makeJob(data));
+
+      expect(mockPrismaClient.swap.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            feeAmount: '0',
+          }),
+        }),
+      );
+    });
+
+    it('persists feeAmount even when sqrtPriceX96 is invalid', async () => {
+      const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await handler(makeJob({ ...data, sqrtPriceX96: '0', feeAmount: '100' }));
+
+      expect(mockPrismaClient.swap.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            feeAmount: '100',
+          }),
+        }),
+      );
     });
   });
 

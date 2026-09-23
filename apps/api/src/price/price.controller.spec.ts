@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PriceController } from './price.controller';
 import { PriceService, SpotPriceResponse, PriceCandle } from './price.service';
 import { CacheService } from '../cache/cache.service';
+import { ApiKeyGuard } from '../auth/api-key.guard';
 
 const mockSpotResponse: SpotPriceResponse = {
   tokenA: 'usdc',
@@ -46,7 +47,10 @@ describe('PriceController', () => {
         { provide: PriceService, useValue: priceService },
         { provide: CacheService, useValue: cacheService },
       ],
-    }).compile();
+    })
+      .overrideGuard(ApiKeyGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<PriceController>(PriceController);
   });

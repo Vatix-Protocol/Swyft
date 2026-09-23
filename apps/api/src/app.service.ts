@@ -7,6 +7,13 @@ export interface HealthStatus {
   checks: { postgres: boolean; redis: boolean };
 }
 
+export interface ApiIndex {
+  name: string;
+  version: string;
+  docs: string;
+  health: string;
+}
+
 @Injectable()
 export class AppService {
   constructor(
@@ -14,15 +21,18 @@ export class AppService {
     private readonly cache: CacheService,
   ) {}
 
-  getHello(): string {
-    return 'Hello World!';
+  getIndex(): ApiIndex {
+    return {
+      name: 'swyft-api',
+      version: 'v1',
+      docs: '/docs',
+      health: '/health',
+    };
   }
 
   async getHealth(): Promise<HealthStatus> {
     const [postgres, redis] = await Promise.all([
-      this.prisma.$queryRaw`SELECT 1`
-        .then(() => true)
-        .catch(() => false),
+      this.prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false),
       this.cache.ping(),
     ]);
     return {

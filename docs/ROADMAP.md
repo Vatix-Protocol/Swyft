@@ -16,7 +16,7 @@ This document outlines the planned development phases for Swyft — a concentrat
 - [x] Issue and PR templates
 - [x] Core Soroban contract scaffolding (math-lib, pool, router, position-nft, fee-collector, oracle-adapter)
 - [ ] Full contract test coverage
-- [ ] Local dev environment (Docker Compose)
+- [x] Local dev environment (Docker Compose)
 
 ---
 
@@ -30,7 +30,7 @@ This document outlines the planned development phases for Swyft — a concentrat
 - [ ] Multi-hop router
 - [ ] Position NFT with on-chain metadata
 - [ ] Fee collector with configurable protocol split
-- [ ] TWAP oracle adapter
+- [x] TWAP oracle adapter (pools record post-swap observations; `get_twap` serves time-weighted prices)
 - [ ] 100% unit test coverage
 - [ ] Testnet deployment + verification
 
@@ -56,10 +56,13 @@ This document outlines the planned development phases for Swyft — a concentrat
 **Goal:** Fully functional dApp UI.
 
 - [ ] Swap interface (single-hop and multi-hop)
-- [ ] LP management (add/remove/rerange liquidity)
+- [x] LP management (add/remove/rerange liquidity)
 - [ ] Pool browser with TVL, APR, volume charts
 - [ ] Portfolio dashboard (positions, unclaimed fees)
-- [ ] Freighter + xBull wallet integration
+- [x] Freighter wallet integration
+- [ ] xBull wallet integration (useWallet accepts a `WalletKind` but xBull
+      is not wired up yet; connecting with it fails fast with
+      `UNSUPPORTED_WALLET` — Freighter-only until this ships)
 - [ ] Mobile-responsive layout
 - [ ] Light / dark mode
 
@@ -92,4 +95,4 @@ This document outlines the planned development phases for Swyft — a concentrat
 
 ## How to Influence the Roadmap
 
-Open a [GitHub Discussion](https://github.com/Valreb001/Swyft/discussions) with the `RFC` label to propose new features or changes to phase priorities. The maintainer reviews RFCs during each monthly planning cycle.
+Open a [GitHub Discussion](https://github.com/Vatix-Protocol/Swyft/discussions) with the `RFC` label to propose new features or changes to phase priorities. The maintainer reviews RFCs during each monthly planning cycle.

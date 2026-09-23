@@ -95,6 +95,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
         requestId,
       };
 
+      if (
+        typeof exceptionResponse === 'object' &&
+        exceptionResponse !== null &&
+        typeof (exceptionResponse as Record<string, unknown>)['code'] ===
+          'string'
+      ) {
+        body.code = (exceptionResponse as Record<string, unknown>)[
+          'code'
+        ] as string;
+      }
+
       if (statusCode >= 500) {
         this.logger.error(
           `[${statusCode}] ${request.method} ${path} — ${exception instanceof Error ? exception.message : 'HttpException'}${requestIdSuffix}`,

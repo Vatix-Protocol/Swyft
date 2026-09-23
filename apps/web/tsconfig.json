@@ -17,6 +17,7 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./*"],
+      "@swyft/config": ["../../packages/config/src/index.ts"],
       "@swyft/ui": ["../../packages/ui/src/index.ts"],
       "@swyft/sdk": ["../../packages/sdk/src/index.ts"]
     }
@@ -29,5 +30,14 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "vitest.config.ts", "vitest.setup.ts", "__tests__"]
+  "exclude": [
+    "node_modules",
+    "vitest.config.ts",
+    "vitest.setup.ts",
+    "__tests__",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx"
+  ]
 }

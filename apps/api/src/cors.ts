@@ -1,96 +1,80 @@
-export interface CorsConfig {
-  /** Explicit, deny-by-default allowlist of origins permitted to call the API. */
-  origins: string[];
-  /** Whether credentialed requests (cookies/Authorization) are allowed. */
-  credentials: boolean;
-  /** Resolved environment used to select the allowlist. */
-  environment: CorsEnvironment;
-}
-
-export type CorsEnvironment = 'production' | 'testnet' | 'development';
-
 /**
- * Stable error code emitted when an origin is rejected by the allowlist.
- * Kept stable so ops/logs and clients can rely on it. Fail-closed by design.
+ * Get allowed CORS origins based on environment.
+ *
+ * **Development mode:**
+ * - Defaults to http://localhost:3000 if WEB_APP_ORIGIN or CORS_ORIGIN not set
+ * - Allows local development with implicit fallback
+ *
+ * **Production mode (NODE_ENV=production):**
+ * - Requires explicit WEB_APP_ORIGIN or CORS_ORIGIN — no fallback to localhost
+ * - Throws error if neither env var is configured
+ * - Rejects any origin not in the allowlist
+ * - Rejects localhost/127.0.0.1 and the wildcard '*' (invalid alongside
+ *   the always-on `credentials: true`)
+ *
+ * **Env vars:**
+ * - `WEB_APP_ORIGIN`: Comma-separated list of allowed origins (e.g., "https://app.example.com,https://www.example.com")
+ * - `CORS_ORIGIN`: Fallback if WEB_APP_ORIGIN not set. Same format.
+ *
+ * **Example:**
+ * ```bash
+ * export WEB_APP_ORIGIN="https://swyft.example,https://www.swyft.example"
+ * ```
  */
-export const CORS_ORIGIN_DENIED = 'CORS_ORIGIN_DENIED' as const;
+export function getCorsOrigins(): string[] {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const raw = process.env.WEB_APP_ORIGIN ?? process.env.CORS_ORIGIN ?? null;
 
-const DEFAULT_DEV_ORIGINS = ['http://localhost:3000'];
-
-function parseOrigins(raw: string | undefined): string[] {
   if (!raw) {
-    return [];
+    if (isProduction) {
+      throw new Error(
+        'Production CORS: WEB_APP_ORIGIN or CORS_ORIGIN must be set. ' +
+          'No fallback to localhost allowed in production.',
+      );
+    }
+    return ['http://localhost:3000'];
   }
+
   return raw
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
 }
 
-function resolveEnvironment(): CorsEnvironment {
-  const raw = (process.env.NODE_ENV ?? '').toLowerCase();
-  if (raw === 'production') {
-    return 'production';
-  }
-  if (raw === 'testnet' || raw === 'staging') {
-    return 'testnet';
-  }
-  return 'development';
-}
-
 /**
- * Resolve the CORS allowlist for the current environment.
- *
- * Deny-by-default: production and testnet require an explicit allowlist via
- * `CORS_ALLOWED_ORIGINS` (or the legacy `WEB_APP_ORIGIN`/`CORS_ORIGIN`).
- * When no allowlist is configured in a non-development environment, an empty
- * list is returned so no origin is reflected. Development falls back to the
- * local web app origin only.
+ * Validate CORS configuration at startup (called in main.ts).
+ * In production, ensures at least one origin is explicitly configured.
  */
-export function getCorsConfig(): CorsConfig {
-  const environment = resolveEnvironment();
+export function validateCorsConfig(): void {
+  if (process.env.NODE_ENV === 'production') {
+    const origins = getCorsOrigins();
+    if (origins.length === 0) {
+      throw new Error(
+        'Production CORS validation failed: no valid origins in WEB_APP_ORIGIN or CORS_ORIGIN',
+      );
+    }
 
-  const configured = parseOrigins(
-    process.env.CORS_ALLOWED_ORIGINS ??
-      process.env.WEB_APP_ORIGIN ??
-      process.env.CORS_ORIGIN,
-  );
+    const hasLocalhost = origins.some(
+      (origin) => origin.includes('localhost') || origin.includes('127.0.0.1'),
+    );
+    if (hasLocalhost) {
+      throw new Error(
+        `Production CORS validation failed: localhost/127.0.0.1 not allowed in production. ` +
+          `Found: ${origins.join(', ')}`,
+      );
+    }
 
-  const origins =
-    configured.length > 0
-      ? configured
-      : environment === 'development'
-        ? DEFAULT_DEV_ORIGINS
-        : [];
-
-  // Never allow wildcard origins when credentials are enabled.
-  const credentials = process.env.CORS_ALLOW_CREDENTIALS !== 'false';
-  const safeOrigins = credentials
-    ? origins.filter((origin) => origin !== '*')
-    : origins;
-
-  return { origins: safeOrigins, credentials, environment };
-}
-
-/**
- * Backwards-compatible helper returning just the allowlisted origins.
- * Prefer {@link getCorsConfig} for new call sites.
- */
-export function getCorsOrigins(): string[] {
-  return getCorsConfig().origins;
-}
-
-/**
- * Fail-closed origin check. Returns the origin when it is explicitly
- * allowlisted, otherwise `false` so the caller omits CORS headers rather than
- * reflecting an untrusted origin.
- */
-export function resolveCorsOrigin(
-  origin: string | undefined,
-  config: CorsConfig = getCorsConfig(),
-): string | false {
-  if (!origin) {
-    return false;
+    // `credentials: true` is always set in main.ts. A wildcard origin combined
+    // with credentialed requests is an invalid/unsafe CORS config — browsers
+    // reject it, but some proxies/middleware fail open by reflecting the
+    // request origin instead of the literal '*'. Fail closed at startup.
+    const hasWildcard = origins.some((origin) => origin === '*');
+    if (hasWildcard) {
+      throw new Error(
+        `Production CORS validation failed: wildcard origin '*' is not allowed in production ` +
+          `(credentials are enabled, and '*' cannot be combined with credentialed requests). ` +
+          `Found: ${origins.join(', ')}`,
+      );
+    }
   }
-  return config.origins.includes(origin) ? origin : false;
 }

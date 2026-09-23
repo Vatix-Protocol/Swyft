@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Token } from './types';
 import { TokenLogo } from './TokenLogo';
 
@@ -13,6 +14,8 @@ interface Props {
   onTokenClick?: () => void;
 }
 
+let swapInputIdCounter = 0;
+
 export function SwapInput({
   label,
   token,
@@ -22,6 +25,9 @@ export function SwapInput({
   onAmountChange,
   onTokenClick,
 }: Props) {
+  const [inputId] = useState(() => `swap-input-${++swapInputIdCounter}`);
+  const errorId = `${inputId}-error`;
+
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value;
     if (/^\d*\.?\d*$/.test(v)) onAmountChange?.(v);
@@ -38,8 +44,11 @@ export function SwapInput({
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex-1">
-          <p className="mb-1 text-xs text-zinc-400">{label}</p>
+          <label htmlFor={inputId} className="mb-1 block text-xs text-zinc-400">
+            {label}
+          </label>
           <input
+            id={inputId}
             type="text"
             inputMode="decimal"
             placeholder="0.00"
@@ -47,7 +56,9 @@ export function SwapInput({
             readOnly={readOnly}
             onChange={handleChange}
             aria-label={`${label} amount`}
-            className="w-full bg-transparent text-2xl font-semibold text-zinc-900 placeholder-zinc-300 focus:outline-none dark:text-white dark:placeholder-zinc-600"
+            aria-invalid={insufficient || undefined}
+            aria-describedby={insufficient ? errorId : undefined}
+            className="w-full bg-transparent text-2xl font-semibold text-zinc-900 placeholder-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-white dark:placeholder-zinc-600"
           />
         </div>
 
@@ -74,7 +85,11 @@ export function SwapInput({
 
       {balance !== undefined && (
         <div className="mt-1.5 flex items-center justify-between">
-          <span className={`text-xs ${insufficient ? 'text-red-500' : 'text-zinc-400'}`}>
+          <span
+            id={errorId}
+            role={insufficient ? 'alert' : undefined}
+            className={`text-xs ${insufficient ? 'text-red-500' : 'text-zinc-400'}`}
+          >
             {insufficient ? 'Insufficient balance' : ''}
           </span>
           <button

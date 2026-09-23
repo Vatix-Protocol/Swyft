@@ -35,15 +35,24 @@ const fees24h = swaps24h.reduce(
 
 ### 2. TVL Calculation
 
-The TVL is calculated as:
+The TVL is calculated from the pool's actual on-chain reserves at the current
+tick, using the concentrated-liquidity virtual-reserve formulas:
 
 ```typescript
-const tvl = Number(pool.liquidity) * ((priceA + priceB) / 2);
+const sqrtPrice = Number(pool.currentSqrtPrice) / 2 ** 96;
+const liquidity = Number(pool.liquidity);
+const reserve0 = liquidity / sqrtPrice / 10 ** decimals0;
+const reserve1 = (liquidity * sqrtPrice) / 10 ** decimals1;
+const tvl = reserve0 * priceA + reserve1 * priceB;
 ```
 
-- `pool.liquidity`: The total liquidity provided to the pool
+- `pool.liquidity`: The in-range liquidity (L) at the pool's current tick
+- `pool.currentSqrtPrice`: The current sqrt price, Q64.96 fixed point
+- `decimals0`, `decimals1`: Decimals of token0 and token1, used to convert
+  raw reserve amounts into human-readable units
 - `priceA`, `priceB`: Current USD prices of the two tokens in the pool
-- This assumes an average price to estimate the value of the liquidity
+- Each token's reserve is priced independently and summed, rather than
+  approximating the pool's value with `liquidity * average price`
 
 ### 3. Edge Cases
 
