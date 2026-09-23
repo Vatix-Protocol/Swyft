@@ -74,6 +74,67 @@ export interface CandleActor {
 
 const ALLOWED_ROLES = ['admin', 'candles:write'] as const;
 
+/**
+ * TICKS_ENDPOINT (see apps/api/TICKS_ENDPOINT.md):
+ *  - `limit` is clamped to [1, TICKS_MAX_LIMIT]; anything outside is rejected
+ *    with a stable error code rather than silently coerced.
+ *  - `cursor` is an opaque, forward-only pagination token. Replays of the same
+ *    cursor are idempotent (read-only) and never mutate state.
+ *  - Reads are fail-closed: a dependency outage surfaces as
+ *    DEPENDENCY_UNAVAILABLE instead of an empty/partial page.
+ */
+export const TICKS_DEFAULT_LIMIT = 100;
+export const TICKS_MAX_LIMIT = 1000;
+
+export const TickErrorCode = {
+  INVALID_LIMIT: 'TICKS_INVALID_LIMIT',
+  INVALID_CURSOR: 'TICKS_INVALID_CURSOR',
+  UNAUTHORIZED: 'TICKS_UNAUTHORIZED',
+  DEPENDENCY_UNAVAILABLE: 'TICKS_DEPENDENCY_UNAVAILABLE',
+} as const;
+export type TickErrorCode =
+  (typeof TickErrorCode)[keyof typeof TickErrorCode];
+
+export class TickError extends Error {
+  constructor(
+    readonly code: TickErrorCode,
+    message: string,
+    readonly correlationId: string,
+  ) {
+    super(message);
+    this.name = 'TickError';
+  }
+}
+
+/** Typed query params for the ticks endpoint. */
+export interface TicksQuery {
+  poolId: string;
+  interval?: CandleInterval;
+  limit?: number;
+  cursor?: string;
+}
+
+/** Typed response DTO for the ticks endpoint. */
+export interface TickDto {
+  poolId: string;
+  interval: CandleInterval;
+  periodStart: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volumeUsd: number;
+}
+
+export interface TicksPage {
+  data: TickDto[];
+  nextCursor: string | null;
+  correlationId: string;
+}
+
+/** Roles allowed to read the ticks endpoint. Deny-by-default. */
+const TICKS_READ_ROLES = ['admin', 'candles:read', 'ticks:read'] as const;
+
 @Injectable()
 export class CandlesService {
   private readonly logger = new Logger(CandlesService.name);
@@ -137,6 +198,130 @@ export class CandlesService {
     this.logger.log(
       `[${interval}] Backfilled ${written} candle(s) correlationId=${correlationId}`,
     );
+  }
+
+  /**
+   * TICKS_ENDPOINT read path. Returns a forward-paginated page of ticks for a
+   * pool. Read-only and idempotent: replaying the same cursor yields the same
+   * page and never mutates state. Fail-closed on dependency outage.
+   */
+  async getTicks(
+    query: TicksQuery,
+    actor: CandleActor | undefined,
+    correlationId: string = CandlesService.newCorrelationId(),
+  ): Promise<TicksPage> {
+    this.authorizeTicks(actor, correlationId);
+
+    const interval = query.interval ?? '1m';
+    this.assertInterval(interval, correlationId);
+
+    const limit = this.resolveLimit(query.limit, correlationId);
+    const cursorStart = this.decodeCursor(query.cursor, correlationId);
+
+    let rows: Array<{
+      poolId: string;
+      interval: string;
+      periodStart: Date;
+      open: number;
+      high: number;
+      low: number;
+      close: number;
+      volumeUsd: number;
+    }>;
+    try {
+      rows = await this.prisma.priceCandle.findMany({
+        where: {
+          poolId: query.poolId,
+          interval,
+          ...(cursorStart ? { periodStart: { gt: cursorStart } } : {}),
+        },
+        orderBy: { periodStart: 'asc' },
+        take: limit + 1,
+      });
+    } catch (err) {
+      this.logger.error(
+        `Ticks read failed poolId=${query.poolId} correlationId=${correlationId}: ${(err as Error).message}`,
+      );
+      throw new TickError(
+        TickErrorCode.DEPENDENCY_UNAVAILABLE,
+        'Tick source is unavailable; refusing to serve a partial page',
+        correlationId,
+      );
+    }
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const data: TickDto[] = page.map((r) => ({
+      poolId: r.poolId,
+      interval: r.interval as CandleInterval,
+      periodStart: r.periodStart.toISOString(),
+      open: r.open,
+      high: r.high,
+      low: r.low,
+      close: r.close,
+      volumeUsd: r.volumeUsd,
+    }));
+    const nextCursor =
+      hasMore && page.length > 0
+        ? this.encodeCursor(page[page.length - 1].periodStart)
+        : null;
+
+    this.logger.log(
+      `Ticks served poolId=${query.poolId} interval=${interval} count=${data.length} correlationId=${correlationId}`,
+    );
+    return { data, nextCursor, correlationId };
+  }
+
+  private resolveLimit(limit: number | undefined, correlationId: string): number {
+    if (limit === undefined) return TICKS_DEFAULT_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1 || limit > TICKS_MAX_LIMIT) {
+      throw new TickError(
+        TickErrorCode.INVALID_LIMIT,
+        `limit must be an integer between 1 and ${TICKS_MAX_LIMIT}`,
+        correlationId,
+      );
+    }
+    return limit;
+  }
+
+  private encodeCursor(periodStart: Date): string {
+    return Buffer.from(periodStart.toISOString(), 'utf8').toString('base64url');
+  }
+
+  private decodeCursor(
+    cursor: string | undefined,
+    correlationId: string,
+  ): Date | undefined {
+    if (cursor === undefined || cursor === '') return undefined;
+    try {
+      const decoded = Buffer.from(cursor, 'base64url').toString('utf8');
+      const date = new Date(decoded);
+      if (Number.isNaN(date.getTime())) throw new Error('invalid date');
+      return date;
+    } catch {
+      throw new TickError(
+        TickErrorCode.INVALID_CURSOR,
+        'cursor is not a valid pagination token',
+        correlationId,
+      );
+    }
+  }
+
+  /** Deny-by-default authz for the ticks read endpoint. */
+  private authorizeTicks(
+    actor: CandleActor | undefined,
+    correlationId: string,
+  ): void {
+    const allowed =
+      !!actor &&
+      actor.roles.some((r) => (TICKS_READ_ROLES as readonly string[]).includes(r));
+    if (!allowed) {
+      throw new TickError(
+        TickErrorCode.UNAUTHORIZED,
+        'Caller is not authorized to read ticks',
+        correlationId,
+      );
+    }
   }
 
   private async aggregatePeriod(
@@ -248,7 +433,7 @@ export class CandlesService {
 
   /**
    * Idempotency/concurrency guard: a replayed or concurrent request for the
-   * same interval+period is rejected instead of racing the upsert.
+   * same interval+period is rejected instead of racing.
    */
   private async runExclusive<T>(
     key: string,
@@ -258,30 +443,18 @@ export class CandlesService {
     if (this.inFlight.has(key)) {
       throw new CandleError(
         CandleErrorCode.CONCURRENT_PROCESSING,
-        `Candle processing already in flight for ${key}`,
+        `Concurrent processing for ${key} rejected`,
         correlationId,
       );
     }
     this.inFlight.add(key);
     try {
       return await fn();
-    } catch (err) {
-      // Fail-closed: surface dependency outages as a stable, typed error.
-      if (err instanceof CandleError) throw err;
-      this.logger.error(
-        `Candle processing failed for ${key} correlationId=${correlationId}: ${(err as Error).message}`,
-      );
-      throw new CandleError(
-        CandleErrorCode.DEPENDENCY_UNAVAILABLE,
-        'Candle processing dependency unavailable',
-        correlationId,
-      );
     } finally {
       this.inFlight.delete(key);
     }
   }
 
-  /** Folds one more open/high/low/close/volume sample into the running candle for a pool. */
   private accumulate(
     byPool: Map<string, Ohlcv>,
     poolId: string,
@@ -303,6 +476,6 @@ export class CandlesService {
   }
 
   private static newCorrelationId(): string {
-    return `candles-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    return `cnd_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
   }
 }
