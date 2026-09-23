@@ -24,6 +24,62 @@ Deployed testnet contract IDs live in:
 
 Wire addresses into the API via the env keys listed in that registry (see `apps/api/.env.example`).
 
+## Contract address drift gate (`validate:contracts`)
+
+The canonical contract registry is the **Contracts** table above plus the
+per-network JSON registries under `packages/contract/deployments/`. The
+`validate:contracts` check is the single source of truth for detecting
+**address drift** between what is configured/deployed and what is documented.
+
+### What it validates
+
+- **Missing entries.** A contract listed in the canonical registry but absent
+  from a network's deployment JSON (or env config) fails the gate.
+- **Extra entries.** A contract present in a deployment JSON but not in the
+  canonical registry fails the gate (renamed/removed contracts must be
+  reconciled, not silently left behind).
+- **Renamed entries.** A contract whose name changed between the registry and
+  a deployment JSON is reported as a rename (missing + extra pair), not as two
+  unrelated errors.
+- **Address mismatch.** A contract whose configured address differs from the
+  canonical/deployed address for that network fails the gate.
+- **Testnet vs mainnet.** Each network is validated independently against its
+  own registry; a testnet address must never be accepted for a mainnet entry
+  (and vice versa). Cross-network address reuse is a hard failure.
+
+### Fail-closed behavior
+
+- The gate **exits non-zero** on any drift, missing/extra/renamed entry, or
+  address mismatch. It never warns-and-continues on a money-path mismatch.
+- If the canonical registry or a deployment JSON cannot be read/parsed, the
+  gate fails closed (non-zero) rather than skipping validation.
+- The gate runs in CI on every PR and is a **required check**; a red gate
+  blocks merge.
+
+### Stable error codes
+
+| Code | Name                | Meaning                                                    |
+| ---- | ------------------- | ---------------------------------------------------------- |
+| 1    | `MissingEntry`      | Canonical contract absent from a network registry          |
+| 2    | `ExtraEntry`        | Network registry entry not present in the canonical set    |
+| 3    | `RenamedEntry`      | Contract name changed between registry and deployment      |
+| 4    | `AddressMismatch`   | Configured address differs from canonical/deployed address |
+| 5    | `NetworkMismatch`   | Testnet address used for mainnet entry (or vice versa)     |
+| 6    | `RegistryUnreadable`| Canonical registry or deployment JSON missing/unparseable  |
+
+### Observability
+
+- Drift failures print the stable error code, the offending contract name,
+  the network, and a per-run **correlation id** so CI logs can be traced.
+- Output **never** includes secrets, private keys, or full environment dumps;
+  only contract names, networks, and public addresses are shown.
+
+### Rollout / rollback
+
+- The gate is additive and read-only: it inspects registries and config, it
+  does not deploy or mutate chain state.
+- Rollback: revert the CI job/step; no on-chain state migration is required.
+
 ## math-lib: Fixed-Point (Q64.96) Invariants
 
 The `math-lib` contract provides fixed-point arithmetic in **Q64.96** format
@@ -154,60 +210,6 @@ never influence the TWAP of another.
 - Rollback: flip the flag off and redeploy the previous oracle-adapter wasm;
   no pool state migration is required.
 
-## Router: Single-Hop Swap Routing (Exact In / Exact Out)
+## Router: Single-Hop Swap Routing (Exact In / Exact
 
-The `router` contract exposes two single-hop entrypoints. Both are typed, return
-stable error codes, and are deny-by-default for privileged surfaces.
-
-### Entrypoints
-
-| Entrypoint        | Direction  | Amount semantics                          |
-| ----------------- | ---------- | ----------------------------------------- |
-| `swap_exact_in`   | exact in   | `amount_in` fixed; `amount_out_min` bound |
-| `swap_exact_out`  | exact out  | `amount_out` fixed; `amount_in_max` bound |
-
-### Invariants
-
-- **Single-hop only.** The router resolves exactly one pool for the
-  `(token_in, token_out)` pair; multi-hop paths are rejected with
-  `RouterError::UnsupportedPath`.
-- **Server/contract is source of truth.** Balances, reserves, and swap results
-  are read from the pool contract; the router never trusts client-supplied
-  amounts beyond the caller's slippage bound.
-- **Slippage is fail-closed.** `swap_exact_in` reverts with
-  `RouterError::SlippageExceeded` when the realized output is below
-  `amount_out_min`; `swap_exact_out` reverts with the same code when the
-  required input exceeds `amount_in_max`.
-- **Idempotency.** Each swap carries a caller-supplied `correlation_id`.
-  Replayed or concurrent requests with a previously consumed id are rejected
-  with `RouterError::DuplicateRequest` and never mutate pool state twice.
-- **Fail-closed on dependency outage.** If the pool/RPC dependency is
-  unavailable, writes revert with `RouterError::DependencyUnavailable` rather
-  than proceeding on stale data.
-
-### Stable error codes
-
-| Code | Name                     | Meaning                                        |
-| ---- | ------------------------ | ---------------------------------------------- |
-| 1    | `Unauthorized`           | Caller lacks the required role/authorization   |
-| 2    | `UnsupportedPath`        | Not a single-hop `(token_in, token_out)` pair  |
-| 3    | `SlippageExceeded`       | Realized amount violates the caller's bound    |
-| 4    | `DuplicateRequest`       | `correlation_id` already consumed (replay)     |
-| 5    | `DependencyUnavailable`  | Pool/RPC dependency outage; write failed closed|
-| 6    | `InvalidAmount`          | Zero/negative or malformed amount              |
-
-### Authorization
-
-- Swap entrypoints are permissionless for the caller's own funds but every
-  request is authorized against routing policy; untrusted clients cannot
-  bypass the single-hop resolution or slippage checks.
-- Privileged surfaces (pool registration, fee/admin config) are
-  **deny-by-default** and require the admin role; unauthorized callers receive
-  `RouterError::Unauthorized`.
-
-### Observability
-
-- Money-path metrics are emitted per swap: direction (exact in/out), pool id,
-  token 
-
-/* … truncated 4521 chars — edit only what you need near the top … */
+/* … truncated 2804 chars — edit only what you need near the top … */

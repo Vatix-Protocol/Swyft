@@ -200,3 +200,33 @@ jobs:
 
       - name: cargo build (release wasm)
         run: cargo build --workspace --release --target wasm32-unknown-unknown
+
+  validate-contracts:
+    name: validate:contracts (address drift gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate contract addresses against CONTRACTS.md (testnet)
+        env:
+          STELLAR_NETWORK: testnet
+          DRIFT_CORRELATION_ID: ${{ github.run_id }}-${{ github.run_attempt }}-testnet
+        run: pnpm validate:contracts -- --network testnet
+
+      - name: Validate contract addresses against CONTRACTS.md (mainnet)
+        env:
+          STELLAR_NETWORK: mainnet
+          DRIFT_CORRELATION_ID: ${{ github.run_id }}-${{ github.run_attempt }}-mainnet
+        run: pnpm validate:contracts -- --network mainnet
