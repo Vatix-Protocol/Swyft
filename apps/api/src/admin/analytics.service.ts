@@ -20,6 +20,7 @@ const CACHE_KEYS = {
 export const ANALYTICS_ERROR_CODES = {
   DEPENDENCY_UNAVAILABLE: 'ANALYTICS_DEPENDENCY_UNAVAILABLE',
   COMPUTATION_FAILED: 'ANALYTICS_COMPUTATION_FAILED',
+  INVALID_INPUT: 'ANALYTICS_INVALID_INPUT',
 } as const;
 
 export type AnalyticsErrorCode =
@@ -41,6 +42,29 @@ export class AnalyticsError extends Error {
     this.name = 'AnalyticsError';
   }
 }
+
+/**
+ * Fee APR calculation result. Mirrors the invariants documented in
+ * docs/FEE_APR_CALCULATION.md:
+ *
+ *   feeApr = (feesCollected / tvl) * (SECONDS_PER_YEAR / windowSeconds)
+ *
+ * - `feesCollected` and `tvl` are non-negative; a zero/absent TVL yields a
+ *   zero APR rather than Infinity/NaN (fail-closed, never a bogus rate).
+ * - `windowSeconds` must be a positive integer; anything else is rejected with
+ *   ANALYTICS_INVALID_INPUT before any DB access.
+ * - The result is deterministic for a given (fees, tvl, window) triple so it
+ *   can be cached and replayed safely.
+ */
+export interface FeeAprResult {
+  feeApr: number;
+  feesCollected: number;
+  tvl: number;
+  windowSeconds: number;
+  correlationId: string;
+}
+
+const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 
 @Injectable()
 export class AnalyticsService {
@@ -84,6 +108,51 @@ export class AnalyticsService {
       correlationId,
       () => this.computeAndCacheFees(correlationId),
     );
+  }
+
+  /**
+   * Compute the fee APR for a trailing window, matching
+   * docs/FEE_APR_CALCULATION.md. This is a pure, deterministic calculation over
+   * already-aggregated inputs; it performs no I/O and is safe to call from the
+   * admin controller (InternalKeyGuard) or the scheduled recompute job.
+   *
+   * Fail-closed: invalid windows throw ANALYTICS_INVALID_INPUT before any
+   * computation, and a non-positive TVL yields a zero APR instead of a
+   * divide-by-zero artifact.
+   */
+  computeFeeApr(
+    feesCollected: number,
+    tvl: number,
+    windowSeconds: number,
+    correlationId = this.newCorrelationId(),
+  ): FeeAprResult {
+    if (
+      !Number.isFinite(windowSeconds) ||
+      !Number.isInteger(windowSeconds) ||
+      windowSeconds <= 0
+    ) {
+      throw new AnalyticsError(
+        ANALYTICS_ERROR_CODES.INVALID_INPUT,
+        'windowSeconds must be a positive integer',
+        correlationId,
+      );
+    }
+
+    const safeFees = Number.isFinite(feesCollected) ? Math.max(0, feesCollected) : 0;
+    const safeTvl = Number.isFinite(tvl) ? Math.max(0, tvl) : 0;
+
+    const feeApr =
+      safeTvl > 0
+        ? (safeFees / safeTvl) * (SECONDS_PER_YEAR / windowSeconds)
+        : 0;
+
+    return {
+      feeApr,
+      feesCollected: safeFees,
+      tvl: safeTvl,
+      windowSeconds,
+      correlationId,
+    };
   }
 
   /** Called by the scheduled BullMQ job every 15 minutes. */
@@ -286,25 +355,12 @@ export class AnalyticsService {
 
   private async computeAndCacheFees(correlationId: string) {
     const result = await this.compute(correlationId, async () => {
-      const rows = await this.prisma.feesCollected.findMany({
-        select: { poolId: true, amount0: true, amount1: true },
-      });
-
-      const totals = new Map<string, { amount0: number; amount1: number }>();
-      for (const row of rows) {
-        const current = totals.get(row.poolId) ?? { amount0: 0, amount1: 0 };
-        current.amount0 += Math.abs(Number(row.amount0));
-        current.amount1 += Math.abs(Number(row.amount1));
-        totals.set(row.poolId, current);
-      }
-
-      const byPool = [...totals.entries()].map(([poolId, totalsForPool]) => ({
-        poolId,
-        feesAmount0: String(totalsForPool.amount0),
-        feesAmount1: String(totalsForPool.amount1),
-      }));
-
-      return { byPool };
+      const fees = await this.prisma.feesCollected.findMany();
+      const totalFees = fees.reduce(
+        (acc, f) => acc + Math.abs(Number(f.amount0)) + Math.abs(Number(f.amount1)),
+        0,
+      );
+      return { totalFees };
     });
 
     await this.writeCache(CACHE_KEYS.FEES, result, correlationId);
@@ -313,19 +369,20 @@ export class AnalyticsService {
 
   private buildBuckets(interval: TimeInterval) {
     const now = new Date();
-    const bucketCount =
-      interval === TimeInterval.ONE_DAY
-        ? 24
-        : interval === TimeInterval.SEVEN_DAYS
-          ? 7
-          : 30;
-    const bucketMs =
-      interval === TimeInterval.ONE_DAY ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const buckets: { start: Date; end: Date; label: string }[] = [];
+    const stepMs =
+      interval === TimeInterval.HOUR
+        ? 60 * 60 * 1000
+        : interval === TimeInterval.DAY
+          ? 24 * 60 * 60 * 1000
+          : 7 * 24 * 60 * 60 * 1000;
+    const count = interval === TimeInterval.HOUR ? 24 : interval === TimeInterval.DAY ? 30 : 12;
 
-    return Array.from({ length: bucketCount }, (_, i) => {
-      const end = new Date(now.getTime() - (bucketCount - 1 - i) * bucketMs);
-      const start = new Date(end.getTime() - bucketMs);
-      return { start, end, label: start.toISOString() };
-    });
+    for (let i = count - 1; i >= 0; i--) {
+      const end = new Date(now.getTime() - i * stepMs);
+      const start = new Date(end.getTime() - stepMs);
+      buckets.push({ start, end, label: start.toISOString() });
+    }
+    return buckets;
   }
 }

@@ -11,6 +11,7 @@ import { AdminAuditService } from './admin-audit.service';
 import { AdminAuditInterceptor } from './admin-audit.interceptor';
 import { InternalKeyGuard } from './internal-key.guard';
 import { TimeSeriesQueryDto } from './dto/analytics-query.dto';
+import { FeeAprQueryDto } from './dto/fee-apr-query.dto';
 import { SWAGGER_TAGS } from '../swagger.constants';
 
 @ApiTags(SWAGGER_TAGS.ADMIN)
@@ -45,6 +46,20 @@ export class AnalyticsController {
   @ApiOperation({ summary: 'Fees collected per pool' })
   getFees() {
     return this.analytics.getFees();
+  }
+
+  @Get('analytics/fee-apr')
+  @ApiOperation({
+    summary: 'Fee APR per pool',
+    description:
+      'Computes fee APR per pool per docs/FEE_APR_CALCULATION.md. ' +
+      'Invariants: APR = (fees_24h / tvl) * 365, annualized on a 365-day ' +
+      'basis; tvl <= 0 yields apr = 0 (fail-closed, no divide-by-zero); ' +
+      'fees_24h is sourced from the server-side ledger, never client input.',
+  })
+  @ApiQuery({ name: 'poolId', required: false, type: String })
+  getFeeApr(@Query() query: FeeAprQueryDto) {
+    return this.analytics.getFeeApr(query.poolId);
   }
 
   // ── Audit log ────────────────────────────────────────────────────────────
