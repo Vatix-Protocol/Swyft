@@ -59,6 +59,15 @@ Operators must follow these runbooks exactly. Deploy entrypoints are privileged 
 - Deploy and ops paths emit actionable metrics and structured logs (success/failure counts, latency, dependency health) without including secrets or sensitive payloads.
 - Money-path operations are instrumented so regressions are detectable.
 
+## API Changelog Discipline
+
+Security-relevant API changes must be recorded in the canonical changelog at [`docs/API_CHANGELOG.md`](docs/API_CHANGELOG.md). This is required so that authz, error-code, and money-path changes are auditable and so contributors can see the security impact of a change before it ships.
+
+- Every entry records the affected endpoints/entrypoints, error codes, and the authz/scope impact of the change.
+- Breaking changes and any money-path or mainnet-affecting change must be flagged and include migration and rollback notes.
+- Changes that alter authentication, authorization, secret handling, or error-code semantics must be cross-referenced here and in the changelog entry.
+- The changelog is the source of truth for what changed and when; contradictory copy elsewhere must be removed when a change lands.
+
 ## Rollback and Kill-Switch
 
 Every money-path or mainnet-affecting change lands behind a feature flag or kill-switch. Rollback steps are documented in the corresponding runbook and in the PR description. Operators can disable a risky change without a redeploy.
