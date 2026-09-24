@@ -5,7 +5,7 @@
 below was never implemented (no `@trpc/*` dependency, no `apps/api/src/trpc/`
 in the tree) and is superseded by this decision. `docs/TRPC-IMPLEMENTATION.md`
 remains archived for reference only.  
-**Context:** Issue #548, #511, #861
+**Context:** Issue #548, #511, #861, #996
 
 ## Problem
 
@@ -120,9 +120,71 @@ recommendation above, which was never implemented. `docs/TRPC-IMPLEMENTATION.md`
 stays archived as a reference blueprint only, and should not be picked back
 up without a new ADR reopening this decision.
 
+## API Invariants (REST-only, issue #996)
+
+These invariants are normative for every REST entrypoint in `apps/api` and
+must be enforced by code review and tests. They make the REST-only decision
+operationally safe for money-path surfaces (pools, swaps, settlement).
+
+1. **Typed entrypoints.** Every controller method has an explicit request DTO
+   and response DTO (or a shared `@swyft/types` interface). No `any` on the
+   wire. Validation runs via `ValidationPipe` with `whitelist: true` and
+   `forbidNonWhitelisted: true` so unknown fields are rejected, not ignored.
+2. **Stable error codes.** Errors are returned as
+   `{ code, message, correlationId }` where `code` is a stable, documented
+   string (e.g. `POOL_NOT_FOUND`, `INSUFFICIENT_LIQUIDITY`, `UNAUTHORIZED`).
+   HTTP status is derived from the code; clients must branch on `code`, never
+   on `message`.
+3. **Correlation ids.** Every request carries or is assigned an
+   `x-correlation-id` (UUIDv4 when absent). It is echoed in the response
+   header, included in the error body, and attached to every log line and
+   metric for that request. Correlation ids must never contain user input
+   verbatim.
+4. **Deny-by-default authz.** New privileged surfaces (admin, treasury,
+   settlement, config) are guarded by default. A route is public only when it
+   is explicitly annotated as such and reviewed. Untrusted clients cannot
+   bypass policy by omitting headers, spoofing roles, or replaying tokens.
+5. **Idempotency on writes.** Money-path writes (swap, add/remove liquidity,
+   settlement) require an `Idempotency-Key`. Replays with the same key and
+   same body return the original result; same key with a different body is
+   rejected with `IDEMPOTENCY_KEY_REUSED`.
+6. **Fail-closed on dependency outage.** If the DB, Redis, or Horizon RPC is
+   unavailable, write endpoints fail closed with `503 SERVICE_UNAVAILABLE` and
+   a stable code. Reads may serve cached data only when explicitly marked
+   stale; they must never fabricate balances.
+7. **Server is source of truth.** Balances, swap quotes, and admin state are
+   computed server-side. Client-supplied amounts, prices, or roles are treated
+   as untrusted input and re-validated against on-chain/DB state.
+8. **Rate limiting.** Every external entrypoint is rate-limited per identity
+   (API key, JWT subject, or IP for anonymous reads). Limits are enforced
+   before any DB/RPC work.
+9. **Observability without secrets.** Metrics and logs record route, status,
+   latency, correlation id, and stable error code. They never log tokens,
+   private keys, full request bodies, or PII. Money-path endpoints emit
+   counters for success/failure and a latency histogram.
+10. **Feature flags / kill switch.** Any change that can move funds or affect
+    mainnet is gated behind a feature flag with a documented kill switch and
+    rollback path in the PR description.
+
+### Test expectations
+
+- Unit tests assert each invariant, including auth negatives (missing role,
+  expired token, wrong tenant) and idempotency replay behavior.
+- Integration/e2e tests cover the critical path (quote → swap → settlement)
+  against a testnet or mocked Horizon, and assert fail-closed behavior when
+  the DB/Redis/RPC dependency is down.
+- CI must stay green; new privileged surfaces add a required check rather than
+  relying on reviewer memory.
+
+### Mainnet safety
+
+No irreversible mainnet action ships without the readiness checklist. Risky
+changes land behind a flag first, with the rollback documented in the PR.
+
 ---
 
 ## Related Issues
 - #511 — Original API strategy discussion
 - #548 — This spike (tRPC prototype)
+- #996 — ADR-001 API strategy followed (invariants above)
 - Future: Hardening phase, mobile considerations
