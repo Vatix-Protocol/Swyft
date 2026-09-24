@@ -31,6 +31,7 @@ import { stellarConfig, resolveStellarConfig, stellarConfigSummary } from './con
 import { infraConfig } from './config/infra.config';
 import { resolveCorsConfig } from './config/cors.config';
 import { resolveRateLimitConfig, RateLimitConfig } from './config/rate-limit.config';
+import { resolveApiStrategyConfig, apiStrategySummary } from './config/api-strategy.config';
 import { applySentryRedactionPolicy } from './observability/sentry-redaction';
 
 @Module({
@@ -96,6 +97,15 @@ export class AppModule implements NestModule {
     const stellar = resolveStellarConfig(process.env);
     // eslint-disable-next-line no-console
     console.log('[stellar-config] resolved', stellarConfigSummary(stellar));
+
+    // Enforce the ADR-001 API strategy at bootstrap (issue #996).
+    // Fail-closed: an unsupported API version, a money-path surface enabled
+    // without its kill-switch, or a privileged surface left deny-by-default
+    // disabled aborts startup rather than serving an out-of-policy API.
+    // Only an ops-safe summary (no secrets) is logged.
+    const apiStrategy = resolveApiStrategyConfig(process.env);
+    // eslint-disable-next-line no-console
+    console.log('[api-strategy] resolved', apiStrategySummary(apiStrategy));
   }
 
   configure(consumer: MiddlewareConsumer): void {

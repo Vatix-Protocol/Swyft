@@ -16,6 +16,24 @@ Where:
 - `365`: Days in a year (annual projection)
 - `100`: Convert to percentage
 
+## Invariants
+
+These invariants are the contract for the fee APR path. Any change to the
+implementation MUST preserve them, and they are asserted by the tests in
+`apps/api/src/stats/stats.worker.spec.ts`.
+
+1. **Non-negative**: `feeApr >= 0` for all inputs. Fees and TVL are never
+   negative, so the ratio cannot be negative.
+2. **Zero TVL is fail-closed**: when `tvl <= 0` (or non-finite), `feeApr = 0`.
+   The calculation never divides by zero and never emits `Infinity`/`NaN`.
+3. **Zero fees is zero APR**: when `fees24h = 0`, `feeApr = 0`.
+4. **Monotonic in fees**: for a fixed `tvl > 0`, a larger `fees24h` yields a
+   larger-or-equal `feeApr`.
+5. **Finite output**: `feeApr` is always a finite number; non-finite inputs
+   (`NaN`, `Infinity`) are treated as `0` rather than propagated.
+6. **Deterministic**: the same `(fees24h, tvl)` pair always produces the same
+   `feeApr`; the function is pure and has no hidden state.
+
 ## Calculation Details
 
 ### 1. Fees 24h Calculation
@@ -58,6 +76,8 @@ const tvl = reserve0 * priceA + reserve1 * priceB;
 
 - **Zero TVL**: If `tvl = 0`, then `feeApr = 0` to avoid division by zero
 - **No Swaps in 24h**: If there are no swaps in the last 24 hours, `fees24h = 0` and `feeApr = 0`
+- **Non-finite inputs**: If `fees24h` or `tvl` is `NaN`/`Infinity` (e.g. a
+  missing price feed), the result is `0` rather than a non-finite APR
 
 ## Update Frequency
 
@@ -101,6 +121,24 @@ await this.prisma.pool.update({
     feeApr: String(feeApr),
   },
 });
+```
+
+## Testing
+
+The invariants above are covered by unit tests in
+`apps/api/src/stats/stats.worker.spec.ts`:
+
+- `feeApr` is `0` when TVL is `0` (fail-closed, no division by zero)
+- `feeApr` is `0` when there are no swaps in the last 24 hours
+- `feeApr` matches the documented formula for a known `(fees24h, tvl)` pair
+- `feeApr` is non-negative and finite for adversarial inputs (`NaN`,
+  `Infinity`, negative values)
+- `feeApr` is monotonic in `fees24h` for a fixed `tvl`
+
+Run them with:
+
+```
+pnpm --filter @swyft/api test stats.worker
 ```
 
 ## Related Features

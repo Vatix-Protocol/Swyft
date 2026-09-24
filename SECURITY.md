@@ -29,6 +29,14 @@ Swyft is a non-custodial interface to the Stellar network. The following invaria
 - **No secrets in the repository or logs.** Credentials, keys, and tokens are supplied via environment variables and are never logged or committed.
 - **Every external entrypoint is authenticated and rate-limited.** Untrusted clients cannot bypass policy by replaying, forging, or racing requests.
 
+## Architecture and Trust Boundaries
+
+For the monorepo layout, package responsibilities, and the trust boundaries between the web client, API, and on-chain contracts, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). That document is the canonical overview; this policy describes the security controls that enforce its boundaries.
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components, packages, and data flows across the monorepo.
+- [`README.md`](README.md) — project overview and contributor entrypoint.
+- [`docs/CONTRACTS.md`](docs/CONTRACTS.md) — on-chain contract interfaces and the source-of-truth guarantees they provide.
+
 ## API Transport Decision (GraphQL vs tRPC)
 
 The canonical API transport for Swyft is **tRPC**. This decision is recorded in [`docs/GRAPHQL_VS_TRPC_SPIKE.md`](docs/GRAPHQL_VS_TRPC_SPIKE.md) and the implementation is described in [`docs/TRPC-IMPLEMENTATION.md`](docs/TRPC-IMPLEMENTATION.md). GraphQL is the rejected alternative and is not a supported transport; any copy implying GraphQL is canonical is out of date.
