@@ -28,6 +28,50 @@ external/third-party consumers. Neither tRPC nor GraphQL is adopted. See
 `docs/TRPC-IMPLEMENTATION.md` for the archived tRPC blueprint, kept for
 reference only.
 
+REST is the canonical transport. Any copy elsewhere implying tRPC or GraphQL is
+canonical is stale and should be corrected to point here.
+
+## Invariants (apply to every transport, REST included)
+
+These hold regardless of transport and are the contract the decision must not
+weaken:
+
+1. **Server/contract is the source of truth.** Balances, swaps, and admin state
+   are authoritative only on the server/contract. Clients never compute or
+   assert final balances; they render what the API returns.
+2. **Deny-by-default authz on every entrypoint.** Every external entrypoint is
+   authenticated and authorized before any state is read or written. New
+   privileged surfaces start denied and must be explicitly granted. See
+   `apps/api/src/auth/AUTH_FLOW.md` and `SECURITY.md`.
+3. **Idempotency for concurrent/replayed requests.** Money-path writes accept an
+   idempotency key; replays return the original result instead of double-applying.
+4. **Fail-closed writes on dependency outage.** If RPC/DB/Redis is unavailable,
+   writes fail closed (reject) rather than partially applying. Reads may degrade
+   explicitly, never silently.
+5. **Auth expiry / wrong role.** Expired credentials and insufficient roles are
+   rejected with stable error codes; no privileged fallback path.
+6. **No secrets in repo or logs.** Tokens, keys, and credentials never appear in
+   source, fixtures, or log output.
+
+## Observability & error contract
+
+- Every request carries a **correlation id** propagated through logs and
+  responses so ops can trace a single call end to end.
+- Errors use **stable, documented error codes** (not free-form strings) so
+  clients and runbooks can branch deterministically.
+- Metrics/logs are **ops-safe**: they record outcome, latency, and error code
+  without leaking secrets or full request bodies.
+- Money-path operations emit metrics so liquidity/trading/settlement health is
+  observable.
+
+## Feature flag / kill-switch & rollback
+
+Any money-path or mainnet-affecting change lands **behind a feature flag** with a
+kill-switch that reverts to the prior behavior without a redeploy. The PR
+description must state the flag name, default state, and the rollback procedure.
+Irreversible mainnet changes are out of scope until the readiness checklist is
+satisfied.
+
 ## Next steps (closed)
 - [x] Confirm whether any external/third-party consumers exist today that would be broken by moving internal calls off REST. — Yes: `@swyft/sdk` and any external integrator hit the REST surface directly; REST stays to avoid breaking them.
 - [x] Prototype one tRPC router alongside existing REST routes to measure DX/migration cost. — Skipped: REST-only was chosen without a prototype: single first-party web client plus existing external REST consumers don't justify the added operational surface of a second API layer.

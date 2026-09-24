@@ -29,6 +29,21 @@ Swyft is a non-custodial interface to the Stellar network. The following invaria
 - **No secrets in the repository or logs.** Credentials, keys, and tokens are supplied via environment variables and are never logged or committed.
 - **Every external entrypoint is authenticated and rate-limited.** Untrusted clients cannot bypass policy by replaying, forging, or racing requests.
 
+## API Transport Decision (GraphQL vs tRPC)
+
+The canonical API transport for Swyft is **tRPC**. This decision is recorded in [`docs/GRAPHQL_VS_TRPC_SPIKE.md`](docs/GRAPHQL_VS_TRPC_SPIKE.md) and the implementation is described in [`docs/TRPC-IMPLEMENTATION.md`](docs/TRPC-IMPLEMENTATION.md). GraphQL is the rejected alternative and is not a supported transport; any copy implying GraphQL is canonical is out of date.
+
+The transport decision does not weaken the security model above. The following invariants apply to every tRPC entrypoint:
+
+- **Server/contract remains the source of truth** for balances, swaps, settlement, and admin state. Procedures never trust client-supplied balances or authorization claims.
+- **Deny-by-default authz.** Every procedure declares its required scope; unauthenticated or wrong-role callers are rejected. There is no unauthenticated path to a privileged procedure.
+- **Idempotency for concurrent/replayed requests.** Money-path mutations accept an idempotency key; concurrent or replayed requests with the same key are deduplicated and do not re-execute side effects.
+- **Fail-closed writes.** If RPC, database, or Redis is unavailable, write procedures fail closed rather than proceeding on partial or unverified state.
+- **Auth expiry / wrong role.** Expired, missing, or wrong-role credentials are rejected with stable error codes and a correlation id.
+- **No secrets in repo or logs.** Procedure inputs, outputs, and logs never include credentials, keys, or tokens.
+
+See [`apps/api/src/auth/AUTH_FLOW.md`](apps/api/src/auth/AUTH_FLOW.md) for the authentication and authorization flow that backs these invariants.
+
 ## Deploy and Ops Security
 
 Deployment and operational procedures are security-sensitive. The executable runbooks define the required controls:
