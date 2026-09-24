@@ -37,6 +37,21 @@ For the monorepo layout, package responsibilities, and the trust boundaries betw
 - [`README.md`](README.md) — project overview and contributor entrypoint.
 - [`docs/CONTRACTS.md`](docs/CONTRACTS.md) — on-chain contract interfaces and the source-of-truth guarantees they provide.
 
+## API Transport Decision (GraphQL vs tRPC)
+
+The canonical API transport for Swyft is **tRPC**. This decision is recorded in [`docs/GRAPHQL_VS_TRPC_SPIKE.md`](docs/GRAPHQL_VS_TRPC_SPIKE.md) and the implementation is described in [`docs/TRPC-IMPLEMENTATION.md`](docs/TRPC-IMPLEMENTATION.md). GraphQL is the rejected alternative and is not a supported transport; any copy implying GraphQL is canonical is out of date.
+
+The transport decision does not weaken the security model above. The following invariants apply to every tRPC entrypoint:
+
+- **Server/contract remains the source of truth** for balances, swaps, settlement, and admin state. Procedures never trust client-supplied balances or authorization claims.
+- **Deny-by-default authz.** Every procedure declares its required scope; unauthenticated or wrong-role callers are rejected. There is no unauthenticated path to a privileged procedure.
+- **Idempotency for concurrent/replayed requests.** Money-path mutations accept an idempotency key; concurrent or replayed requests with the same key are deduplicated and do not re-execute side effects.
+- **Fail-closed writes.** If RPC, database, or Redis is unavailable, write procedures fail closed rather than proceeding on partial or unverified state.
+- **Auth expiry / wrong role.** Expired, missing, or wrong-role credentials are rejected with stable error codes and a correlation id.
+- **No secrets in repo or logs.** Procedure inputs, outputs, and logs never include credentials, keys, or tokens.
+
+See [`apps/api/src/auth/AUTH_FLOW.md`](apps/api/src/auth/AUTH_FLOW.md) for the authentication and authorization flow that backs these invariants.
+
 ## Deploy and Ops Security
 
 Deployment and operational procedures are security-sensitive. The executable runbooks define the required controls:
@@ -66,6 +81,15 @@ Operators must follow these runbooks exactly. Deploy entrypoints are privileged 
 
 - Deploy and ops paths emit actionable metrics and structured logs (success/failure counts, latency, dependency health) without including secrets or sensitive payloads.
 - Money-path operations are instrumented so regressions are detectable.
+
+## API Changelog Discipline
+
+Security-relevant API changes must be recorded in the canonical changelog at [`docs/API_CHANGELOG.md`](docs/API_CHANGELOG.md). This is required so that authz, error-code, and money-path changes are auditable and so contributors can see the security impact of a change before it ships.
+
+- Every entry records the affected endpoints/entrypoints, error codes, and the authz/scope impact of the change.
+- Breaking changes and any money-path or mainnet-affecting change must be flagged and include migration and rollback notes.
+- Changes that alter authentication, authorization, secret handling, or error-code semantics must be cross-referenced here and in the changelog entry.
+- The changelog is the source of truth for what changed and when; contradictory copy elsewhere must be removed when a change lands.
 
 ## Rollback and Kill-Switch
 

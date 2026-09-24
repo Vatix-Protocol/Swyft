@@ -25,6 +25,25 @@ unsafe default.
 | `SENTRY_DSN` | Sentry DSN. When unset, Sentry is disabled. |
 | `SENTRY_REDACTION_POLICY` | Redaction policy applied to every Sentry event. See below. |
 
+## API changelog
+
+The canonical API changelog lives at [`docs/API_CHANGELOG.md`](../../docs/API_CHANGELOG.md).
+It is the source of truth for the public API contract: stable error codes, entrypoint
+signatures, authz/scope changes, and migration notes.
+
+Discipline rules (see the changelog for the full policy):
+
+- Every externally observable API change gets an entry with the required fields
+  (date, version, change type, affected endpoints/entrypoints, error codes,
+  authz/scope impact, migration notes, rollback/flag status).
+- Breaking changes and money-path or mainnet-affecting changes must be flagged and
+  must include rollback notes before they land.
+- Error codes are part of the public contract and must not be renamed without a
+  migration entry.
+
+When a change touches authz or secret handling, cross-link the relevant entry to
+`SECURITY.md` so reviewers can trace the policy impact.
+
 ## Horizon service
 
 The Horizon service lives in `apps/api/src/horizon/`. It exposes typed entrypoints for
@@ -188,10 +207,6 @@ for the full policy specification.
 ## Contributing (Stellar Wave)
 
 - Keep Horizon write paths and db backup/restore fail-closed; do not add best-effort writes.
-- Keep changes scoped; do not refactor unrelated modules.
-- Add unit tests for invariants and auth negatives, plus integration/e2e coverage on the
-  critical path.
-- Update this README and any related runbooks when changing Horizon or backup/restore behavior.
-- Land money-path or mainnet-affecting changes behind a flag and document the
-  rollback in the PR description.
-- See `SECURITY.md` for reporting and secret-handling policy.
+- Keep changes scoped; do not refactor unrelated code.
+- Record every externally observable API change in `docs/API_CHANGELOG.md` before merging.
+- Flag breaking or money-path/mainnet-affecting changes and include rollback notes.

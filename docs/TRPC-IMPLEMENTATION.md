@@ -7,6 +7,13 @@ reference only; the API remains REST-only. Revisit ADR-001 before reviving
 this guide.  
 **Related:** ADR-001, Issue #548
 
+> **Decision (Issue #1001):** The GraphQL vs tRPC transport decision is
+> **recorded** in [`docs/GRAPHQL_VS_TRPC_SPIKE.md`](./GRAPHQL_VS_TRPC_SPIKE.md).
+> Outcome: **REST remains the canonical transport**; tRPC is **rejected** for
+> now and GraphQL is **deferred**. This guide is therefore **non-canonical** —
+> it must not be treated as an approved implementation plan. Any revival
+> requires a new ADR that supersedes the recorded decision.
+
 ## Overview
 
 This guide provides the complete blueprint for integrating tRPC into the Swyft API for type-safe web client queries. Once approved, follow these steps to implement Phase 1 (pools list prototype).
@@ -303,137 +310,36 @@ export function usePools(page = 1, limit = 20, orderBy = 'tvl') {
 
   return {
     pools: data?.items ?? [],
+    total: data?.total ?? 0,
+    totalPages: data?.totalPages ?? 0,
     isLoading,
     error,
-    page: data?.page,
-    total: data?.total,
   };
 }
 ```
 
-## Validation & Error Handling
+## Invariants (apply to any future transport work)
 
-### Input Validation with Zod
+These invariants are recorded in the decision doc and must hold regardless of
+transport. They are listed here so this guide cannot be read as relaxing them:
 
-All tRPC procedures use Zod for input validation:
+- **Server/contract is the source of truth** for balances, swaps, and admin
+  actions. Clients (REST, tRPC, or GraphQL) never compute authoritative state.
+- **Deny-by-default authz** on every entrypoint; untrusted clients cannot
+  bypass policy. See `apps/api/src/auth/AUTH_FLOW.md` and `SECURITY.md`.
+- **Idempotency** for concurrent/replayed requests on money paths.
+- **Fail-closed writes** when RPC/DB/Redis dependencies are unavailable.
+- **Auth expiry / wrong role** returns stable error codes, never partial writes.
+- **No secrets** in repo or logs; correlation ids only.
 
-```typescript
-const input = z.object({
-  page: z.number().int().min(1),
-  limit: z.number().int().min(1).max(100),
-  search: z.string().optional(),
-});
-```
+## Feature flag / rollback
 
-Zod throws `ZodError` on validation failure → tRPC returns 400 with error details.
-
-### Error Responses
-
-tRPC standardizes errors:
-
-```json
-{
-  "error": {
-    "code": "BAD_REQUEST",
-    "message": "Invalid input: page must be >= 1",
-    "data": {
-      "code": "INVALID_ARGUMENT",
-      "zodError": { /* validation details */ }
-    }
-  }
-}
-```
-
-## Caching Strategy
-
-### Response Caching (via CacheService)
-
-```typescript
-list: publicProcedure.input(...).query(async ({ input, ctx }) => {
-  const cacheKey = `pools:${JSON.stringify(input)}`;
-  
-  // Check cache
-  const cached = await ctx.cache?.get(cacheKey);
-  if (cached) return cached;
-  
-  // Query and cache for 30s
-  const result = await ctx.prisma.pool.findMany(...);
-  await ctx.cache?.set(cacheKey, result, 30);
-  
-  return result;
-}),
-```
-
-### Query Batching
-
-tRPC automatically batches multiple requests in a single HTTP call (when configured):
-
-```typescript
-// Web client fires N queries → tRPC sends 1 HTTP request with all
-trpc.useContext().setQueryData(['pools.list', { page: 1 }], data);
-```
-
-## Testing Phase 1 Router
-
-### Unit Test Example
-
-**File:** `apps/api/src/trpc/routers/pools.router.spec.ts`
-
-```typescript
-describe('poolsRouter', () => {
-  it('should return paginated pools', async () => {
-    const caller = appRouter.createCaller({
-      prisma: mockPrisma,
-      cache: mockCache,
-    });
-
-    const result = await caller.pools.list({
-      page: 1,
-      limit: 10,
-      orderBy: 'tvl',
-    });
-
-    expect(result.items).toHaveLength(10);
-    expect(result.total).toBeGreaterThanOrEqual(10);
-    expect(result.page).toBe(1);
-  });
-
-  it('should filter by search term', async () => {
-    const result = await caller.pools.list({
-      page: 1,
-      limit: 20,
-      search: 'USDC',
-    });
-
-    expect(
-      result.items.every(
-        (p) =>
-          p.token0.includes('USDC') ||
-          p.token1.includes('USDC')
-      )
-    ).toBe(true);
-  });
-});
-```
-
-## Next Steps (Phase 2)
-
-Once Phase 1 (pools router) is merged:
-
-1. **Auth middleware** — Wrap procedures with JWT verification
-2. **Response caching** — Integrate Redis for frequently accessed pools
-3. **Batch operations** — Support `pools.byIds([id1, id2, ...])` in one call
-4. **Error types** — Create custom error classes for domain-specific errors
-5. **Monitoring** — Track tRPC procedure latency in metrics
+Any money-path or mainnet-affecting change must land behind a feature flag or
+kill-switch with a documented rollback in the PR description. This guide does
+not authorize bypassing that requirement.
 
 ## References
 
-- [tRPC Docs](https://trpc.io/docs)
-- [Zod Validation](https://zod.dev)
-- [NestJS Integration](https://docs.nestjs.com)
-
----
-
-**Approved by:** ADR-001  
-**Implementation Lead:** To be assigned  
-**Timeline:** Phase 1 target: 1 sprint (8–12h)
+- [`docs/GRAPHQL_VS_TRPC_SPIKE.md`](./GRAPHQL_VS_TRPC_SPIKE.md) — recorded decision (Issue #1001)
+- [`apps/api/src/auth/AUTH_FLOW.md`](../apps/api/src/auth/AUTH_FLOW.md) — authz invariants
+- [`SECURITY.md`](../SECURITY.md) — security policy and deny-by-default posture

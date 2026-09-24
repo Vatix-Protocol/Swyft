@@ -3,6 +3,9 @@
 This document outlines the planned development phases for Swyft — a concentrated-liquidity DEX on Stellar.
 
 > Timelines are approximate. Phase boundaries may shift based on audit schedules and contributor availability.
+>
+> **Status source of truth:** Contract implementation status is tracked in [`CONTRACTS.md`](../CONTRACTS.md).
+> Where this roadmap and `CONTRACTS.md` disagree, `CONTRACTS.md` wins — open an issue or RFC to reconcile.
 
 ---
 
@@ -24,13 +27,16 @@ This document outlines the planned development phases for Swyft — a concentrat
 
 **Goal:** Production-ready Soroban contracts with comprehensive tests.
 
+> Per-contract implementation status (deployed, tested, audited) is maintained in [`CONTRACTS.md`](../CONTRACTS.md).
+> The checkboxes below track roadmap intent only; consult `CONTRACTS.md` for the authoritative status of each contract.
+
 - [ ] Concentrated liquidity pool with tick-based accounting
 - [ ] Full math-lib coverage (sqrt, liquidity delta, fee growth)
 - [ ] Pool factory with registry
 - [ ] Multi-hop router
 - [ ] Position NFT with on-chain metadata
 - [ ] Fee collector with configurable protocol split
-- [x] TWAP oracle adapter (pools record post-swap observations; `get_twap` serves time-weighted prices)
+- [ ] TWAP oracle adapter (pools record post-swap observations; `get_twap` serves time-weighted prices)
 - [ ] 100% unit test coverage
 - [ ] Testnet deployment + verification
 
@@ -56,10 +62,10 @@ This document outlines the planned development phases for Swyft — a concentrat
 **Goal:** Fully functional dApp UI.
 
 - [ ] Swap interface (single-hop and multi-hop)
-- [x] LP management (add/remove/rerange liquidity)
+- [ ] LP management (add/remove/rerange liquidity)
 - [ ] Pool browser with TVL, APR, volume charts
 - [ ] Portfolio dashboard (positions, unclaimed fees)
-- [x] Freighter wallet integration
+- [ ] Freighter wallet integration
 - [ ] xBull wallet integration (useWallet accepts a `WalletKind` but xBull
       is not wired up yet; connecting with it fails fast with
       `UNSUPPORTED_WALLET` — Freighter-only until this ships)
