@@ -3,6 +3,11 @@
 This document describes the data flow from the Stellar Horizon node through the
 indexer pipeline and into the NestJS REST/WebSocket API.
 
+> **Related docs:** [README.md](../README.md) (repo overview & quickstart) ·
+> [SECURITY.md](../SECURITY.md) (trust boundaries, secrets, disclosure) ·
+> [CONTRACTS.md](../CONTRACTS.md) (contract tree & deployment) ·
+> [docs/FEE_COLLECTOR_AUTH.md](./FEE_COLLECTOR_AUTH.md) (fee-collector authz model).
+
 ## Overview
 
 ```
@@ -68,17 +73,31 @@ HorizonService           apps/api/src/horizon/horizon.service.ts
 pool, swap, token, and search routes remain public.
 ```
 
+## Monorepo Layout
+
+The repository is a pnpm workspace. The API is the only runtime service in
+this tree; contracts and SDK are libraries consumed by it and by external
+clients.
+
+| Path | Package | Role |
+|---|---|---|
+| `apps/api/` | `@swyft/api` | NestJS REST/WebSocket service — indexer, query layer, auth, webhooks |
+| `packages/contract/` | Rust workspace | **Canonical** Soroban contracts (see below) |
+| `packages/contracts/` | Rust workspace | **Legacy / orphaned** — reference only, not built or deployed |
+| `packages/sdk/` | `@swyft/sdk` | Transaction builders for liquidity operations |
+| `docs/` | — | Architecture, ADRs, and operational runbooks |
+
 ## Component Responsibilities
 
 | Component | Path | Role |
 |---|---|---|
-| `HorizonService` | `src/horizon/horizon.service.ts` | Polls Stellar Horizon, parses on-chain events, enqueues jobs |
-| `IndexerWorker` | `src/indexer/indexer.worker.ts` | Consumes BullMQ queues, persists canonical events and projections |
-| `WebhooksService` | `src/webhooks/webhooks.service.ts` | Fans out events to registered HTTPS endpoints |
-| `PoolsService` | `src/pools/pools.service.ts` | Query layer for pool data |
-| `PriceService` | `src/price/price.service.ts` | Real-time price broadcasts over WebSocket |
-| `CacheService` | `src/cache/cache.service.ts` | Redis wrapper — ledger checkpoint, pub/sub, response cache |
-| `PrismaService` | `src/prisma/prisma.service.ts` | Shared Prisma client |
+| `HorizonService` | `apps/api/src/horizon/horizon.service.ts` | Polls Stellar Horizon, parses on-chain events, enqueues jobs |
+| `IndexerWorker` | `apps/api/src/indexer/indexer.worker.ts` | Consumes BullMQ queues, persists canonical events and projections |
+| `WebhooksService` | `apps/api/src/webhooks/webhooks.service.ts` | Fans out events to registered HTTPS endpoints |
+| `PoolsService` | `apps/api/src/pools/pools.service.ts` | Query layer for pool data |
+| `PriceService` | `apps/api/src/price/price.service.ts` | Real-time price broadcasts over WebSocket |
+| `CacheService` | `apps/api/src/cache/cache.service.ts` | Redis wrapper — ledger checkpoint, pub/sub, response cache |
+| `PrismaService` | `apps/api/src/prisma/prisma.service.ts` | Shared Prisma client |
 | `OracleAdapter` (contract) | `packages/contract/contracts/oracle-adapter` | Per-pool circular-buffer TWAP oracle; `pool`/`cl-pool` write a post-swap observation on every swap, `get_twap(window_secs)` serves time-weighted average prices |
 
 ## Contract Package Layout
@@ -110,6 +129,22 @@ there. `packages/contracts/` (plural) is kept only as a reference for logic
 that has not yet been ported/reconciled into the canonical tree; do not build
 new features on top of it, since it is not compiled, tested, or deployed by
 anything in this repo.
+
+## Trust Boundaries & Invariants
+
+- **Source of truth.** On-chain contracts are the sole authority for balances,
+  swaps, and admin actions. The API and indexer are read models: they project
+  and serve contract state, and never mutate balances or settle trades.
+- **Deny-by-default.** Every privileged surface (admin routes, webhook
+  management, position queries) requires explicit authorization; new
+  privileged endpoints must be gated before they are exposed.
+- **No secrets in repo or logs.** Credentials, signing keys, and webhook
+  secrets are supplied via environment/secret stores and must never be
+  committed or written to logs. See [SECURITY.md](../SECURITY.md).
+- **Fail-closed on writes.** When a dependency (Horizon RPC, PostgreSQL,
+  Redis) is unavailable, write paths reject rather than proceed on stale or
+  partial state; the ledger checkpoint only advances after a successful
+  persist.
 
 ## Ledger Checkpoint
 
