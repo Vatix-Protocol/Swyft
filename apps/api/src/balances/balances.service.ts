@@ -11,6 +11,47 @@ import {
 /** Same wallet-address shape check used by `GetSwapsQueryDto`. */
 const WALLET_ADDRESS_PATTERN = /^G[A-Z2-7]{55}$/;
 
+/**
+ * Server-side slippage policy. Clients may request a tolerance, but the
+ * server clamps it into these bounds and is the source of truth for the
+ * value that is ultimately enforced on-chain. `maxToleranceBps` is the
+ * hard ceiling an untrusted client can never exceed; `minToleranceBps`
+ * rejects adversarial zero/negative tolerances that would grief fills.
+ */
+export const SLIPPAGE_POLICY = {
+  minToleranceBps: 1,
+  maxToleranceBps: 500,
+  maxDeadlineSeconds: 300,
+  minDeadlineSeconds: 5,
+} as const;
+
+/** Stable error codes for slippage validation failures. */
+export const SLIPPAGE_ERROR_CODES = {
+  INVALID_TOLERANCE: 'SLIPPAGE_INVALID_TOLERANCE',
+  INVALID_DEADLINE: 'SLIPPAGE_INVALID_DEADLINE',
+  POLICY_UNAVAILABLE: 'SLIPPAGE_POLICY_UNAVAILABLE',
+} as const;
+
+export type SlippageErrorCode =
+  (typeof SLIPPAGE_ERROR_CODES)[keyof typeof SLIPPAGE_ERROR_CODES];
+
+/** Validated, server-clamped slippage parameters safe to enforce on-chain. */
+export interface EnforcedSlippageParams {
+  /** Clamped tolerance in basis points (1 bps = 0.01%). */
+  toleranceBps: number;
+  /** Absolute unix-seconds deadline derived from the requested window. */
+  deadline: number;
+  /** Correlation id echoed back for tracing/observability. */
+  correlationId: string;
+}
+
+/** Raw, untrusted slippage input as supplied by a client. */
+export interface SlippageRequest {
+  toleranceBps?: number;
+  deadlineSeconds?: number;
+  correlationId?: string;
+}
+
 @Injectable()
 export class BalancesService {
   private readonly logger = new Logger(BalancesService.name);
@@ -22,6 +63,60 @@ export class BalancesService {
   ) {
     const stellarCfg = this.config.get<StellarConfig>(STELLAR_CONFIG_KEY)!;
     this.rpcUrl = stellarCfg.rpcUrl;
+  }
+
+  /**
+   * Validates and clamps untrusted slippage parameters into the server-side
+   * policy bounds. This is the single source of truth for slippage: the
+   * returned `toleranceBps`/`deadline` are what must be enforced on-chain,
+   * so a client cannot widen tolerance or extend the deadline past policy.
+   *
+   * Fails closed: malformed or out-of-range input throws with a stable error
+   * code rather than silently defaulting, and a missing correlation id is
+   * generated so every rejection is traceable.
+   */
+  enforceSlippageParams(request: SlippageRequest): EnforcedSlippageParams {
+    const correlationId = request.correlationId?.trim() || this.newCorrelationId();
+
+    const toleranceBps = request.toleranceBps;
+    if (
+      typeof toleranceBps !== 'number' ||
+      !Number.isInteger(toleranceBps) ||
+      toleranceBps < SLIPPAGE_POLICY.minToleranceBps ||
+      toleranceBps > SLIPPAGE_POLICY.maxToleranceBps
+    ) {
+      this.logger.warn(
+        `[${correlationId}] rejected slippage tolerance ${String(
+          toleranceBps,
+        )} outside [${SLIPPAGE_POLICY.minToleranceBps}, ${SLIPPAGE_POLICY.maxToleranceBps}] bps`,
+      );
+      throw new InvalidInputException(
+        `${SLIPPAGE_ERROR_CODES.INVALID_TOLERANCE}: toleranceBps must be an integer between ${SLIPPAGE_POLICY.minToleranceBps} and ${SLIPPAGE_POLICY.maxToleranceBps}`,
+      );
+    }
+
+    const deadlineSeconds = request.deadlineSeconds;
+    if (
+      typeof deadlineSeconds !== 'number' ||
+      !Number.isInteger(deadlineSeconds) ||
+      deadlineSeconds < SLIPPAGE_POLICY.minDeadlineSeconds ||
+      deadlineSeconds > SLIPPAGE_POLICY.maxDeadlineSeconds
+    ) {
+      this.logger.warn(
+        `[${correlationId}] rejected slippage deadline ${String(
+          deadlineSeconds,
+        )}s outside [${SLIPPAGE_POLICY.minDeadlineSeconds}, ${SLIPPAGE_POLICY.maxDeadlineSeconds}]s`,
+      );
+      throw new InvalidInputException(
+        `${SLIPPAGE_ERROR_CODES.INVALID_DEADLINE}: deadlineSeconds must be an integer between ${SLIPPAGE_POLICY.minDeadlineSeconds} and ${SLIPPAGE_POLICY.maxDeadlineSeconds}`,
+      );
+    }
+
+    return {
+      toleranceBps,
+      deadline: Math.floor(Date.now() / 1000) + deadlineSeconds,
+      correlationId,
+    };
   }
 
   /**
@@ -122,5 +217,12 @@ export class BalancesService {
       .padStart(decimals, '0')
       .replace(/0+$/, '');
     return frac ? `${whole}.${frac}` : `${whole}`;
+  }
+
+  /** Generates a correlation id for tracing slippage validation failures. */
+  private newCorrelationId(): string {
+    return `slp_${Date.now().toString(36)}_${Math.random()
+      .toString(36)
+      .slice(2, 10)}`;
   }
 }
