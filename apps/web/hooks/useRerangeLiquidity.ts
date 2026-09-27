@@ -1,11 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { signTransaction } from '@stellar/freighter-api';
 import { buildRerangeTx } from '@swyft/sdk';
 import type { PositionSnapshot } from '@swyft/ui';
-import { API_BASE, getNetworkPassphrase } from '@/lib/constants';
-import { useNetworkContext } from '@/context/NetworkContext';
+import { API_BASE } from '@/lib/constants';
 
 /** Lifecycle status of a rerange transaction. */
 export type TxStatus = 'idle' | 'signing' | 'submitting' | 'success' | 'error';
@@ -38,23 +36,25 @@ async function submitXdr(xdr: string, authToken: string): Promise<string> {
   return data.hash;
 }
 
-function resolveSignedXdr(signResult: unknown): string | null {
-  if (typeof signResult === 'string') return signResult;
-  if (signResult && typeof signResult === 'object' && 'signedTxXdr' in signResult) {
-    return (signResult as { signedTxXdr: string }).signedTxXdr;
-  }
-  return null;
-}
-
 /**
  * Hook for reranging a position's liquidity (moving from old tick range to new tick range).
- * @param position - The position to act on, or null if not yet loaded.
+ *
+ * Signing is delegated to the `signXdr` parameter rather than calling
+ * Freighter directly, so both Freighter and xBull work without this hook
+ * knowing which wallet is active.  Pass `walletCtx.signTransaction` from
+ * `useWalletContext()` in the calling component.
+ *
+ * @param position  - The position to act on, or null if not yet loaded.
  * @param authToken - Bearer token for API authentication, or null if unauthenticated.
+ * @param signXdr   - Wallet signing function from the wallet context.
  * @returns Transaction state (`status`, `txError`, `txHash`) and action functions
  *   (`rerange`, `reset`).
  */
-export function useRerangeLiquidity(position: PositionSnapshot | null, authToken: string | null) {
-  const { network } = useNetworkContext();
+export function useRerangeLiquidity(
+  position: PositionSnapshot | null,
+  authToken: string | null,
+  signXdr?: ((xdr: string) => Promise<string>) | null
+) {
   const [state, setState] = useState<State>({ status: 'idle', txError: null, txHash: null });
 
   /** Resets transaction state back to idle. */
@@ -72,6 +72,10 @@ export function useRerangeLiquidity(position: PositionSnapshot | null, authToken
       setState({ status: 'error', txError: 'network', txHash: null });
       return;
     }
+    if (!signXdr) {
+      setState({ status: 'error', txError: 'network', txHash: null });
+      return;
+    }
 
     setState({ status: 'signing', txError: null, txHash: null });
 
@@ -85,10 +89,15 @@ export function useRerangeLiquidity(position: PositionSnapshot | null, authToken
         newUpperTick,
       });
 
-      const signResult = await signTransaction(xdr, {
-        networkPassphrase: getNetworkPassphrase(network),
+      // Route through the wallet-context signer so Freighter and xBull
+      // both work without this hook knowing which wallet is active.
+      const signedXdr = await signXdr(xdr).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : '';
+        if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
+          return null;
+        }
+        throw err;
       });
-      const signedXdr = resolveSignedXdr(signResult);
 
       if (!signedXdr) {
         setState({ status: 'error', txError: 'rejected', txHash: null });

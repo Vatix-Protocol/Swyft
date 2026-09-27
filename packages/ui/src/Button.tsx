@@ -1,4 +1,12 @@
 import React from 'react';
+import { tw } from './tokens';
+
+// Expose token-derived class helpers on the Button so callers can extend
+// consistently without importing tokens directly.
+export const buttonTokenClasses = {
+  focusRing: tw.focusRing,
+  transition: tw.transition,
+} as const;
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'md' | 'lg';

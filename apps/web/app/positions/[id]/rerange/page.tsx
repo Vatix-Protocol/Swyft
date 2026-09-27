@@ -4,6 +4,7 @@ import { use, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePosition } from '@/hooks/usePositions';
 import { useRerangeLiquidity } from '@/hooks/useRerangeLiquidity';
+import { useWalletContext } from '@/context/WalletContext';
 import { PositionRangeBadge } from '@swyft/ui';
 
 const TICK_BASE = 1.0001;
@@ -43,8 +44,13 @@ interface PageProps {
 export default function RerangeLiquidityPage({ params }: PageProps) {
   const { id } = use(params);
   const authToken = getAuthToken();
+  const { signTransaction } = useWalletContext();
   const { position, loading, error } = usePosition(id, authToken);
-  const { status, txError, txHash, rerange, reset } = useRerangeLiquidity(position, authToken);
+  const { status, txError, txHash, rerange, reset } = useRerangeLiquidity(
+    position,
+    authToken,
+    signTransaction
+  );
 
   const [newLowerTick, setNewLowerTick] = useState(0);
   const [newUpperTick, setNewUpperTick] = useState(0);

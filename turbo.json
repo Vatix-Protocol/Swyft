@@ -17,6 +17,15 @@
       "dependsOn": ["^build"],
       "outputs": ["coverage/**"]
     },
+    "test:e2e": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"],
+      "cache": false
+    },
+    "build:check": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
     "deploy:testnet": {
       "dependsOn": ["build"],
       "cache": false,
@@ -51,5 +60,17 @@
       "outputs": ["dist/**"]
     }
   },
-  "globalEnv": ["DATABASE_URL"]
+  "globalEnv": [
+    "DATABASE_URL",
+    "REDIS_URL",
+    "JWT_SECRET",
+    "NODE_ENV",
+    "STELLAR_RPC_URL",
+    "HORIZON_URL",
+    "STELLAR_NETWORK",
+    "NEXT_PUBLIC_API_URL",
+    "NEXT_PUBLIC_WS_URL",
+    "NEXT_PUBLIC_STELLAR_NETWORK",
+    "NEXT_PUBLIC_SWYFT_API_KEY"
+  ]
 }

@@ -12,6 +12,10 @@ import { describe, it, expect } from 'vitest';
  * production build cannot bake them in at all. In both cases a PUBLIC/mainnet
  * deployment silently falls back to NEXT_PUBLIC_API_URL (or localhost), so
  * quotes, indexer data, LP positions, and wallet flows talk to the wrong API.
+ *
+ * NEXT_PUBLIC_SWYFT_API_KEY must also be baked in so the ApiKeyGuard on the
+ * read-only market-data endpoints (pools, prices, tokens, swaps) is satisfied
+ * in containerized production deployments (see apps/web/lib/api-fetch.ts).
  */
 
 const webDir = resolve(process.cwd());
@@ -22,6 +26,10 @@ describe('apps/web/.env.example', () => {
   it('documents the per-network API URL overrides used by lib/constants.ts', () => {
     expect(envExample).toContain('NEXT_PUBLIC_API_URL_TESTNET');
     expect(envExample).toContain('NEXT_PUBLIC_API_URL_PUBLIC');
+  });
+
+  it('documents NEXT_PUBLIC_SWYFT_API_KEY required by api-fetch.ts', () => {
+    expect(envExample).toContain('NEXT_PUBLIC_SWYFT_API_KEY');
   });
 });
 
@@ -34,5 +42,10 @@ describe('apps/web/Dockerfile', () => {
   it('declares NEXT_PUBLIC_API_URL_PUBLIC as a build arg and bakes it in', () => {
     expect(dockerfile).toMatch(/ARG NEXT_PUBLIC_API_URL_PUBLIC/);
     expect(dockerfile).toMatch(/ENV NEXT_PUBLIC_API_URL_PUBLIC=/);
+  });
+
+  it('declares NEXT_PUBLIC_SWYFT_API_KEY as a build arg and bakes it in', () => {
+    expect(dockerfile).toMatch(/ARG NEXT_PUBLIC_SWYFT_API_KEY/);
+    expect(dockerfile).toMatch(/ENV NEXT_PUBLIC_SWYFT_API_KEY=/);
   });
 });

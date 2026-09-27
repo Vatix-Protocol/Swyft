@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { signTransaction } from '@stellar/freighter-api';
 import { buildAddLiquidityTx } from '@swyft/sdk';
 import type { PoolDetail } from './usePoolTicks';
-import { API_BASE, getNetworkPassphrase } from '@/lib/constants';
+import { API_BASE } from '@/lib/constants';
 import { useNetworkContext } from '@/context/NetworkContext';
 
 const TICK_BASE = 1.0001;
@@ -266,6 +265,14 @@ export function useAddLiquidity() {
   }, []);
 
   const submit = useCallback(
+    /**
+     * Builds, signs, and submits an add-liquidity transaction.
+     *
+     * @param walletAddress - Connected wallet address.
+     * @param signXdr       - Wallet-context signing function (supports both
+     *                        Freighter and xBull — do NOT import signTransaction
+     *                        from @stellar/freighter-api directly here).
+     */
     async (walletAddress: string, signXdr: (xdr: string) => Promise<string>) => {
       setState((s) => ({ ...s, txStatus: 'signing', txError: null }));
       try {
@@ -289,26 +296,29 @@ export function useAddLiquidity() {
           liquidity: liquidityAmount,
         });
 
-        setState((s) => ({ ...s, txStatus: 'submitting' }));
-
-        const signResult = await signTransaction(xdr, {
-          networkPassphrase: getNetworkPassphrase(network),
+        // Route through the wallet-context signer so Freighter and xBull
+        // both work without this hook knowing which wallet is active.
+        const signedXdr = await signXdr(xdr).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : '';
+          if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
+            return null; // user rejected
+          }
+          throw err;
         });
-        const signedXdr =
-          typeof signResult === 'string'
-            ? signResult
-            : 'signedTxXdr' in signResult
-              ? (signResult as { signedTxXdr: string }).signedTxXdr
-              : null;
 
         if (!signedXdr) {
           setState((s) => ({ ...s, txStatus: 'error', txError: 'rejected' }));
           return;
         }
 
+        setState((s) => ({ ...s, txStatus: 'submitting' }));
+
         const res = await fetch(`${API_BASE}/transactions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('swyft_auth_token') || ''}` },
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('swyft_auth_token') || ''}`,
+          },
           body: JSON.stringify({ xdr: signedXdr }),
         });
 
@@ -340,7 +350,7 @@ export function useAddLiquidity() {
         }));
       }
     },
-    [state, network]
+    [state]
   );
 
   const reset = useCallback(() => setState(defaultState), []);

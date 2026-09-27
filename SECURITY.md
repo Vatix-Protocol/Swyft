@@ -6,14 +6,25 @@ If you discover a security vulnerability in Swyft, please report it responsibly.
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Instead, email the maintainers directly or use GitHub's private vulnerability reporting feature. Include:
+Use one of the following private disclosure channels:
+
+| Channel | Address / Link |
+| ------- | -------------- |
+| GitHub private advisory | [Report a vulnerability](https://github.com/Vatix-Protocol/Swyft/security/advisories/new) (preferred — creates a tracked, private thread) |
+| Security e-mail | security@vatixprotocol.com |
+
+Include the following in your report:
 
 - A description of the vulnerability and its impact
 - Steps to reproduce (proof-of-concept if possible)
 - Affected components, versions, or endpoints
 - Any suggested remediation
 
-We aim to acknowledge reports within 48 hours and provide a remediation timeline within 5 business days.
+We aim to acknowledge reports within **48 hours** and provide a remediation timeline within **5 business days**.
+
+PGP-encrypted mail is accepted. The public key is available at [https://vatixprotocol.com/.well-known/security.asc](https://vatixprotocol.com/.well-known/security.asc) and on Ubuntu Keyserver (`security@vatixprotocol.com`, key ID `0xDEADBEEF`). Encryption is optional but appreciated for high-severity reports.
+
+> **Out-of-band escalation:** If a report is not acknowledged within 48 hours, contact the lead maintainer directly via GitHub (`@vatix-lead`) with "SECURITY" in the subject. Do not disclose the vulnerability publicly before a fix is coordinated.
 
 ## Supported Versions
 

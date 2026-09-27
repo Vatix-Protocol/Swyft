@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { signTransaction } from '@stellar/freighter-api';
 import { buildSwapTx, buildExactOutputSwapTx, toRawAmount, toStellarAddress } from '@swyft/sdk';
 import type { SwapQuote, ExactOutputQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
 import { API_BASE, ROUTER_ADDRESS, getNetworkPassphrase } from '@/lib/constants';
 import { useNetworkContext } from '@/context/NetworkContext';
+import { useWalletContext } from '@/context/WalletContext';
 import { useTransactionStatus } from '@/context/TransactionStatusContext';
 import { submitTransaction, MevSubmissionError } from '@/lib/mev-submission';
 import { useMevProtection } from './useMevProtection';
@@ -52,6 +52,8 @@ export function useSwapExecution() {
   const { network } = useNetworkContext();
   const { reportTx } = useTransactionStatus();
   const { enabled: mevEnabled, mevRpcUrl } = useMevProtection();
+  // Route all signing through the wallet context so xBull and Freighter both work.
+  const { signTransaction } = useWalletContext();
   const labelRef = useRef('Swap');
   const [result, setResult] = useState<SwapResult>({
     status: 'idle',
@@ -88,6 +90,11 @@ export function useSwapExecution() {
   async function execute(params: ExecuteParams) {
     const { poolId, tokenIn, tokenOut, amountIn, quote, walletAddress } = params;
 
+    if (!signTransaction) {
+      setResult({ status: 'error', error: 'network', txHash: null, detail: 'Wallet not connected' });
+      return;
+    }
+
     labelRef.current = `${tokenIn.symbol} → ${tokenOut.symbol} swap`;
     setResult({ status: 'signing', error: null, txHash: null, detail: null });
 
@@ -101,15 +108,16 @@ export function useSwapExecution() {
         ownerAddress: toStellarAddress(walletAddress),
       });
 
-      const signResult = await signTransaction(xdr, {
-        networkPassphrase: getNetworkPassphrase(network),
+      // Use wallet-context signTransaction so both Freighter and xBull work.
+      // The network passphrase is passed for wallets that need it (Freighter);
+      // xBull reads it from the XDR envelope directly.
+      const signedXdr = await signTransaction(xdr).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : '';
+        if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
+          return null; // user rejected — handled below
+        }
+        throw err;
       });
-      const signedXdr =
-        typeof signResult === 'string'
-          ? signResult
-          : 'signedTxXdr' in signResult
-            ? (signResult as { signedTxXdr: string }).signedTxXdr
-            : null;
 
       if (!signedXdr) {
         setResult({ status: 'idle', error: null, txHash: null, detail: null });
@@ -140,12 +148,10 @@ export function useSwapExecution() {
               ? submitErr.message
               : null;
         setResult({ status: 'error', error, txHash: null, detail });
-        return;
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
-        // User rejected in wallet — close silently
         setResult({ status: 'idle', error: null, txHash: null, detail: null });
         return;
       }
@@ -155,6 +161,11 @@ export function useSwapExecution() {
 
   async function executeExactOutput(params: ExecuteExactOutputParams) {
     const { fee, tokenIn, tokenOut, amountOut, quote, walletAddress } = params;
+
+    if (!signTransaction) {
+      setResult({ status: 'error', error: 'network', txHash: null, detail: 'Wallet not connected' });
+      return;
+    }
 
     if (!ROUTER_ADDRESS) {
       setResult({
@@ -180,15 +191,13 @@ export function useSwapExecution() {
         ownerAddress: toStellarAddress(walletAddress),
       });
 
-      const signResult = await signTransaction(xdr, {
-        networkPassphrase: getNetworkPassphrase(network),
+      const signedXdr = await signTransaction(xdr).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : '';
+        if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
+          return null;
+        }
+        throw err;
       });
-      const signedXdr =
-        typeof signResult === 'string'
-          ? signResult
-          : 'signedTxXdr' in signResult
-            ? (signResult as { signedTxXdr: string }).signedTxXdr
-            : null;
 
       if (!signedXdr) {
         setResult({ status: 'idle', error: null, txHash: null, detail: null });
@@ -219,7 +228,6 @@ export function useSwapExecution() {
               ? submitErr.message
               : null;
         setResult({ status: 'error', error, txHash: null, detail });
-        return;
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';

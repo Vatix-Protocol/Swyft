@@ -135,6 +135,17 @@ export function assertSeedAllowed(env: NodeJS.ProcessEnv = process.env): void {
   }
 }
 
+// Deterministic seed data — all values are fixed so re-runs are idempotent.
+//
+// Pool:    test-pool-1
+// Token0:  USDC  GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
+// Token1:  XLM   GBDEVU63Y6NTHJQQZIKVTC23NWLQVP3WJ2RI2OTSJTNYOIGICST6DUXR
+// ---------------------------------------------------------------------------
+
+const DEMO_OWNER = 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ';
+const SQRT_PRICE = '79228162514264337593543950336'; // price = 1.0 (Q64.96)
+const DEMO_CANDLE_START = new Date('2026-01-01T00:00:00.000Z');
+
 // ---------------------------------------------------------------------------
 // Seed steps
 // ---------------------------------------------------------------------------
@@ -194,30 +205,63 @@ export async function main() {
     spinner.stop(true, `Position seeded (${fixture.positions.map((p) => p.id).join(', ')})`);
 
     // ── Swaps ────────────────────────────────────────────────────────────────
+    // Use upsert on eventId (unique) so re-runs are fully idempotent.
     spinner.start('Seeding swaps…');
-    // eventId is the idempotency key; skipDuplicates makes re-runs a no-op.
-    const swapData: Prisma.SwapCreateManyInput[] = fixture.swaps.map(({ timestamp, ...rest }) => ({
+    // eventId is the idempotency key; skipDuplicates make
+
+      await prisma.position.upsert({
+        where: { id: positionData.id },
+        update: {},
+        create: positionData,
+      });
+    }
+    spinner.stop(true, `Position seeded (${fixture.positions.map((p) => p.id).join(', ')})`);
+
+    // ── Swaps ────────────────────────────────────────────────────────────────
+    // Use upsert on eventId (unique) so re-runs are fully idempotent.
+    spinner.start('Seeding swaps…');
+    // eventId is the idempotency key; upsert makes re-runs a no-op.
+    const swapSeeds = fixture.swaps.map(({ timestamp, ...rest }) => ({
       ...rest,
       timestamp: new Date(timestamp),
     }));
 
-    await prisma.swap.createMany({
-      data: swapData,
-      skipDuplicates: true,
-    });
-    spinner.stop(true, `Swaps seeded   (${swapData.length} records)`);
+    for (const swap of swapSeeds) {
+      await prisma.swap.upsert({
+        where: { eventId: swap.eventId },
+        update: {},
+        create: swap,
+      });
+    }
+    spinner.stop(true, `Swaps seeded   (${swapSeeds.length} records)`);
 
     // ── Price candles ────────────────────────────────────────────────────────
+    // Upsert on (poolId, interval, periodStart) composite key so re-runs are
+    // idempotent. createMany + skipDuplicates only guards against the same
+    // batch; upsert is safe across separate seed invocations.
     spinner.start('Seeding price candles…');
-    const priceCandleData: Prisma.PriceCandleCreateManyInput[] = fixture.priceCandles.map(
-      ({ periodStart, ...rest }) => ({ ...rest, periodStart: new Date(periodStart) })
+    const candleSeeds = fixture.priceCandles.map(
+      ({ periodStart, ...rest }) => ({
+        ...rest,
+        poolId: pool.id,
+        periodStart: new Date(periodStart),
+      })
     );
 
-    await prisma.priceCandle.createMany({
-      data: priceCandleData,
-      skipDuplicates: true,
-    });
-    spinner.stop(true, `Price candles seeded (${priceCandleData.length} record)`);
+    for (const candle of candleSeeds) {
+      await prisma.priceCandle.upsert({
+        where: {
+          poolId_interval_periodStart: {
+            poolId: candle.poolId,
+            interval: candle.interval,
+            periodStart: candle.periodStart,
+          },
+        },
+        update: {},
+        create: candle,
+      });
+    }
+    spinner.stop(true, `Price candles seeded (${candleSeeds.length} record)`);
 
     console.log('\nDatabase seeded successfully ✔');
   } finally {
