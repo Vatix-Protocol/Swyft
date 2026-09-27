@@ -109,6 +109,11 @@ Security-relevant API changes must be recorded in the canonical changelog at [`d
 
 Every money-path or mainnet-affecting change lands behind a feature flag or kill-switch. Rollback steps are documented in the corresponding runbook and in the PR description. Operators can disable a risky change without a redeploy.
 
+## Test Fixtures and Shared Config
+
+- **Fixtures are testnet-only and secret-free.** `pnpm fixtures:check` rejects any fixture that isn't `"network": "testnet"`, contains a string shaped like a Stellar secret seed (`FIXTURE_SECRET_DETECTED`), or uses an address that isn't a checksum-valid `G…` StrKey. The demo seed (`prisma/seed.ts`) refuses to run when `NODE_ENV=production` or `STELLAR_NETWORK` is mainnet (`SEED_REFUSED`). See [`fixtures/README.md`](fixtures/README.md).
+- **Shared lint security rules can't be weakened per app.** `no-eval`, `no-implied-eval`, `no-new-func`, `no-script-url` and `no-debugger` are enforced at `error` through [`packages/config/eslint.js`](packages/config/eslint.js). `pnpm config:check` computes each app's effective ESLint config and fails CI if any of them is downgraded. See [`packages/config/README.md`](packages/config/README.md).
+
 ## Scope
 
 This policy covers the Swyft API, web client, and deployment tooling in this repository. On-chain contract security is governed by the contract audit process; report contract issues through the same private channel.

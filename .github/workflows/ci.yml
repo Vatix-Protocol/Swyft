@@ -156,6 +156,44 @@ jobs:
       - name: Test
         run: pnpm --filter @swyft/ui test
 
+  shared-config-fixtures:
+    name: Shared config + fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Fail-closed: --write refuses under CI, so drift must be fixed in the PR.
+      - name: Fixtures deterministic + in sync (#1037)
+        env:
+          FIXTURE_CORRELATION_ID: ${{ github.run_id }}-${{ github.run_attempt }}-fixtures
+        run: pnpm fixtures:check
+
+      - name: Fixture tooling tests
+        run: pnpm test:scripts
+
+      - name: Shared TS/ESLint config enforced (#1036)
+        env:
+          SHARED_CONFIG_CORRELATION_ID: ${{ github.run_id }}-${{ github.run_attempt }}-config
+        run: pnpm config:check
+
+      - name: '@swyft/config type-check'
+        run: pnpm --filter @swyft/config typecheck
+
+      - name: '@swyft/config tests'
+        run: pnpm --filter @swyft/config test
+
   contracts:
     name: Contracts
     runs-on: ubuntu-latest

@@ -155,4 +155,65 @@ describe('prisma seed', () => {
     await runSeed();
     expect(mockDisconnect).toHaveBeenCalled();
   });
+
+  it('pins swap timestamps from the fixture instead of DB now() defaults', async () => {
+    await runSeed();
+    expect(mockCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            eventId: 'seed-swap-event-1',
+            timestamp: new Date('2026-01-01T00:05:00.000Z'),
+          }),
+        ]),
+      }),
+    );
+    expect(mockUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'test-pool-1' },
+        create: expect.objectContaining({
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      }),
+    );
+  });
+
+  it('produces identical writes on repeated runs (deterministic)', async () => {
+    await runSeed();
+    const first = JSON.stringify([
+      mockUpsert.mock.calls,
+      mockCreateMany.mock.calls,
+    ]);
+    mockUpsert.mockClear();
+    mockCreateMany.mockClear();
+    mockUpsert
+      .mockResolvedValueOnce({ symbol: 'USDC' })
+      .mockResolvedValueOnce({ symbol: 'XLM' })
+      .mockResolvedValueOnce({ id: 'test-pool-1' })
+      .mockResolvedValueOnce({ id: 'test-position-1' });
+    await runSeed();
+    expect(
+      JSON.stringify([mockUpsert.mock.calls, mockCreateMany.mock.calls]),
+    ).toBe(first);
+  });
+
+  describe('fail-closed guard', () => {
+    const originalEnv = { ...process.env };
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it.each([
+      ['NODE_ENV', 'production'],
+      ['STELLAR_NETWORK', 'mainnet'],
+      ['STELLAR_NETWORK', 'PUBLIC'],
+    ])('refuses to seed when %s=%s and writes nothing', async (key, value) => {
+      process.env[key] = value;
+      await expect(runSeed()).rejects.toThrow(/SEED_REFUSED/);
+      expect(mockUpsert).not.toHaveBeenCalled();
+      expect(mockCreateMany).not.toHaveBeenCalled();
+      expect(mockDisconnect).toHaveBeenCalled();
+    });
+  });
 });

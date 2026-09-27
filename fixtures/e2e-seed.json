@@ -1,0 +1,91 @@
+{
+  "$schema_comment": "Deterministic e2e/local seed. Consumed by prisma/seed.ts and apps/api/test/fixtures.ts. Every timestamp is pinned (no DB now() defaults), every amount is an integer string, network is testnet-only. Validate with `pnpm fixtures:check`; see fixtures/README.md.",
+  "version": 1,
+  "network": "testnet",
+  "clock": {
+    "now": "2026-01-01T01:00:00.000Z"
+  },
+  "tokens": [
+    {
+      "address": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      "symbol": "USDC",
+      "name": "USD Coin",
+      "decimals": 6,
+      "logoUri": "https://example.com/usdc.png"
+    },
+    {
+      "address": "GBDEVU63Y6NTHJQQZIKVTC23NWLQVP3WJ2RI2OTSJTNYOIGICST6DUXR",
+      "symbol": "XLM",
+      "name": "Stellar Lumens",
+      "decimals": 7,
+      "logoUri": "https://example.com/xlm.png"
+    }
+  ],
+  "pools": [
+    {
+      "id": "test-pool-1",
+      "token0Address": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      "token1Address": "GBDEVU63Y6NTHJQQZIKVTC23NWLQVP3WJ2RI2OTSJTNYOIGICST6DUXR",
+      "feeTier": 3000,
+      "currentSqrtPrice": "79228162514264337593543950336",
+      "currentTick": 0,
+      "liquidity": "1000000000000000000",
+      "tvl": "2000000000",
+      "volume24h": "100000000",
+      "feeApr": "0.05",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "positions": [
+    {
+      "id": "test-position-1",
+      "poolId": "test-pool-1",
+      "ownerAddress": "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ",
+      "tokenId": "1",
+      "lowerTick": -60,
+      "upperTick": 60,
+      "liquidity": "1000000000000000000",
+      "feesCollected0": "0",
+      "feesCollected1": "0",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "swaps": [
+    {
+      "eventId": "seed-swap-event-1",
+      "poolId": "test-pool-1",
+      "senderAddress": "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ",
+      "recipientAddress": "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ",
+      "amount0": "1000000",
+      "amount1": "0",
+      "sqrtPriceAfter": "79228162514264337593543950336",
+      "tickAfter": 0,
+      "transactionHash": "test-tx-1",
+      "timestamp": "2026-01-01T00:05:00.000Z"
+    },
+    {
+      "eventId": "seed-swap-event-2",
+      "poolId": "test-pool-1",
+      "senderAddress": "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ",
+      "recipientAddress": "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ",
+      "amount0": "0",
+      "amount1": "10000000",
+      "sqrtPriceAfter": "79228162514264337593543950336",
+      "tickAfter": 0,
+      "transactionHash": "test-tx-2",
+      "timestamp": "2026-01-01T00:10:00.000Z"
+    }
+  ],
+  "priceCandles": [
+    {
+      "poolId": "test-pool-1",
+      "interval": "1h",
+      "open": 1,
+      "high": 1.05,
+      "low": 0.95,
+      "close": 1.02,
+      "volumeUsd": 1000000,
+      "periodStart": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}

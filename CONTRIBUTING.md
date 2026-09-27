@@ -198,10 +198,10 @@ docs: add CONTRIBUTING.md
 
 ## Code Standards
 
-- **TypeScript**: Strict mode enabled. No `any` without a comment explaining why.
+- **TypeScript**: Strict mode enabled. Every workspace `tsconfig.json` extends [`packages/config/tsconfig.base.json`](packages/config/tsconfig.base.json) and may not turn strict flags off (`pnpm config:check`). No `any` without a comment explaining why.
 - **Rust**: `cargo clippy` must pass with no warnings. Follow standard Rust idioms.
 - **Formatting**: Run `pnpm format` before committing. Prettier config is at `.prettierrc`.
-- **Linting**: Run `pnpm lint` before committing. ESLint config is in each app/package.
+- **Linting**: Run `pnpm lint` before committing. Each app keeps its framework preset in its own `eslint.config.mjs` and spreads the shared layer from [`packages/config/eslint.js`](packages/config/eslint.js) last. `pnpm config:check` fails CI if an app skips it or weakens a shared security rule. See [`packages/config/README.md`](packages/config/README.md).
 - **Accessibility**: Frontend components must meet WCAG 2.1 AA. Use semantic HTML and ARIA attributes where needed.
 
 ---
@@ -214,6 +214,8 @@ docs: add CONTRIBUTING.md
 | NestJS API unit | `pnpm --filter api test` | All tests pass |
 | NestJS API e2e | `pnpm --filter api test:e2e` | Requires running Postgres + Redis |
 | TypeScript SDK | `pnpm --filter @swyft/sdk test` | All tests pass |
+| Shared config | `pnpm config:check` and `pnpm --filter @swyft/config test` | Every workspace uses the shared TS/ESLint config |
+| Fixtures | `pnpm fixtures:check` and `pnpm test:scripts` | Fixtures are deterministic, registered and in sync. See [`fixtures/README.md`](fixtures/README.md) |
 
 New features **must** include tests. Bug fixes **should** include a regression test.
 

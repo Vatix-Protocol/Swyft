@@ -148,7 +148,7 @@ pnpm dev
 
 This starts the Next.js dApp, NestJS API, and watches contract changes simultaneously via Turborepo.
 
-The seed is safe to re-run. It keeps the demo pool at `test-pool-1`, using
+The seed is safe to re-run. Its data comes from [`fixtures/e2e-seed.json`](fixtures/e2e-seed.json), the same deterministic fixture the API e2e specs use, with pinned timestamps (see [`fixtures/README.md`](fixtures/README.md)). The seed refuses to run with `NODE_ENV=production` or a mainnet `STELLAR_NETWORK`. It keeps the demo pool at `test-pool-1`, using
 USDC address `GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN`
 and XLM address `GBDEVU63Y6NTHJQQZIKVTC23NWLQVP3WJ2RI2OTSJTNYOIGICST6DUXR`.
 

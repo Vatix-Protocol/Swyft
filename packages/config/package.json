@@ -6,16 +6,20 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./tsconfig.base.json": "./tsconfig.base.json"
+    "./tsconfig.base.json": "./tsconfig.base.json",
+    "./eslint": "./eslint.js"
   },
   "files": [
     "src",
     "tsconfig.base.json",
-    "eslint.js"
+    "eslint.js",
+    "scripts"
   ],
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json",
+    "check": "node scripts/check-shared-config.mjs"
   },
   "devDependencies": {
     "typescript": "^5",

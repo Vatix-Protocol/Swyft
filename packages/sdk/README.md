@@ -266,10 +266,11 @@ Liquidity / position math is pinned against shared golden vectors:
 - **Copies for package-local runs:** `packages/sdk/src/__tests__/fixtures/` and `packages/contract/fixtures/`
 - **SDK tests:** `src/__tests__/contract-math-fixtures.spec.ts` (requires ≥3 vectors to pass)
 - **Contract tests:** `cl-pool` `fixture_tests::tick_to_sqrt_price_matches_shared_fixtures`
+- **Drift gate:** `pnpm fixtures:check` (CI) fails if a mirror differs from the canonical file, the manifest hash is stale, or the Rust tick vectors diverge from the JSON. See [`fixtures/README.md`](../../fixtures/README.md).
 
 ### Math fixture divergence process
 
-1. Prefer changing **one** source of truth: update `fixtures/cl-math-vectors.json`, then sync the package copies.
+1. Change **one** source of truth: edit `fixtures/cl-math-vectors.json`, then run `pnpm fixtures:write` to sync the package copies and manifest hash. Never edit a copy directly.
 2. Re-run SDK tests (`pnpm --filter @swyft/sdk test`) and `cargo test -p cl-pool` (or workspace) so both sides agree on `tick_to_sqrt_price`.
 3. `amounts_for_liquidity` vectors assert the **SDK** Uniswap-style range-aware formula. The on-chain `cl-pool` helper uses a simpler clamp-based variant — if those diverge intentionally, document the difference in the fixture `$schema_comment` and do **not** silently change expected amounts.
 4. Extreme ticks (e.g. `-20000`) may differ (`cl-pool` saturates to `0`, SDK floors to `1`). Keep shared vectors in the overlapping safe range unless both implementations are updated together.

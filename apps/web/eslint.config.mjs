@@ -1,6 +1,9 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
+// Shared rules from @swyft/config (see packages/config/README.md). Relative path
+// matches how tsconfig.json extends the shared base.
+import swyftConfig from "../../packages/config/eslint.js";
 
 const eslintConfig = defineConfig([
   ...nextVitals,
@@ -8,15 +11,10 @@ const eslintConfig = defineConfig([
   {
     rules: {
       "react-hooks/set-state-in-effect": "off",
-      "@typescript-eslint/no-unused-vars": "warn",
     },
   },
-  {
-    files: ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
-    rules: {
-      "@typescript-eslint/no-explicit-any": "off",
-    },
-  },
+  // Shared layer last so app rules above cannot weaken it.
+  ...swyftConfig.swyftEslintConfig(),
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

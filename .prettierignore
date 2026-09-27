@@ -1,0 +1,5 @@
+# Byte-canonical fixtures are formatted by `pnpm fixtures:write` (scripts/fixtures.js),
+# not prettier; reformatting them would break the sha256 / mirror checks.
+fixtures/
+packages/sdk/src/__tests__/fixtures/
+packages/contract/fixtures/

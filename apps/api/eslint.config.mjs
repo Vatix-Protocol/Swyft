@@ -3,6 +3,9 @@ import eslint from '@eslint/js';
 import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
+// Shared rules from @swyft/config (see packages/config/README.md). Imported by
+// path because this app installs @swyft/config as a file: copy.
+import swyftConfig from '../../packages/config/eslint.js';
 
 export default tseslint.config(
   {
@@ -36,10 +39,11 @@ export default tseslint.config(
       '@typescript-eslint/require-await': 'off',
       '@typescript-eslint/unbound-method': 'off',
       '@typescript-eslint/restrict-template-expressions': 'warn',
-      '@typescript-eslint/no-unused-vars': 'warn',
       '@typescript-eslint/no-unsafe-enum-comparison': 'warn',
       '@typescript-eslint/no-unnecessary-type-assertion': 'warn',
       "prettier/prettier": ["error", { endOfLine: "auto" }],
     },
   },
+  // Shared layer last so app rules above cannot weaken it.
+  ...swyftConfig.swyftEslintConfig(),
 );

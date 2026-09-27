@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "file": "cl-math-vectors.json",
+      "validator": "cl-math-vectors",
+      "sha256": "92ad10f44c3273a4c86252e4ef0121d0d339fd365897ef2c3e3364fc2aa01371",
+      "mirrors": [
+        "packages/sdk/src/__tests__/fixtures/cl-math-vectors.json",
+        "packages/contract/fixtures/cl-math-vectors.json"
+      ],
+      "consumers": [
+        "packages/sdk/src/__tests__/contract-math-fixtures.spec.ts",
+        "packages/contract/contracts/cl-pool/src/lib.rs (mod fixture_tests)"
+      ]
+    },
+    {
+      "file": "e2e-seed.json",
+      "validator": "e2e-seed",
+      "sha256": "f5a9f5e3b509b6f70726f67cd320c03bc01d7f41f1040b0f20cf521a7909eeb6",
+      "mirrors": [],
+      "consumers": [
+        "prisma/seed.ts",
+        "apps/api/test/fixtures.ts"
+      ]
+    }
+  ]
+}
