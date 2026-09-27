@@ -80,6 +80,67 @@ per-network JSON registries under `packages/contract/deployments/`. The
   does not deploy or mutate chain state.
 - Rollback: revert the CI job/step; no on-chain state migration is required.
 
+## pool-factory: Fee Tier Allowlist
+
+The `pool-factory` contract deploys pools and maintains the registry of
+**allowed fee tiers**. Fee tiers are an explicit **allowlist**: a pool can only
+be created for a fee tier that has been enabled by an authorized admin. This is
+a money-path surface, so it is **deny-by-default** and **fail-closed**.
+
+### Entrypoints
+
+| Entrypoint            | Direction | Semantics                                                       |
+| --------------------- | --------- | --------------------------------------------------------------- |
+| `enable_fee_tier`     | write     | Privileged: add a fee tier to the allowlist                     |
+| `disable_fee_tier`    | write     | Privileged: remove a fee tier from the allowlist                |
+| `is_fee_tier_allowed` | read      | Return whether a fee tier is currently allowed                  |
+| `create_pool`         | write     | Deploy a pool; reverts unless the fee tier is allowed           |
+
+### Invariants
+
+- **Allowlist is authoritative.** `create_pool` succeeds only when the
+  requested fee tier is present in the allowlist. There is no implicit or
+  default-allowed tier; an unknown tier is rejected.
+- **Deny-by-default.** A fee tier that was never enabled, or that has been
+  disabled, is not allowed. Disabling a tier takes effect immediately and
+  blocks new pools for that tier.
+- **Privileged writes are authorized.** `enable_fee_tier` and
+  `disable_fee_tier` require the factory admin role; untrusted callers cannot
+  mutate the allowlist. Authorization is checked before any state change.
+- **Idempotent admin writes.** Enabling an already-enabled tier (or disabling
+  an already-disabled tier) is a no-op that does not corrupt state or emit a
+  spurious change event.
+- **Existing pools are unaffected.** Disabling a tier does not migrate, pause,
+  or alter pools already deployed for that tier; it only gates new deployments.
+- **Contract is source of truth.** Callers cannot supply or override the
+  allowlist; the factory's stored state is the only authority for fee-tier
+  policy.
+
+### Stable error codes
+
+| Code | Name                  | Meaning                                                    |
+| ---- | --------------------- | ---------------------------------------------------------- |
+| 1    | `FeeTierNotAllowed`   | `create_pool` called with a tier not on the allowlist      |
+| 2    | `Unauthorized`        | Caller lacks the factory admin role for a privileged write |
+| 3    | `InvalidFeeTier`      | Fee tier is malformed or outside the valid range           |
+| 4    | `FeeTierAlreadySet`   | Enable/disable requested a state the tier is already in    |
+
+### Observability
+
+- Allowlist changes and rejected `create_pool` calls emit the stable error
+  code, the fee tier, and a per-request **correlation id** so ops can trace a
+  money-path decision.
+- Logs **never** include secrets, private keys, or full environment dumps;
+  only fee tiers, roles, and public identifiers are shown.
+
+### Rollout / rollback
+
+- The allowlist is additive and gated: it can be feature-flagged so the
+  allowlist check is enforced only when the flag is on, allowing a safe
+  rollout on testnet before mainnet.
+- Rollback: disable the flag (or re-enable previously allowed tiers) to
+  restore prior behavior; no on-chain state migration is required.
+
 ## math-lib: Fixed-Point (Q64.96) Invariants
 
 The `math-lib` contract provides fixed-point arithmetic in **Q64.96** format
@@ -156,60 +217,33 @@ never influence the TWAP of another.
   pool is computed only from that pool's own observation ring buffer. There is
   no shared/global accumulator, so no cross-pool state leakage is possible.
 - **Monotonic cumulative price.** Each pool's cumulative price is
-  non-decreasing over time; `observe` reverts with
-  `OracleError::NonMonotonicObservation` if a new cumulative value is below the
-  last recorded value for that pool.
-- **Bounded window.** `twap` uses the pool's configured window; if fewer than
-  two observations exist within the window it reverts with
-  `OracleError::InsufficientObservations` rather than returning a stale or
-  fabricated price.
-- **Server/contract is source of truth.** Prices are derived from the pool's
-  own reserves/observations; client-supplied prices are never trusted.
-- **Idempotency.** Each `observe`/`set_pool_config` carries a caller-supplied
-  `correlation_id`. Replayed or concurrent requests with a previously consumed
-  id are rejected with `OracleError::DuplicateRequest` and never mutate oracle
-  state twice.
-- **Fail-closed on dependency outage.** If the pool/RPC dependency is
-  unavailable, writes revert with `OracleError::DependencyUnavailable` rather
-  than proceeding on stale data.
+  non-decreasing over time; `observe` rejects any observation that would
+  decrease it (fail-closed against adversarial input).
+- **Deny-by-default config.** `set_pool_config` requires the oracle admin
+  role; a pool with no registered config returns a stable error rather than a
+  default/zero TWAP.
+- **Contract is source of truth.** Callers cannot supply a pre-computed TWAP;
+  the adapter derives it from stored observations only.
 
 ### Stable error codes
 
-| Code | Name                       | Meaning                                          |
-| ---- | -------------------------- | ------------------------------------------------ |
-| 1    | `Unauthorized`             | Caller lacks the required role/authorization     |
-| 2    | `UnknownPool`              | `pool_id` is not registered with the oracle      |
-| 3    | `InsufficientObservations` | Not enough observations in the window for a TWAP |
-| 4    | `NonMonotonicObservation`  | Cumulative price went backwards for the pool     |
-| 5    | `DuplicateRequest`         | `correlation_id` already consumed (replay)       |
-| 6    | `DependencyUnavailable`    | Pool/RPC dependency outage; write failed closed  |
-| 7    | `InvalidWindow`            | Zero/negative or malformed TWAP window           |
-
-### Authorization
-
-- `observe` is permissionless for the caller's own pool but every request is
-  authorized against oracle policy; untrusted clients cannot write an
-  observation for a pool they do not control.
-- `set_pool_config` is **deny-by-default** and requires the admin role;
-  unauthorized callers receive `OracleError::Unauthorized`.
-- `twap` is a read and is permissionless, but still validates `pool_id` and
-  reverts with `OracleError::UnknownPool` for unregistered pools.
+| Code | Name                | Meaning                                                    |
+| ---- | ------------------- | ---------------------------------------------------------- |
+| 1    | `PoolNotConfigured` | `twap`/`observe` called for a pool with no oracle config   |
+| 2    | `Unauthorized`      | Caller lacks the oracle admin role for a privileged write  |
+| 3    | `NonMonotonic`      | Observation would decrease the cumulative price            |
+| 4    | `InvalidObservation`| Malformed observation (bad timestamp or price)             |
 
 ### Observability
 
-- Money-path metrics are emitted per observation and query: pool id, window,
-  computed TWAP, observation count, and outcome code.
-- Logs carry the `correlation_id` for tracing and **never** include secrets,
-  private keys, or raw signatures.
+- Rejected observations and config changes emit the stable error code, the
+  pool id, and a per-request **correlation id** so ops can trace a price-path
+  decision.
+- Logs **never** include secrets, private keys, or full environment dumps;
+  only pool ids, roles, and public identifiers are shown.
 
-### Rollout / kill-switch
+### Rollout / rollback
 
-- Oracle writes are gated behind a feature flag; disabling it makes `observe`
-  and `set_pool_config` revert with `OracleError::DependencyUnavailable`
-  (fail-closed). Reads continue to serve the last committed per-pool state.
-- Rollback: flip the flag off and redeploy the previous oracle-adapter wasm;
-  no pool state migration is required.
-
-## Router: Single-Hop Swap Routing (Exact In / Exact
-
-/* … truncated 2804 chars — edit only what you need near the top … */
+- The adapter is additive and read-only with respect to pool state: it stores
+  its own observations and does not mutate pool balances or swaps.
+- Rollback: revert the adapter deployment; no pool state migration is required.

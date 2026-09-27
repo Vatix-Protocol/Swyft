@@ -62,6 +62,22 @@ export type TestnetRedeployAuthErrorCode =
   (typeof TESTNET_REDEPLOY_AUTH_ERRORS)[keyof typeof TESTNET_REDEPLOY_AUTH_ERRORS];
 
 /**
+ * Stable error codes for the factory fee-tier allowlist surface (#1022).
+ * Deny-by-default: any failure to prove the fee-tier admin role is rejected.
+ */
+export const FACTORY_FEE_TIER_AUTH_ERRORS = {
+  MISSING_KEY: 'FACTORY_FEE_TIER_AUTH_MISSING_KEY',
+  INVALID_KEY: 'FACTORY_FEE_TIER_AUTH_INVALID_KEY',
+  WRONG_ROLE: 'FACTORY_FEE_TIER_AUTH_WRONG_ROLE',
+  EXPIRED: 'FACTORY_FEE_TIER_AUTH_EXPIRED',
+  NOT_CONFIGURED: 'FACTORY_FEE_TIER_AUTH_NOT_CONFIGURED',
+  DISABLED: 'FACTORY_FEE_TIER_AUTH_DISABLED',
+} as const;
+
+export type FactoryFeeTierAuthErrorCode =
+  (typeof FACTORY_FEE_TIER_AUTH_ERRORS)[keyof typeof FACTORY_FEE_TIER_AUTH_ERRORS];
+
+/**
  * Constant-time comparison that never throws on length mismatch.
  */
 function safeEqual(a: string, b: string): boolean {
@@ -220,6 +236,91 @@ export class TestnetRedeployGuard implements CanActivate {
         throw new UnauthorizedException({
           code: TESTNET_REDEPLOY_AUTH_ERRORS.EXPIRED,
           message: 'Testnet redeploy credentials expired',
+          correlationId,
+        });
+      }
+    }
+
+    return true;
+  }
+}
+
+/**
+ * Guard enforcing FACTORY_FEE_TIER_AUTH for factory fee-tier allowlist
+ * entrypoints (#1022).
+ *
+ * Invariants (see CONTRACTS.md):
+ *  - Deny-by-default: missing/expired/wrong-role credentials are rejected.
+ *  - Fail-closed: if the expected key is not configured, all requests are denied.
+ *  - Kill-switch: when FACTORY_FEE_TIER_ENABLED is explicitly 'false', the
+ *    surface is disabled and every request is refused (money-path safety).
+ *  - No bypass: untrusted clients cannot satisfy the check without the key.
+ *  - Correlation id is surfaced for ops without leaking the secret.
+ */
+@Injectable()
+export class FactoryFeeTierGuard implements CanActivate {
+  private readonly logger = new Logger(FactoryFeeTierGuard.name);
+
+  canActivate(context: ExecutionContext): boolean {
+    const req = context.switchToHttp().getRequest<Request>();
+    const correlationId =
+      (req.headers['x-correlation-id'] as string | undefined) ??
+      (req.headers['x-request-id'] as string | undefined) ??
+      'unknown';
+
+    // Kill-switch: an explicit 'false' disables the money-path surface.
+    if (process.env.FACTORY_FEE_TIER_ENABLED === 'false') {
+      throw new ForbiddenException({
+        code: FACTORY_FEE_TIER_AUTH_ERRORS.DISABLED,
+        message: 'Factory fee tier allowlist is disabled',
+        correlationId,
+      });
+    }
+
+    const expected = process.env.FACTORY_FEE_TIER_AUTH;
+    if (!expected) {
+      // Fail-closed: no configured secret means no privileged access.
+      throw new UnauthorizedException({
+        code: FACTORY_FEE_TIER_AUTH_ERRORS.NOT_CONFIGURED,
+        message: 'Factory fee tier auth is not configured',
+        correlationId,
+      });
+    }
+
+    const key = req.headers['x-internal-key'] as string | undefined;
+    if (!key) {
+      throw new UnauthorizedException({
+        code: FACTORY_FEE_TIER_AUTH_ERRORS.MISSING_KEY,
+        message: 'Missing factory fee tier credentials',
+        correlationId,
+      });
+    }
+
+    if (!safeEqual(key, expected)) {
+      throw new UnauthorizedException({
+        code: FACTORY_FEE_TIER_AUTH_ERRORS.INVALID_KEY,
+        message: 'Invalid factory fee tier credentials',
+        correlationId,
+      });
+    }
+
+    // Optional role/expiry enforcement when the caller presents a scoped token.
+    const role = req.headers['x-factory-fee-tier-role'] as string | undefined;
+    if (role && role !== 'factory-fee-tier-admin') {
+      throw new ForbiddenException({
+        code: FACTORY_FEE_TIER_AUTH_ERRORS.WRONG_ROLE,
+        message: 'Caller lacks factory-fee-tier-admin role',
+        correlationId,
+      });
+    }
+
+    const expiresAt = req.headers['x-factory-fee-tier-expires-at'] as string | undefined;
+    if (expiresAt) {
+      const ts = Number(expiresAt);
+      if (!Number.isFinite(ts) || ts <= Date.now()) {
+        throw new UnauthorizedException({
+          code: FACTORY_FEE_TIER_AUTH_ERRORS.EXPIRED,
+          message: 'Factory fee tier credentials expired',
           correlationId,
         });
       }

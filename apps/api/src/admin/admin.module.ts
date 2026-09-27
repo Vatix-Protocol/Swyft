@@ -7,22 +7,29 @@ import { AdminAuditService } from './admin-audit.service';
 import { AdminAuditInterceptor } from './admin-audit.interceptor';
 import { TestnetRegistryController } from './testnet-registry.controller';
 import { TestnetRegistryService } from './testnet-registry.service';
+import { FactoryFeeTierController } from './factory-fee-tier.controller';
+import { FactoryFeeTierService } from './factory-fee-tier.service';
 import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
   imports: [PrismaModule],
-  controllers: [AnalyticsController, TestnetRegistryController],
+  controllers: [
+    AnalyticsController,
+    TestnetRegistryController,
+    FactoryFeeTierController,
+  ],
   providers: [
     AnalyticsService,
     AnalyticsScheduler,
     AdminAuditService,
     AdminAuditInterceptor,
     TestnetRegistryService,
+    FactoryFeeTierService,
     {
       provide: APP_INTERCEPTOR,
       useExisting: AdminAuditInterceptor,
     },
   ],
-  exports: [AdminAuditService, TestnetRegistryService],
+  exports: [AdminAuditService, TestnetRegistryService, FactoryFeeTierService],
 })
 export class AdminModule {}
