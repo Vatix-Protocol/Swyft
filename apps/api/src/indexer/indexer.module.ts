@@ -16,6 +16,9 @@ import { TokensModule } from '../tokens/tokens.module';
 import { IndexerCursorService } from './indexer-cursor.service';
 import { IndexerDeadLetterService } from './indexer-dead-letter.service';
 import { IndexerReplayService } from './indexer-replay.service';
+import { SwapEventParserService } from './swap-event-parser.service';
+import { IndexerIdempotencyService } from './indexer-idempotency.service';
+import { IndexerMetricsService } from './indexer-metrics.service';
 
 export {
   QUEUE_POOL_CREATED,
@@ -33,6 +36,9 @@ export {
     IndexerCursorService,
     IndexerDeadLetterService,
     IndexerReplayService,
+    SwapEventParserService,
+    IndexerIdempotencyService,
+    IndexerMetricsService,
     {
       provide: QUEUE_POOL_CREATED,
       useFactory: () => createQueue(QUEUE_NAMES.POOL_CREATED),
@@ -57,6 +63,9 @@ export {
   exports: [
     IndexerWorker,
     IndexerCursorService,
+    SwapEventParserService,
+    IndexerIdempotencyService,
+    IndexerMetricsService,
     QUEUE_POOL_CREATED,
     QUEUE_SWAP_PROCESSED,
     QUEUE_POSITION_MINTED,
