@@ -141,6 +141,83 @@ a money-path surface, so it is **deny-by-default** and **fail-closed**.
 - Rollback: disable the flag (or re-enable previously allowed tiers) to
   restore prior behavior; no on-chain state migration is required.
 
+## oracle-adapter: TWAP Window Configuration Bounds
+
+The `oracle-adapter` contract maintains a per-pool **TWAP window** used to
+price swaps, liquidity, and settlement. The window is a money-path
+configuration: an unbounded or malformed window lets a caller manipulate the
+average (too short → spot-price griefing; too long → stale pricing). The window
+is therefore **bounded**, **deny-by-default**, and **fail-closed**.
+
+### Entrypoints
+
+| Entrypoint             | Direction | Semantics                                                       |
+| ---------------------- | --------- | --------------------------------------------------------------- |
+| `set_twap_window`      | write     | Privileged: set the TWAP window for a pool (bounded)            |
+| `get_twap_window`      | read      | Return the configured TWAP window for a pool                    |
+| `twap`                 | read      | Return the TWAP over the configured window                      |
+
+### Configuration bounds
+
+- **Minimum window.** The window must be at least `MIN_TWAP_WINDOW`
+  (in seconds). A window below the minimum is rejected: it is too short to
+  resist spot-price manipulation.
+- **Maximum window.** The window must be at most `MAX_TWAP_WINDOW`
+  (in seconds). A window above the maximum is rejected: it would price against
+  stale observations.
+- **Valid interval.** The window must be an exact multiple of the oracle's
+  observation interval (`TWAP_INTERVAL`). A window that is not an integer
+  multiple of the interval is rejected, so the TWAP is always computed over a
+  whole number of observations.
+- **No implicit default.** A pool with no configured window has no TWAP; reads
+  fail closed rather than falling back to an unbounded or zero window.
+
+### Invariants
+
+- **Bounds are enforced on every write.** `set_twap_window` validates the
+  window against `MIN_TWAP_WINDOW`, `MAX_TWAP_WINDOW`, and `TWAP_INTERVAL`
+  before any state change. There is no path that stores an out-of-bounds
+  window.
+- **Deny-by-default.** A window that was never set, or that is out of bounds,
+  is not usable. `twap` fails closed instead of returning a spot price.
+- **Privileged writes are authorized.** `set_twap_window` requires the oracle
+  admin role; untrusted callers cannot change the window. Authorization is
+  checked before validation and before any state change.
+- **Idempotent admin writes.** Setting the window to its current value is a
+  no-op that does not corrupt state or emit a spurious change event.
+- **Contract is source of truth.** Callers cannot supply or override the
+  window; the adapter's stored state is the only authority for TWAP pricing.
+- **Existing pools are unaffected by bounds changes.** Tightening the bounds
+  does not retroactively invalidate a previously valid window; it gates new
+  writes only.
+
+### Stable error codes
+
+| Code | Name                    | Meaning                                                       |
+| ---- | ----------------------- | ------------------------------------------------------------- |
+| 1    | `TwapWindowTooShort`    | Window is below `MIN_TWAP_WINDOW`                             |
+| 2    | `TwapWindowTooLong`     | Window is above `MAX_TWAP_WINDOW`                             |
+| 3    | `TwapWindowNotAligned`  | Window is not an integer multiple of `TWAP_INTERVAL`          |
+| 4    | `TwapWindowUnset`       | `twap` read for a pool with no configured window              |
+| 5    | `Unauthorized`          | Caller lacks the oracle admin role for a privileged write    |
+| 6    | `TwapWindowAlreadySet`  | `set_twap_window` requested the window's current value        |
+
+### Observability
+
+- Window changes and rejected `set_twap_window` calls emit the stable error
+  code, the pool, the requested window, and a per-request **correlation id** so
+  ops can trace a money-path decision.
+- Logs **never** include secrets, private keys, or full environment dumps;
+  only pools, windows, roles, and public identifiers are shown.
+
+### Rollout / rollback
+
+- The bounds are additive and gated: they can be feature-flagged so the
+  bounds check is enforced only when the flag is on, allowing a safe rollout on
+  testnet before mainnet.
+- Rollback: disable the flag (or restore the previous bounds) to restore prior
+  behavior; no on-chain state migration is required.
+
 ## pool: Initialize Authorization (frontrun-safe admin binding)
 
 The `pool` contract is deployed by `pool-factory` and initialized exactly once.
@@ -151,69 +228,4 @@ to frontrun `initialize` and seize the admin role.
 
 ### Entrypoints
 
-| Entrypoint     | Direction | Semantics                                                          |
-| -------------- | --------- | ------------------------------------------------------------------ |
-| `initialize`   | write     | One-shot: bind admin + config; authorized deployer/factory only    |
-| `get_admin`    | read      | Return the bound admin (empty until initialized)                   |
-| `is_initialized` | read    | Return whether the pool has been initialized                       |
-
-### Invariants
-
-- **Deployer/factory is the only authorized initializer.** `initialize`
-  succeeds only when the caller is the authorized deployer (the
-  `pool-factory` that deployed the pool, or the configured deployer address).
-  Any other caller is rejected before any state change.
-- **Deny-by-default.** A pool that has not been initialized has no admin and
-  no usable config; privileged pool operations revert until `initialize`
-  succeeds. There is no implicit or default admin.
-- **One-shot / no re-init.** `initialize` can succeed at most once. A second
-  call (including a replayed or concurrent call) fails closed and cannot
-  overwrite the admin or config.
-- **Frontrun-safe.** The admin is bound to the authorized deployer, not to
-  `msg.sender` of an arbitrary first caller. A frontrunner calling
-  `initialize` first is rejected as unauthorized, so the admin cannot be
-  stolen.
-- **Contract is source of truth.** Callers cannot supply or override the
-  admin; the pool's stored state is the only authority for admin identity.
-- **Fail-closed on dependency outage.** If the authorization check cannot be
-  resolved (e.g. factory/deployer lookup unavailable), `initialize` reverts
-  rather than proceeding unauthenticated.
-
-### Stable error codes
-
-| Code | Name                  | Meaning                                                       |
-| ---- | --------------------- | ------------------------------------------------------------- |
-| 1    | `Unauthorized`        | Caller is not the authorized deployer/factory for `initialize`|
-| 2    | `AlreadyInitialized`  | `initialize` called on an already-initialized pool            |
-| 3    | `InvalidConfig`       | Supplied pool configuration is malformed or out of range      |
-| 4    | `AuthUnavailable`     | Authorization source unavailable; init fails closed           |
-
-### Observability
-
-- Rejected `initialize` calls and successful initialization emit the stable
-  error code, the caller, the bound admin, and a per-request **correlation id**
-  so ops can trace a money-path authorization decision.
-- Logs **never** include secrets, private keys, or full environment dumps;
-  only roles, public addresses, and public identifiers are shown.
-
-### Rollout / rollback
-
-- Initialization authorization is gated: it can be feature-flagged so the
-  deployer-only check is enforced only when the flag is on, allowing a safe
-  rollout on testnet before mainnet.
-- Rollback: disable the flag to restore prior behavior; no on-chain state
-  migration is required (already-initialized pools keep their bound admin).
-
-## math-lib: Fixed-Point (Q64.96) Invariants
-
-The `math-lib` contract provides fixed-point arithmetic in **Q64.96** format
-(64 integer bits, 96 fractional bits). All arithmetic is **checked**: overflow
-and underflow revert rather than wrapping, and rounding is deterministic.
-
-### Invariants
-
-- **No silent overflow/underflow.** Every add/sub/mul/div uses checked
-  arithmetic. A result outside the representable Q64.96 range reverts with
-  `MathError::Overflow` (positive) or `MathError::Underflow` (negative) in
-
-/* … truncated 4903 chars — edit only what you need near the top … */
+| Entrypoint     | Direction | Semantics                              
