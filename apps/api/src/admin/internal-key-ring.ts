@@ -23,21 +23,15 @@ import { BoundedCounter } from '../observability/bounded-counter';
  * Runbook: docs/INTERNAL_KEY_ROTATION.md.
  */
 export type KeyRingName =
-  | 'INTERNAL_API_KEY'
-  | 'FEE_COLLECTOR_AUTH'
-  | 'TESTNET_REDEPLOY_AUTH';
+  'INTERNAL_API_KEY' | 'FEE_COLLECTOR_AUTH' | 'TESTNET_REDEPLOY_AUTH';
 
 export type KeySlot = 'current' | 'previous';
 
 export type KeyRingDenial =
-  | 'not_configured'
-  | 'missing'
-  | 'invalid'
-  | 'previous_expired';
+  'not_configured' | 'missing' | 'invalid' | 'previous_expired';
 
 export type KeyRingMatch =
-  | { ok: true; slot: KeySlot }
-  | { ok: false; reason: KeyRingDenial };
+  { ok: true; slot: KeySlot } | { ok: false; reason: KeyRingDenial };
 
 export interface KeyRing {
   name: KeyRingName;
@@ -58,7 +52,10 @@ function nonEmpty(value: string | undefined): string | undefined {
   return value && value.length > 0 ? value : undefined;
 }
 
-export function loadKeyRing(name: KeyRingName, env: Env = process.env): KeyRing {
+export function loadKeyRing(
+  name: KeyRingName,
+  env: Env = process.env,
+): KeyRing {
   const expiresRaw = nonEmpty(env[`${name}_PREVIOUS_EXPIRES_AT`]);
   const expiresAt = expiresRaw ? Date.parse(expiresRaw) : NaN;
   return {
@@ -149,9 +146,7 @@ export function keyRingConfigProblems(
  * Auth outcome counter per surface. Both label dimensions are fixed enums.
  */
 export type InternalKeySurface =
-  | 'fee_collector'
-  | 'testnet_redeploy'
-  | 'metrics';
+  'fee_collector' | 'testnet_redeploy' | 'metrics' | 'dlq_replay';
 
 type OutcomeLabel = `${InternalKeySurface}:${KeySlot | KeyRingDenial}`;
 
@@ -159,6 +154,7 @@ const SURFACES: InternalKeySurface[] = [
   'fee_collector',
   'testnet_redeploy',
   'metrics',
+  'dlq_replay',
 ];
 const OUTCOMES: (KeySlot | KeyRingDenial)[] = [
   'current',
