@@ -135,6 +135,100 @@ and underflow revert rather than wrapping, and rounding is deterministic.
 - Arithmetic reverts carry the stable error code above; no secrets, keys, or
   raw signatures are ever logged.
 
+## Position NFT: Metadata Standards
+
+The `position-nft` contract mints one NFT per liquidity position. Position
+metadata is **canonical on-chain state**: the contract is the source of truth
+for a position's pool, fee tier, tick range, and liquidity. Off-chain clients
+(API, indexers, wallets) MUST treat on-chain metadata as authoritative and
+MUST NOT derive balances, ranges, or ownership from client-supplied values.
+
+### Metadata schema
+
+Every position NFT exposes the following typed metadata. Field names are
+stable and part of the public interface; renaming a field is a breaking change
+and must be reconciled through the contract registry (see the drift gate
+above).
+
+| Field          | Type      | Source of truth | Notes                                                        |
+| -------------- | --------- | --------------- | ------------------------------------------------------------ |
+| `position_id`  | `u64`     | contract        | Monotonic, unique per mint; never reused                     |
+| `pool_id`      | `Address` | contract        | Pool the position belongs to; immutable after mint           |
+| `fee_tier`     | `u32`     | contract        | Basis points; immutable after mint                           |
+| `tick_lower`   | `i32`     | contract        | Inclusive lower tick; `tick_lower < tick_upper`              |
+| `tick_upper`   | `i32`     | contract        | Exclusive upper tick; aligned to the pool's tick spacing     |
+| `liquidity`    | `u128`    | contract        | Q64.96 liquidity; `0` for a closed/empty position            |
+| `owner`        | `Address` | contract        | Current owner; changes only via transfer/approval            |
+| `uri`          | `String`  | contract        | Optional metadata URI; MUST NOT contain secrets              |
+
+### Invariants
+
+- **Contract is source of truth.** `pool_id`, `fee_tier`, `tick_lower`,
+  `tick_upper`, and `liquidity` are set at mint and only mutated by the
+  contract's own liquidity entrypoints. Clients cannot supply or override
+  them.
+- **Range validity.** `tick_lower < tick_upper`, both aligned to the pool's
+  tick spacing, and both within the pool's allowed tick bounds. Invalid ranges
+  fail closed at mint.
+- **Ownership integrity.** `owner` is the only field changed by transfer; a
+  transfer updates `owner` atomically and emits an event. Approvals never
+  change `owner`.
+- **No secret leakage.** `uri` and any emitted metadata MUST NOT embed private
+  keys, signatures, or credentials. Metadata is public by definition.
+- **Idempotent mint.** A replayed mint request (same client-supplied
+  idempotency key) returns the existing `position_id` rather than minting a
+  duplicate; the contract never mints two NFTs for one logical position.
+- **Fail-closed on dependency outage.** If a mint/transfer requires an
+  external read (e.g. pool state) and that dependency is unavailable, the
+  write reverts rather than proceeding with stale or defaulted metadata.
+
+### Entrypoints
+
+| Entrypoint        | Direction | Authz            | Semantics                                              |
+| ----------------- | --------- | ---------------- | ------------------------------------------------------ |
+| `mint`            | write     | owner (caller)   | Mint a position NFT; idempotent on replay              |
+| `metadata`        | read      | public           | Return the typed metadata for a `position_id`          |
+| `transfer`        | write     | owner/approved   | Transfer ownership; updates `owner` atomically         |
+| `set_uri`         | write     | owner            | Update the optional metadata URI                       |
+
+### Authz (deny-by-default)
+
+- `mint`, `transfer`, and `set_uri` are **deny-by-default**: the caller must
+  be the current `owner` (or an approved operator for `transfer`). Any other
+  caller is rejected with `PositionError::Unauthorized`.
+- `metadata` is a public read and never mutates state.
+- Untrusted clients cannot bypass policy by supplying metadata fields; the
+  contract ignores client-supplied `pool_id`/`fee_tier`/range/liquidity and
+  derives them from authoritative state.
+
+### Stable error codes
+
+| Code | Name             | Meaning                                                    |
+| ---- | ---------------- | ---------------------------------------------------------- |
+| 1    | `Unauthorized`   | Caller is not owner/approved for a privileged entrypoint   |
+| 2    | `NotFound`       | No position exists for the given `position_id`             |
+| 3    | `InvalidRange`   | `tick_lower >= tick_upper` or ticks not aligned to spacing |
+| 4    | `InvalidFeeTier` | Fee tier not supported by the pool                         |
+| 5    | `ReplayRejected` | Idempotency key reused with conflicting parameters         |
+| 6    | `DependencyDown` | Required external read unavailable; write failed closed    |
+
+### Observability
+
+- Mint/transfer/set_uri emit events carrying `position_id`, `pool_id`, and a
+  per-request **correlation id** so off-chain indexers can trace a position
+  across API and chain logs.
+- Logs/events **never** include secrets, private keys, or raw signatures; only
+  public metadata (ids, addresses, ticks, liquidity) is emitted.
+- Metrics on the money path: mint count, transfer count, and
+  `DependencyDown`/`ReplayRejected` counters are exported for alerting.
+
+### Rollout / rollback
+
+- Metadata schema changes are additive where possible; a breaking field change
+  is gated behind a contract upgrade and documented in the PR.
+- Rollback: revert the contract upgrade; existing NFTs retain their on-chain
+  metadata, so no off-chain migration is required for a revert.
+
 ## Oracle Adapter: Per-Pool TWAP Correctness
 
 The `oracle-adapter` contract exposes a per-pool TWAP oracle. Every entrypoint
@@ -156,60 +250,29 @@ never influence the TWAP of another.
   pool is computed only from that pool's own observation ring buffer. There is
   no shared/global accumulator, so no cross-pool state leakage is possible.
 - **Monotonic cumulative price.** Each pool's cumulative price is
-  non-decreasing over time; `observe` reverts with
-  `OracleError::NonMonotonicObservation` if a new cumulative value is below the
-  last recorded value for that pool.
-- **Bounded window.** `twap` uses the pool's configured window; if fewer than
-  two observations exist within the window it reverts with
-  `OracleError::InsufficientObservations` rather than returning a stale or
-  fabricated price.
-- **Server/contract is source of truth.** Prices are derived from the pool's
-  own reserves/observations; client-supplied prices are never trusted.
-- **Idempotency.** Each `observe`/`set_pool_config` carries a caller-supplied
-  `correlation_id`. Replayed or concurrent requests with a previously consumed
-  id are rejected with `OracleError::DuplicateRequest` and never mutate oracle
-  state twice.
-- **Fail-closed on dependency outage.** If the pool/RPC dependency is
-  unavailable, writes revert with `OracleError::DependencyUnavailable` rather
-  than proceeding on stale data.
+  non-decreasing over time; `observe` rejects out-of-order or regressing
+  timestamps with a stable error code.
+- **Deny-by-default config.** `set_pool_config` is privileged; only the
+  configured admin may register or update a pool's oracle config. Untrusted
+  callers are rejected.
+- **Fail-closed reads.** If a pool has no observations, `twap` reverts with a
+  stable error code rather than returning a defaulted/zero price.
 
 ### Stable error codes
 
-| Code | Name                       | Meaning                                          |
-| ---- | -------------------------- | ------------------------------------------------ |
-| 1    | `Unauthorized`             | Caller lacks the required role/authorization     |
-| 2    | `UnknownPool`              | `pool_id` is not registered with the oracle      |
-| 3    | `InsufficientObservations` | Not enough observations in the window for a TWAP |
-| 4    | `NonMonotonicObservation`  | Cumulative price went backwards for the pool     |
-| 5    | `DuplicateRequest`         | `correlation_id` already consumed (replay)       |
-| 6    | `DependencyUnavailable`    | Pool/RPC dependency outage; write failed closed  |
-| 7    | `InvalidWindow`            | Zero/negative or malformed TWAP window           |
-
-### Authorization
-
-- `observe` is permissionless for the caller's own pool but every request is
-  authorized against oracle policy; untrusted clients cannot write an
-  observation for a pool they do not control.
-- `set_pool_config` is **deny-by-default** and requires the admin role;
-  unauthorized callers receive `OracleError::Unauthorized`.
-- `twap` is a read and is permissionless, but still validates `pool_id` and
-  reverts with `OracleError::UnknownPool` for unregistered pools.
+| Code | Name             | Meaning                                                    |
+| ---- | ---------------- | ---------------------------------------------------------- |
+| 1    | `Unauthorized`   | Caller is not the configured admin for a privileged call   |
+| 2    | `NoObservations` | `twap` called for a pool with no observations              |
+| 3    | `StaleTimestamp` | Observation timestamp is not strictly increasing           |
+| 4    | `UnknownPool`    | Pool has no registered oracle config                       |
 
 ### Observability
 
-- Money-path metrics are emitted per observation and query: pool id, window,
-  computed TWAP, observation count, and outcome code.
-- Logs carry the `correlation_id` for tracing and **never** include secrets,
-  private keys, or raw signatures.
+- `observe`/`set_pool_config` emit events carrying `pool_id` and a per-request
+  **correlation id**; no secrets, keys, or raw signatures are logged.
 
-### Rollout / kill-switch
+### Rollout / rollback
 
-- Oracle writes are gated behind a feature flag; disabling it makes `observe`
-  and `set_pool_config` revert with `OracleError::DependencyUnavailable`
-  (fail-closed). Reads continue to serve the last committed per-pool state.
-- Rollback: flip the flag off and redeploy the previous oracle-adapter wasm;
-  no pool state migration is required.
-
-## Router: Single-Hop Swap Routing (Exact In / Exact
-
-/* … truncated 2804 chars — edit only what you need near the top … */
+- Oracle config changes are additive and gated behind the admin entrypoint;
+  rollback is a config revert with no on-chain state migration.
