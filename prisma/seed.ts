@@ -39,6 +39,18 @@ class Spinner {
 }
 
 // ---------------------------------------------------------------------------
+// Deterministic seed data — all values are fixed so re-runs are idempotent.
+//
+// Pool:    test-pool-1
+// Token0:  USDC  GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
+// Token1:  XLM   GBDEVU63Y6NTHJQQZIKVTC23NWLQVP3WJ2RI2OTSJTNYOIGICST6DUXR
+// ---------------------------------------------------------------------------
+
+const DEMO_OWNER = 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ';
+const SQRT_PRICE = '79228162514264337593543950336'; // price = 1.0 (Q64.96)
+const DEMO_CANDLE_START = new Date('2026-01-01T00:00:00.000Z');
+
+// ---------------------------------------------------------------------------
 // Seed steps
 // ---------------------------------------------------------------------------
 
@@ -84,7 +96,7 @@ export async function main() {
       token0Address: token0.address,
       token1Address: token1.address,
       feeTier: 3000,
-      currentSqrtPrice: '79228162514264337593543950336',
+      currentSqrtPrice: SQRT_PRICE,
       currentTick: 0,
       liquidity: '1000000000000000000',
       tvl: '2000000000',
@@ -104,7 +116,7 @@ export async function main() {
     const positionData: Prisma.PositionCreateInput = {
       id: 'test-position-1',
       poolId: pool.id,
-      ownerAddress: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ',
+      ownerAddress: DEMO_OWNER,
       tokenId: '1',
       lowerTick: -60,
       upperTick: 60,
@@ -121,41 +133,48 @@ export async function main() {
     spinner.stop(true, 'Position seeded (test-position-1)');
 
     // ── Swaps ────────────────────────────────────────────────────────────────
+    // Use upsert on eventId (unique) so re-runs are fully idempotent.
     spinner.start('Seeding swaps…');
-    const swapData: Prisma.SwapCreateManyInput[] = [
+    const swapSeeds = [
       {
         eventId: 'seed-swap-event-1',
         poolId: pool.id,
-        senderAddress: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ',
-        recipientAddress: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ',
+        senderAddress: DEMO_OWNER,
+        recipientAddress: DEMO_OWNER,
         amount0: '1000000',
         amount1: '0',
-        sqrtPriceAfter: '79228162514264337593543950336',
+        sqrtPriceAfter: SQRT_PRICE,
         tickAfter: 0,
-        transactionHash: 'test-tx-1',
+        transactionHash: 'seed-tx-1',
       },
       {
         eventId: 'seed-swap-event-2',
         poolId: pool.id,
-        senderAddress: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ',
-        recipientAddress: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ',
+        senderAddress: DEMO_OWNER,
+        recipientAddress: DEMO_OWNER,
         amount0: '0',
         amount1: '10000000',
-        sqrtPriceAfter: '79228162514264337593543950336',
+        sqrtPriceAfter: SQRT_PRICE,
         tickAfter: 0,
-        transactionHash: 'test-tx-2',
+        transactionHash: 'seed-tx-2',
       },
     ];
 
-    await prisma.swap.createMany({
-      data: swapData,
-      skipDuplicates: true,
-    });
-    spinner.stop(true, 'Swaps seeded   (2 records)');
+    for (const swap of swapSeeds) {
+      await prisma.swap.upsert({
+        where: { eventId: swap.eventId },
+        update: {},
+        create: swap,
+      });
+    }
+    spinner.stop(true, `Swaps seeded   (${swapSeeds.length} records)`);
 
     // ── Price candles ────────────────────────────────────────────────────────
+    // Upsert on (poolId, interval, periodStart) composite key so re-runs are
+    // idempotent. createMany + skipDuplicates only guards against the same
+    // batch; upsert is safe across separate seed invocations.
     spinner.start('Seeding price candles…');
-    const priceCandleData: Prisma.PriceCandleCreateManyInput[] = [
+    const candleSeeds = [
       {
         poolId: pool.id,
         open: 1.0,
@@ -163,16 +182,25 @@ export async function main() {
         low: 0.95,
         close: 1.02,
         volumeUsd: 1000000.0,
-        periodStart: new Date('2026-01-01T00:00:00.000Z'),
+        periodStart: DEMO_CANDLE_START,
         interval: '1h',
       },
     ];
 
-    await prisma.priceCandle.createMany({
-      data: priceCandleData,
-      skipDuplicates: true,
-    });
-    spinner.stop(true, 'Price candles seeded (1 record)');
+    for (const candle of candleSeeds) {
+      await prisma.priceCandle.upsert({
+        where: {
+          poolId_interval_periodStart: {
+            poolId: candle.poolId,
+            interval: candle.interval,
+            periodStart: candle.periodStart,
+          },
+        },
+        update: {},
+        create: candle,
+      });
+    }
+    spinner.stop(true, `Price candles seeded (${candleSeeds.length} record)`);
 
     console.log('\nDatabase seeded successfully ✔');
   } finally {
