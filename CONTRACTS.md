@@ -99,6 +99,70 @@ contract/API boundary.
 - Rollback: revert the enforcement change; no on-chain state migration is
   required.
 
+## MEV protection mechanisms
+
+Swyft's money path (`swap`, `add_liquidity`, `remove_liquidity`,
+`collect_fees`) is protected against maximal-extractable-value (MEV) attacks
+by the mechanisms below. This section is the single source of truth for MEV
+protection and is cross-linked from [`README.md`](README.md) and
+[`SECURITY.md`](SECURITY.md) for Stellar Wave contributors.
+
+### Mechanisms
+
+| Mechanism                     | Surface            | What it prevents                                              |
+| ----------------------------- | ------------------ | ------------------------------------------------------------ |
+| Slippage bound (`min_out`)    | `router.swap`      | Sandwiching: a swap reverts if the realized output is below the caller's bound. |
+| Deadline (`deadline`)         | `router.swap`      | Stale/replayed swaps held by a searcher past the caller's intent. |
+| Per-caller nonce              | all money-path     | Replay and concurrent duplicate submission of the same swap. |
+| TWAP price check              | `oracle-adapter`   | Spot-price manipulation used to mis-price a swap or LP action. |
+| Commit-reveal ordering        | `router.swap`      | Front-running by hiding swap intent until it is committed.   |
+| Private/batched submission    | `router.swap`      | Public-mempool front-running and back-running.               |
+
+### Invariants
+
+- **Fail-closed.** If the oracle/TWAP needed to validate a price is
+  unavailable or stale, the money-path write is rejected rather than executed
+  at an unverified price.
+- **Caller intent is authoritative.** `min_out` and `deadline` are bound to
+  the authenticated caller and cannot be relaxed by a relayer or searcher.
+- **No client-supplied price.** The contract derives price from the
+  `oracle-adapter` TWAP; a client cannot assert a price or bypass the check.
+- **Idempotent.** A replayed or concurrent swap is rejected via the per-caller
+  nonce and never mutates state twice.
+- **Deny-by-default.** MEV-protection parameters are validated before any
+  state is read or written; missing/invalid parameters reject the call.
+
+### Stable error codes
+
+| Code | Name               | Meaning                                                    |
+| ---- | ------------------ | ---------------------------------------------------------- |
+| 7    | `SlippageExceeded` | Realized output below the caller's `min_out` bound         |
+| 8    | `DeadlineExpired`  | Swap submitted after the caller's `deadline`               |
+| 9    | `StaleOracle`      | TWAP price unavailable or older than the freshness window  |
+| 10   | `PriceManipulated` | TWAP deviates beyond the configured manipulation bound     |
+
+Codes 1–6 (authorization/idempotency) are defined in the AUTH matrix above and
+apply to MEV-protected entrypoints as well.
+
+### Observability
+
+- Every MEV-protection decision emits the stable error code, the action, the
+  contract, and a per-request **correlation id** so ops can trace a rejection
+  end-to-end.
+- Money-path actions emit success/failure counters; slippage, deadline, and
+  oracle rejections are counted separately from authorization denials.
+- Logs **never** include secrets, private keys, signatures, or full
+  environment dumps — only action names, error codes, and public identifiers.
+
+### Rollout / rollback
+
+- MEV-protection checks are additive and fail-closed; they do not change swap
+  math or balances.
+- Any mainnet-affecting change to these mechanisms lands behind a feature flag
+  / kill-switch and is documented in the PR with a rollback plan.
+- Rollback: revert the enforcement change; no on-chain state migration is
+  required.
+
 ## Testnet registry
 
 Deployed testnet contract IDs live in:
@@ -145,100 +209,8 @@ per-network JSON registries under `packages/contract/deployments/`. The
 | Code | Name                | Meaning                                                    |
 | ---- | ------------------- | ---------------------------------------------------------- |
 | 1    | `MissingEntry`      | Canonical contract absent from a network registry          |
-| 2    | `ExtraEntry`        | Network registry entry not present in the canonical set    |
-| 3    | `RenamedEntry`      | Contract name changed between registry and deployment      |
+| 2    | `ExtraEntry`        | Deployment entry absent from the canonical registry        |
+| 3    | `RenamedEntry`      | Contract renamed between registry and deployment           |
 | 4    | `AddressMismatch`   | Configured address differs from canonical/deployed address |
-| 5    | `NetworkMismatch`   | Testnet address used for mainnet entry (or vice versa)     |
-| 6    | `RegistryUnreadable`| Canonical registry or deployment JSON missing/unparseable  |
-
-### Observability
-
-- Drift failures print the stable error code, the offending contract name,
-  the network, and a per-run **correlation id** so CI logs can be traced.
-- Output **never** includes secrets, private keys, or full environment dumps;
-  only contract names, networks, and public addresses are shown.
-
-### Rollout / rollback
-
-- The gate is additive and read-only: it inspects registries and config, it
-  does not deploy or mutate chain state.
-- Rollback: revert the CI job/step; no on-chain state migration is required.
-
-## math-lib: Fixed-Point (Q64.96) Invariants
-
-The `math-lib` contract provides fixed-point arithmetic in **Q64.96** format
-(64 integer bits, 96 fractional bits). All arithmetic is **checked**: overflow
-and underflow revert rather than wrapping, and rounding is deterministic.
-
-### Invariants
-
-- **No silent overflow/underflow.** Every add/sub/mul/div uses checked
-  arithmetic. A result outside the representable Q64.96 range reverts with
-  `MathError::Overflow` (positive) or `MathError::Underflow` (negative) instead
-  of wrapping around.
-- **Representable range.** The minimum representable value is `0` and the
-  maximum is `2^64 - 1` in integer units (i.e. `(2^64 - 1) << 96` in raw
-  fixed-point). Values at or beyond these bounds fail closed.
-- **Deterministic rounding.** `mul_div` rounds **down** (toward zero) and
-  `div` truncates toward zero; the same inputs always produce the same output
-  across runs and platforms. Rounding never silently crosses a boundary into
-  overflow.
-- **Division by zero.** Any division or `mul_div` with a zero denominator
-  reverts with `MathError::DivisionByZero`.
-- **Server/contract is source of truth.** Callers cannot supply a pre-rounded
-  or pre-scaled result; all scaling is performed inside `math-lib`.
-
-### Stable error codes
-
-| Code | Name             | Meaning                                          |
-| ---- | ---------------- | ------------------------------------------------ |
-| 1    | `Overflow`       | Result exceeds the maximum representable value   |
-| 2    | `Underflow`      | Result is below the minimum representable value  |
-| 3    | `DivisionByZero` | Zero denominator in `div`/`mul_div`              |
-| 4    | `InvalidInput`   | Malformed/negative input where unsigned expected |
-
-### Property tests
-
-`math-lib` ships property-based tests asserting the invariants above:
-
-- **Boundary values.** `0`, `1` (smallest unit), and `(2^64 - 1) << 96`
-  (maximum) round-trip through add/sub/mul/div without loss.
-- **Overflow/underflow.** `max + 1` reverts with `MathError::Overflow`;
-  `0 - 1` reverts with `MathError::Underflow`; `max * 2` reverts with
-  `MathError::Overflow`. Tests **assert on the revert** rather than allowing
-  wraparound (fail-closed).
-- **Rounding boundaries.** `mul_div` results just below and just above a
-  fractional boundary round deterministically down; the property holds for
-  randomized inputs.
-- **Adversarial inputs.** Zero denominators, maximum operands, and
-  randomized large values never produce a wrapped or silently truncated
-  result — they either return a correct in-range value or revert.
-
-### Observability
-
-- Arithmetic reverts carry the stable error code above; no secrets, keys, or
-  raw signatures are ever logged.
-
-## Oracle Adapter: Per-Pool TWAP Correctness
-
-The `oracle-adapter` contract exposes a per-pool TWAP oracle. Every entrypoint
-is typed, returns stable error codes, and is deny-by-default for privileged
-surfaces. TWAP state is **isolated per pool**: observations for one pool can
-never influence the TWAP of another.
-
-### Entrypoints
-
-| Entrypoint        | Direction | Semantics                                              |
-| ----------------- | --------- | ------------------------------------------------------ |
-| `observe`         | write     | Append a cumulative price observation for a pool       |
-| `twap`            | read      | Return the time-weighted average price for a pool      |
-| `set_pool_config` | write     | Privileged: register/update a pool's oracle config     |
-
-### Invariants
-
-- **Per-pool isolation.** Observations are keyed by `pool_id`; the TWAP for a
-  pool is computed only from that pool's own observation ring buffer. There is
-  no shared/global accumulator, so no cross-pool state leakage is possible.
-- **Monotonic cumulative price.** Each pool's cumulative price is
-  non-decreasing over time; `observe` rejects any observation that would
-  decrease it.
+| 5    | `CrossNetworkReuse` | Address reused across testnet and mainnet                  |
+| 6    | `RegistryUnreadable`| Registry/deployment JSON missing or unparseable (fail-closed) |
