@@ -63,6 +63,45 @@ When proposing a breaking API change:
 
 *(No unreleased breaking changes)*
 
+### Current-wallet decorator trust boundary (#1033)
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-09-27 |
+| Version | PATCH |
+| Change type | security, fix |
+| Affected endpoints | `GET /positions`, `GET /positions/activity`, `POST /positions/bulk` (all `@CurrentWallet()` users) |
+| Error codes | added `AUTH_INVALID_WALLET`, `AUTH_INSUFFICIENT_ROLE`; kept `AUTH_MISSING_WALLET`, `AUTH_INSUFFICIENT_SCOPE`; removed unused decorator-local `AUTH_MISSING_TOKEN`/`AUTH_INVALID_TOKEN`/`AUTH_EXPIRED_TOKEN` constants (never emitted by the decorator; `JwtAuthGuard` codes unchanged) |
+| Authz / scope impact | Wallet now comes only from the `JwtAuthGuard`-verified principal and must be a valid Stellar `G...` key. Fixes positions routes rejecting every valid token with `AUTH_MISSING_WALLET` (decorator read `req.wallet`, guard wrote `req.user`). See [SECURITY.md → Deploy and Ops Security](../SECURITY.md#deploy-and-ops-security) |
+| Migration notes | none |
+| Rollback / flag | n/a (fail-closed fix; revert the PR) |
+
+### Internal admin key rotation (#1030)
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-09-27 |
+| Version | MINOR |
+| Change type | security, feature |
+| Affected endpoints | `/admin/*` analytics, indexer replay, fee-collector and testnet-redeploy guarded routes, `GET /metrics/db`, `GET /metrics/indexer`, new `GET /metrics/security` |
+| Error codes | none added; a previous key past its window returns the existing `FEE_COLLECTOR_AUTH_EXPIRED` / `TESTNET_REDEPLOY_AUTH_EXPIRED` |
+| Authz / scope impact | Optional `<RING>_PREVIOUS` + `<RING>_PREVIOUS_EXPIRES_AT` accepted during a bounded window; constant-time comparison on `/metrics`; rate-limit buckets no longer contain the raw key. See [docs/INTERNAL_KEY_ROTATION.md](INTERNAL_KEY_ROTATION.md) |
+| Migration notes | none; unset `_PREVIOUS` vars keep today's single-key behaviour. Production boot rejects malformed rotation config |
+| Rollback / flag | Remove `<RING>_PREVIOUS*` to close the window; revert the PR to roll back |
+
+### Analytics scheduler cardinality-safe (#1031)
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-09-27 |
+| Version | PATCH |
+| Change type | fix |
+| Affected endpoints | none (background job); metrics under `GET /metrics/security` |
+| Error codes | none |
+| Authz / scope impact | none |
+| Migration notes | none |
+| Rollback / flag | `ANALYTICS_SCHEDULER_ENABLED=false` |
+
 ## v1.0.0
 
 **Released:** TBD

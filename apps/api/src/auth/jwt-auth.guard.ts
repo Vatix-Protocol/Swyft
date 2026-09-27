@@ -7,6 +7,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { verify, VerifyOptions } from 'jsonwebtoken';
+import { resolveCorrelationId } from '../observability/correlation-id';
+import { attachWalletPrincipal } from './wallet-principal';
 
 interface JwtPayload {
   sub?: string;
@@ -141,6 +143,9 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     req.user = { walletAddress, roles, scopes };
+    // The only principal @CurrentWallet() trusts (#1033); req.user is kept
+    // for existing readers but is not a trust boundary.
+    attachWalletPrincipal(req, { walletAddress, roles, scopes, correlationId });
     return true;
   }
 
@@ -230,11 +235,8 @@ export class JwtAuthGuard implements CanActivate {
   }
 
   private resolveCorrelationId(req: RequestWithUser): string {
-    const headers = req.headers as Record<string, string | undefined>;
-    return (
-      headers['x-correlation-id'] ??
-      headers['x-request-id'] ??
-      'unknown'
+    return resolveCorrelationId(
+      req.headers as Record<string, string | string[] | undefined>,
     );
   }
 

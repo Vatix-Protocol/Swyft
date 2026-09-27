@@ -194,6 +194,39 @@ it would leak secrets. To roll back a bad policy change, revert the environment
 value and restart; the process fails closed on invalid input, so a bad value
 cannot silently disable redaction.
 
+## Analytics scheduler
+
+`src/admin/analytics.scheduler.ts` recomputes the admin analytics cache on a
+BullMQ job scheduler (#1031).
+
+### Invariants
+
+- **One scheduler for the fleet.** All replicas upsert the fixed id
+  `analytics-refresh-scheduler`, so N instances produce one recompute per
+  interval. Worker concurrency is 1, so runs never overlap within a process.
+- **Bounded Redis footprint.** Completed jobs are kept for at most 5 / 24h,
+  failed jobs for at most 50 / 7d (previously failed jobs were kept forever).
+- **Bounded metric cardinality.** Run outcomes and failure reasons are fixed
+  enums; job ids and correlation ids (`analytics-refresh:<jobId>`) appear only
+  in logs.
+- **Fail-closed.** A failed recompute marks the job failed and writes no
+  partial analytics; the next interval retries. A Redis outage at boot
+  leaves the scheduler in state `unavailable` without blocking the API.
+- **No secrets in logs.** Errors are logged by name and stable code only.
+
+### Configuration / kill switch
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ANALYTICS_SCHEDULER_ENABLED` | `true` | `false`/`0`/`off`/`no` starts no worker and removes the scheduler from Redis. Set it on **every** instance, since any enabled instance re-registers the scheduler on boot |
+| `ANALYTICS_REFRESH_INTERVAL_MS` | `900000` | Clamped to `[60000, 86400000]`; invalid values fall back to the default |
+
+Rollback: set `ANALYTICS_SCHEDULER_ENABLED=false` and restart; admin
+analytics endpoints still serve from cache/DB on demand.
+
+Observability: `GET /metrics/security` → `analyticsScheduler` (see
+`src/metrics/METRICS_ENDPOINTS.md`).
+
 ## Security
 
 - Server/contract remains the source of truth for balances, swaps, and admin.
@@ -202,7 +235,8 @@ cannot silently disable redaction.
 - New privileged surfaces are deny-by-default.
 
 See `SECURITY.md` for the disclosure process and `apps/api/src/SENTRY_REDACTION_POLICY.md`
-for the full policy specification.
+for the full policy specification. Internal key rotation: `docs/INTERNAL_KEY_ROTATION.md`.
+Wallet trust boundary for REST handlers: `src/auth/AUTH_FLOW.md#current-wallet-decorator`.
 
 ## Contributing (Stellar Wave)
 

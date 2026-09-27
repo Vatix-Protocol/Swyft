@@ -125,6 +125,36 @@ expr: metrics_indexer_lag_ledgers > 50
 for: 5m
 ```
 
+### 3. Security Metrics
+
+**Endpoint:** `GET /v1/metrics/security`
+
+**Authentication:** Required (`x-internal-key` header)
+
+Bounded-cardinality counters for auth and the analytics scheduler. Every
+label comes from a fixed enum, so series count never grows with traffic;
+no keys, wallets, job ids or error messages are included.
+
+```json
+{
+  "internalKeyAuth": { "metrics:current": 42, "metrics:previous": 3, "fee_collector:invalid": 1, "...": 0 },
+  "currentWallet": { "allowed": 900, "AUTH_MISSING_WALLET": 2, "AUTH_INVALID_WALLET": 0, "AUTH_INSUFFICIENT_SCOPE": 0, "AUTH_INSUFFICIENT_ROLE": 1, "other": 0 },
+  "analyticsScheduler": {
+    "state": "running",
+    "intervalMs": 900000,
+    "lastSuccessAt": "2026-09-27T12:00:00.000Z",
+    "lastDurationMs": 812,
+    "runs": { "success": 96, "failure": 1, "rejected_job": 0, "other": 0 },
+    "failures": { "ANALYTICS_DEPENDENCY_UNAVAILABLE": 1, "ANALYTICS_COMPUTATION_FAILED": 0, "ANALYTICS_INVALID_INPUT": 0, "UNKNOWN": 0, "other": 0 }
+  }
+}
+```
+
+Alert suggestions: `analyticsScheduler.state != "running"`, `lastSuccessAt`
+older than 3× `intervalMs`, or `*:previous` still increasing near the
+rotation deadline (see [`docs/INTERNAL_KEY_ROTATION.md`](../../../../docs/INTERNAL_KEY_ROTATION.md)).
+Counters are per-process and reset on restart.
+
 ---
 
 ## Configuration
@@ -204,7 +234,9 @@ every 5 minutes:
 
 Check that:
 1. `INTERNAL_API_KEY` environment variable is set
-2. `x-internal-key` header matches the configured key
+2. `x-internal-key` header matches the configured key (or
+   `INTERNAL_API_KEY_PREVIOUS` before `INTERNAL_API_KEY_PREVIOUS_EXPIRES_AT`
+   during a rotation — see `docs/INTERNAL_KEY_ROTATION.md`)
 3. Request includes the header exactly: `x-internal-key: value` (case-sensitive)
 
 ### Indexer lag is increasing
