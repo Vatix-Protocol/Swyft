@@ -32,6 +32,7 @@ import { infraConfig } from './config/infra.config';
 import { resolveCorsConfig } from './config/cors.config';
 import { resolveRateLimitConfig, RateLimitConfig } from './config/rate-limit.config';
 import { resolveApiStrategyConfig, apiStrategySummary } from './config/api-strategy.config';
+import { resolveRouterConfig, routerConfigSummary } from './config/router.config';
 import { applySentryRedactionPolicy } from './observability/sentry-redaction';
 
 @Module({
@@ -106,6 +107,16 @@ export class AppModule implements NestModule {
     const apiStrategy = resolveApiStrategyConfig(process.env);
     // eslint-disable-next-line no-console
     console.log('[api-strategy] resolved', apiStrategySummary(apiStrategy));
+
+    // Resolve the router multi-hop decision at bootstrap (issue #1021).
+    // Fail-closed: multi-hop routing is an explicit non-goal by default and
+    // any request for it is rejected with a stable error code rather than
+    // silently degrading to a single hop. Enabling it requires the
+    // ROUTER_MULTI_HOP_ENABLED kill-switch; an invalid value aborts startup.
+    // Only an ops-safe summary (no secrets) is logged.
+    const router = resolveRouterConfig(process.env);
+    // eslint-disable-next-line no-console
+    console.log('[router-config] resolved', routerConfigSummary(router));
   }
 
   configure(consumer: MiddlewareConsumer): void {

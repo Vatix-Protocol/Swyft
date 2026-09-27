@@ -99,6 +99,45 @@ This document outlines the planned development phases for Swyft — a concentrat
 
 ---
 
+## Multi-hop routing decision (issue #1021)
+
+**Decision: explicit non-goal for the current release line.** Swyft routes
+**single-hop only**. Multi-hop routing is *not* silently degraded or
+best-effort — it is rejected fail-closed at every entrypoint until a
+future-proof interface ships.
+
+### Invariants
+
+1. **Deny-by-default.** Any request that would require more than one pool
+   hop is rejected with a stable error code (`MULTI_HOP_UNSUPPORTED`),
+   never partially executed or silently truncated to a single hop.
+2. **No silent degradation.** A caller asking for a multi-hop route must
+   never receive a single-hop fill without an explicit error.
+3. **Authz parity.** The multi-hop policy is enforced server-side (API) and
+   on-chain (router); untrusted clients cannot bypass it by crafting
+   requests directly.
+4. **Idempotency.** Rejected multi-hop requests are side-effect free and
+   safe to retry; correlation ids are echoed for tracing.
+5. **Fail-closed on dependency outage.** If the router cannot confirm the
+   hop count (RPC/DB/Redis unavailable), the request is rejected rather
+   than assumed single-hop.
+
+### Future-proof interface (when multi-hop ships)
+
+When multi-hop is promoted from non-goal to a shipped feature, it must land
+behind a feature flag / kill-switch and expose a typed surface:
+
+- `RouteRequest { path: PoolId[]; amountIn: bigint; slippageBps: number }`
+- `RouteResult { hops: Hop[]; amountOut: bigint; correlationId: string }`
+- Stable error codes: `MULTI_HOP_UNSUPPORTED`, `ROUTE_TOO_LONG`,
+  `INSUFFICIENT_LIQUIDITY`, `SLIPPAGE_EXCEEDED`.
+
+Until then, the single-hop surface is the only supported path and the
+non-goal above is authoritative. See [`CONTRACTS.md`](../CONTRACTS.md) for
+per-contract status.
+
+---
+
 ## How to Influence the Roadmap
 
 Open a [GitHub Discussion](https://github.com/Vatix-Protocol/Swyft/discussions) with the `RFC` label to propose new features or changes to phase priorities. The maintainer reviews RFCs during each monthly planning cycle.

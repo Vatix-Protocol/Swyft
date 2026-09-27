@@ -24,6 +24,88 @@ Deployed testnet contract IDs live in:
 
 Wire addresses into the API via the env keys listed in that registry (see `apps/api/.env.example`).
 
+## Router: Multi-Hop Routing Decision (Explicit Non-Goal)
+
+The `router` contract performs **single-hop swaps only**. Multi-hop routing
+(routing a single user swap across two or more pools) is an **explicit
+non-goal** for the current router interface. This is a deliberate, documented
+decision — not an oversight — so that contributors and integrators do not
+assume multi-hop support exists or silently degrade into it.
+
+### Decision
+
+- **Single-hop is the supported surface.** `router` routes a swap through
+  exactly one pool. The `pool_id` in a swap request identifies that single
+  pool; the router never chains pools.
+- **Multi-hop is denied by default (fail-closed).** A request that would
+  require more than one hop is **rejected**, not silently split, partially
+  filled, or best-effort routed. There is no implicit fallback to a
+  single-hop subset of a multi-hop intent.
+- **No silent degradation.** The router never returns a worse-than-requested
+  route without an explicit error. If a caller asks for a route the router
+  cannot serve, it fails with a stable error code (below) rather than
+  executing a different route.
+- **Future-proof interface.** The request/response types are versioned and
+  carry an explicit `hops` field so that a future multi-hop implementation can
+  be added without a breaking change to the single-hop surface. Today the only
+  accepted value is a single hop; any other value is rejected.
+
+### Typed interface
+
+Swap requests carry an explicit hop descriptor. The router validates it
+before touching pool state.
+
+| Field        | Type            | Notes                                                        |
+| ------------ | --------------- | ------------------------------------------------------------ |
+| `pool_id`    | `Address`       | The single pool to route through; immutable for the request  |
+| `hops`       | `u32`           | Number of hops. **Must be `1`.** Any other value is rejected  |
+| `amount_in`  | `i128`          | Input amount; validated by the pool, not trusted from client |
+| `min_out`    | `i128`          | Slippage floor; enforced by the pool (see slippage params)    |
+| `correlation_id` | `BytesN<32>` | Opaque id echoed in errors/logs for tracing; never a secret  |
+
+### Stable error codes
+
+| Code | Name                  | Meaning                                                       |
+| ---- | --------------------- | ------------------------------------------------------------- |
+| 1    | `MultiHopNotSupported`| `hops != 1`; multi-hop routing is an explicit non-goal        |
+| 2    | `InvalidHopCount`     | `hops == 0` or otherwise malformed hop descriptor             |
+| 3    | `PoolNotFound`        | `pool_id` is not a registered pool                            |
+| 4    | `Unauthorized`        | Caller is not authorized for the requested route              |
+| 5    | `SlippageExceeded`    | Realized output is below `min_out`                            |
+
+### Authorization (deny-by-default)
+
+- The router is **deny-by-default**: only explicitly authorized callers may
+  invoke a swap. Untrusted clients cannot bypass the multi-hop policy by
+  supplying a crafted `hops` value or by chaining router calls — each call is
+  independently validated and authorized.
+- Authorization is enforced **before** any pool state is read or mutated, so a
+  rejected multi-hop request cannot move funds or alter pool state.
+- The contract remains the **source of truth** for balances, swaps, and admin;
+  client-supplied `amount_in`/`min_out` are validated, never trusted.
+
+### Idempotency & replay
+
+- Swap requests carry a `correlation_id`; replayed requests with the same id
+  are rejected rather than double-executed. Multi-hop rejections are
+  idempotent: repeating a rejected request yields the same stable error code.
+
+### Observability
+
+- Rejections emit the stable error code, the offending `hops` value, and the
+  `correlation_id` so ops can trace failures in logs.
+- Output **never** includes secrets, private keys, or full environment dumps;
+  only public identifiers and error codes are shown.
+
+### Rollout / rollback
+
+- The single-hop-only policy is the current behavior; the versioned `hops`
+  field is additive and read-only with respect to chain state.
+- A future multi-hop implementation would land behind a feature flag and
+  require a readiness checklist before any mainnet-affecting change.
+- Rollback: revert the router interface change; no on-chain state migration is
+  required for the non-goal enforcement itself.
+
 ## Contract address drift gate (`validate:contracts`)
 
 The canonical contract registry is the **Contracts** table above plus the
@@ -154,125 +236,8 @@ above).
 | -------------- | --------- | --------------- | ------------------------------------------------------------ |
 | `position_id`  | `u64`     | contract        | Monotonic, unique per mint; never reused                     |
 | `pool_id`      | `Address` | contract        | Pool the position belongs to; immutable after mint           |
-| `fee_tier`     | `u32`     | contract        | Basis points; immutable after mint                           |
-| `tick_lower`   | `i32`     | contract        | Inclusive lower tick; `tick_lower < tick_upper`              |
-| `tick_upper`   | `i32`     | contract        | Exclusive upper tick; aligned to the pool's tick spacing     |
-| `liquidity`    | `u128`    | contract        | Q64.96 liquidity; `0` for a closed/empty position            |
-| `owner`        | `Address` | contract        | Current owner; changes only via transfer/approval            |
-| `uri`          | `String`  | contract        | Optional metadata URI; MUST NOT contain secrets              |
-
-### Invariants
-
-- **Contract is source of truth.** `pool_id`, `fee_tier`, `tick_lower`,
-  `tick_upper`, and `liquidity` are set at mint and only mutated by the
-  contract's own liquidity entrypoints. Clients cannot supply or override
-  them.
-- **Range validity.** `tick_lower < tick_upper`, both aligned to the pool's
-  tick spacing, and both within the pool's allowed tick bounds. Invalid ranges
-  fail closed at mint.
-- **Ownership integrity.** `owner` is the only field changed by transfer; a
-  transfer updates `owner` atomically and emits an event. Approvals never
-  change `owner`.
-- **No secret leakage.** `uri` and any emitted metadata MUST NOT embed private
-  keys, signatures, or credentials. Metadata is public by definition.
-- **Idempotent mint.** A replayed mint request (same client-supplied
-  idempotency key) returns the existing `position_id` rather than minting a
-  duplicate; the contract never mints two NFTs for one logical position.
-- **Fail-closed on dependency outage.** If a mint/transfer requires an
-  external read (e.g. pool state) and that dependency is unavailable, the
-  write reverts rather than proceeding with stale or defaulted metadata.
-
-### Entrypoints
-
-| Entrypoint        | Direction | Authz            | Semantics                                              |
-| ----------------- | --------- | ---------------- | ------------------------------------------------------ |
-| `mint`            | write     | owner (caller)   | Mint a position NFT; idempotent on replay              |
-| `metadata`        | read      | public           | Return the typed metadata for a `position_id`          |
-| `transfer`        | write     | owner/approved   | Transfer ownership; updates `owner` atomically         |
-| `set_uri`         | write     | owner            | Update the optional metadata URI                       |
-
-### Authz (deny-by-default)
-
-- `mint`, `transfer`, and `set_uri` are **deny-by-default**: the caller must
-  be the current `owner` (or an approved operator for `transfer`). Any other
-  caller is rejected with `PositionError::Unauthorized`.
-- `metadata` is a public read and never mutates state.
-- Untrusted clients cannot bypass policy by supplying metadata fields; the
-  contract ignores client-supplied `pool_id`/`fee_tier`/range/liquidity and
-  derives them from authoritative state.
-
-### Stable error codes
-
-| Code | Name             | Meaning                                                    |
-| ---- | ---------------- | ---------------------------------------------------------- |
-| 1    | `Unauthorized`   | Caller is not owner/approved for a privileged entrypoint   |
-| 2    | `NotFound`       | No position exists for the given `position_id`             |
-| 3    | `InvalidRange`   | `tick_lower >= tick_upper` or ticks not aligned to spacing |
-| 4    | `InvalidFeeTier` | Fee tier not supported by the pool                         |
-| 5    | `ReplayRejected` | Idempotency key reused with conflicting parameters         |
-| 6    | `DependencyDown` | Required external read unavailable; write failed closed    |
-
-### Observability
-
-- Mint/transfer/set_uri emit events carrying `position_id`, `pool_id`, and a
-  per-request **correlation id** so off-chain indexers can trace a position
-  across API and chain logs.
-- Logs/events **never** include secrets, private keys, or raw signatures; only
-  public metadata (ids, addresses, ticks, liquidity) is emitted.
-- Metrics on the money path: mint count, transfer count, and
-  `DependencyDown`/`ReplayRejected` counters are exported for alerting.
-
-### Rollout / rollback
-
-- Metadata schema changes are additive where possible; a breaking field change
-  is gated behind a contract upgrade and documented in the PR.
-- Rollback: revert the contract upgrade; existing NFTs retain their on-chain
-  metadata, so no off-chain migration is required for a revert.
-
-## Oracle Adapter: Per-Pool TWAP Correctness
-
-The `oracle-adapter` contract exposes a per-pool TWAP oracle. Every entrypoint
-is typed, returns stable error codes, and is deny-by-default for privileged
-surfaces. TWAP state is **isolated per pool**: observations for one pool can
-never influence the TWAP of another.
-
-### Entrypoints
-
-| Entrypoint        | Direction | Semantics                                              |
-| ----------------- | --------- | ------------------------------------------------------ |
-| `observe`         | write     | Append a cumulative price observation for a pool       |
-| `twap`            | read      | Return the time-weighted average price for a pool      |
-| `set_pool_config` | write     | Privileged: register/update a pool's oracle config     |
-
-### Invariants
-
-- **Per-pool isolation.** Observations are keyed by `pool_id`; the TWAP for a
-  pool is computed only from that pool's own observation ring buffer. There is
-  no shared/global accumulator, so no cross-pool state leakage is possible.
-- **Monotonic cumulative price.** Each pool's cumulative price is
-  non-decreasing over time; `observe` rejects out-of-order or regressing
-  timestamps with a stable error code.
-- **Deny-by-default config.** `set_pool_config` is privileged; only the
-  configured admin may register or update a pool's oracle config. Untrusted
-  callers are rejected.
-- **Fail-closed reads.** If a pool has no observations, `twap` reverts with a
-  stable error code rather than returning a defaulted/zero price.
-
-### Stable error codes
-
-| Code | Name             | Meaning                                                    |
-| ---- | ---------------- | ---------------------------------------------------------- |
-| 1    | `Unauthorized`   | Caller is not the configured admin for a privileged call   |
-| 2    | `NoObservations` | `twap` called for a pool with no observations              |
-| 3    | `StaleTimestamp` | Observation timestamp is not strictly increasing           |
-| 4    | `UnknownPool`    | Pool has no registered oracle config                       |
-
-### Observability
-
-- `observe`/`set_pool_config` emit events carrying `pool_id` and a per-request
-  **correlation id**; no secrets, keys, or raw signatures are logged.
-
-### Rollout / rollback
-
-- Oracle config changes are additive and gated behind the admin entrypoint;
-  rollback is a config revert with no on-chain state migration.
+| `fee_tier`     | `u32`     | contract        | Fee tier in hundredths of a basis point; immutable after mint|
+| `tick_lower`   | `i32`     | contract        | Lower tick bound; immutable after mint                       |
+| `tick_upper`   | `i32`     | contract        | Upper tick bound; immutable after mint                       |
+| `liquidity`    | `i128`    | contract        | Position liquidity; updated only by pool operations          |
+| `owner`        | `Address` | contract        | Current owner; changes only via authorized transfer          |
