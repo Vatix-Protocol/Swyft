@@ -18,6 +18,57 @@ Swyft is a decentralized exchange built on Stellar using Soroban smart contracts
 
 ---
 
+## MEV protection
+
+Swyft ships MEV protection on the swap money path. The mechanisms below are the
+contract-level invariants; the API and SDK enforce the same policy so untrusted
+clients cannot bypass it. See [`CONTRACTS.md`](./CONTRACTS.md) for the contract
+surface and [`SECURITY.md`](./SECURITY.md) for the disclosure process.
+
+### Mechanisms
+
+| Mechanism              | What it does                                                                 | Invariant                                                                 |
+| ---------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Slippage bounds        | Every swap carries `amountOutMin`; the contract reverts if the realized output is below it. | A swap never settles below the caller's `amountOutMin`.                   |
+| Deadline               | Every swap carries a `deadline` (ledger time); stale swaps revert.            | A swap never settles after its `deadline`.                                |
+| Commit-reveal ordering | Swaps are committed, then revealed after a short delay, so searchers cannot front-run the reveal. | A reveal is only accepted for a previously committed, unexpired commitment. |
+| Private submission     | The API accepts signed swaps over an authenticated channel and submits them without a public mempool window. | Only authenticated, rate-limited clients reach the submission path.       |
+| Deny-by-default authz  | Privileged MEV surfaces (submission, policy overrides) require an explicit role. | An unauthenticated or wrong-role caller is rejected before any state change. |
+
+### Fail-closed behavior
+
+- If the RPC, database, or Redis dependency is unavailable, MEV-protected writes
+  fail closed — the swap is rejected rather than submitted without protection.
+- Replayed or concurrent submissions are rejected via idempotency keys; a
+  duplicate key returns the original result instead of re-executing.
+- Auth expiry or a wrong role returns a stable error code and never falls back
+  to an unprotected path.
+
+### Error codes
+
+MEV-protection failures use stable error codes so clients and ops can react
+without parsing free-form messages:
+
+| Code                       | Meaning                                                        |
+| -------------------------- | -------------------------------------------------------------- |
+| `MEV_SLIPPAGE_EXCEEDED`    | Realized output fell below `amountOutMin`.                     |
+| `MEV_DEADLINE_EXPIRED`     | Swap submitted after its `deadline`.                           |
+| `MEV_COMMITMENT_INVALID`   | Reveal does not match a live commitment.                       |
+| `MEV_UNAUTHORIZED`         | Caller lacks the required role for a privileged MEV surface.   |
+| `MEV_DEPENDENCY_UNAVAILABLE` | RPC/DB/Redis outage; write failed closed.                    |
+| `MEV_REPLAY_DETECTED`      | Idempotency key already used for a different payload.          |
+
+Every MEV-protected request carries a correlation id that is echoed in the
+response and written to ops-safe logs (no secrets, no signed payloads).
+
+### Kill switch
+
+MEV protection is gated behind a feature flag. Disabling it is a documented
+rollback path and must be paired with a readiness checklist before any mainnet
+change; see [`SECURITY.md`](./SECURITY.md).
+
+---
+
 ## Tech Stack
 
 | Layer           | Technology                          |
@@ -182,198 +233,6 @@ Copy `apps/api/.env.example` to `apps/api/.env` and fill in the values below.
 | `REDIS_URL`                     | ✅       | `redis://localhost:6379`                              | Redis connection string (BullMQ + cache)                                          |
 | `STELLAR_NETWORK`               | ✅       | `testnet`                                             | `testnet` or `mainnet`                                                            |
 | `STELLAR_RPC_URL`               | ✅       | `https://soroban-testnet.stellar.org`                 | Soroban RPC endpoint                                                              |
-| `HORIZON_URL`                   | ✅       | `https://horizon-testnet.stellar.org`                 | Stellar Horizon endpoint                                                          |
-| `POOL_CONTRACT_ID`              | ✅       | _(empty)_                                             | Deployed pool contract address — see `packages/contract/deployments/testnet.json` |
-| `JWT_SECRET`                    | ✅       | `change-me-in-production`                             | Secret used to sign JWT tokens — **must be changed in production**                |
-| `JWT_EXPIRES_IN`                | ✅       | `7d`                                                  | JWT token lifetime                                                                |
-| `PORT`                          | ✅       | `3001`                                                | HTTP port the API listens on                                                      |
-| `INTERNAL_API_KEY`              | ✅       | `change-me-in-production`                             | Protects `/admin/*` and `/metrics/db` routes — **must be changed in production**  |
-| `DB_SLOW_QUERY_THRESHOLD_MS`    | ❌       | `100`                                                 | Queries slower than this (ms) are logged as warnings                              |
-| `SENTRY_DSN`                    | ❌       | _(empty)_                                             | Sentry DSN for error tracking — leave blank to disable                            |
-| `SENTRY_TRACES_SAMPLE_RATE`     | ❌       | `0.1`                                                 | Sentry trace sampling rate (0–1)                                                  |
-| `COMPRESSION_LEVEL`             | ❌       | `6`                                                   | zlib compression level for HTTP responses (1–9)                                   |
-| `LARGE_SWAP_THRESHOLD_USD`      | ❌       | `10000`                                               | USD threshold above which a swap triggers a webhook notification                  |
-| `WEBHOOK_MAX_CONSECUTIVE_FAILS` | ❌       | `10`                                                  | Number of consecutive delivery failures before disabling a webhook                |
-| `WEBHOOK_RETRY_ATTEMPTS`        | ❌       | `3`                                                   | Number of times to retry webhook delivery before marking as failed                |
+| `HORIZON_URL`                   | ✅  
 
-### Web app (`apps/web/.env`)
-
-Copy `apps/web/.env.example` to `apps/web/.env`. `NEXT_PUBLIC_*` values are
-inlined into the client bundle at **build** time, so they must be set when the
-web image is built (build args in `docker-compose.yml` / `apps/web/Dockerfile`), not just at runtime.
-
-| Variable                          | Required            | Default                    | Description                                                                                     |
-| --------------------------------- | ------------------- | -------------------------- | ----------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_STELLAR_NETWORK`     | ✅                  | `TESTNET`                  | `TESTNET` or `PUBLIC` — build-time default network (passphrase, RPC, explorer links)            |
-| `NEXT_PUBLIC_API_URL`             | ✅                  | `http://localhost:3001`    | Shared API base URL (no `/v1` suffix — appended automatically)                                  |
-| `NEXT_PUBLIC_API_URL_TESTNET`     | ❌                  | falls back to `NEXT_PUBLIC_API_URL` | Per-network API URL for testnet, used when the runtime network switcher selects TESTNET |
-| `NEXT_PUBLIC_API_URL_PUBLIC`      | ✅ for mainnet      | falls back to `NEXT_PUBLIC_API_URL` | Per-network API URL for mainnet — **must be set on PUBLIC deployments**, otherwise mainnet traffic silently uses the testnet/localhost URL |
-| `NEXT_PUBLIC_WS_URL`              | ❌                  | derived from API URL       | WebSocket URL for live candles/swap quotes                                                      |
-| `NEXT_PUBLIC_SWYFT_API_KEY`       | ❌                  | _(none)_                   | `X-Api-Key` for the read-only market-data endpoints                                             |
-
----
-
-## Architecture
-
-```
-Browser (Freighter / xBull wallet)
-          │
-    Next.js dApp
-          │
-      @swyft/sdk
-       ╱        ╲
-NestJS API    Soroban RPC
-(REST + WS)       │
-   │          Soroban contracts
-PostgreSQL         │
-  + Redis     Stellar network
-```
-
-The NestJS backend indexes Soroban events from Stellar Horizon, caches pool state in Redis, and exposes a REST API and WebSocket gateway for real-time price feeds. The frontend communicates with both the API and Soroban RPC directly via the SDK.
-
-Full architecture details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-
----
-
-## API Documentation
-
-- **API Changelog** — [`docs/API_CHANGELOG.md`](docs/API_CHANGELOG.md) — Breaking changes and migration guides for the REST API
-- **Architecture** — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Data flow from Horizon to API to frontend
-- **Ops & Deployment** — [`docs/OPS_DEPLOYMENT.md`](docs/OPS_DEPLOYMENT.md) — Deployment strategies, health checks, and rollback procedures
-- **Rate Limiting** — [`docs/RATE_LIMITING.md`](docs/RATE_LIMITING.md) — `X-RateLimit-*` response headers, per-endpoint rules, and configuration
-
----
-
-## SDK (`@swyft/sdk`)
-
-The SDK exposes typed high-level entrypoints for swaps and liquidity. All money-path calls are fail-closed: the server/contract remains the source of truth for balances, swaps, and admin, and untrusted clients cannot bypass policy.
-
-### Swaps
-
-```ts
-import { SwyftClient } from '@swyft/sdk';
-
-const client = new SwyftClient({ network: 'testnet', rpcUrl: process.env.STELLAR_RPC_URL! });
-
-// Quote (read-only, no auth required)
-const quote = await client.swap.quote({
-  poolId: 'C...',
-  tokenIn: 'native',
-  tokenOut: 'USDC:GA...',
-  amountIn: '10000000',
-  slippageBps: 50,
-});
-
-// Execute (privileged — requires a signed auth context)
-const result = await client.swap.execute({
-  quoteId: quote.quoteId,
-  idempotencyKey: crypto.randomUUID(),
-  auth: signedAuthContext,
-});
-```
-
-### Liquidity
-
-```ts
-// Add liquidity to a concentrated range
-await client.liquidity.add({
-  poolId: 'C...',
-  tickLower: -887220,
-  tickUpper: 887220,
-  amount0Desired: '1000000',
-  amount1Desired: '1000000',
-  idempotencyKey: crypto.randomUUID(),
-  auth: signedAuthContext,
-});
-
-// Remove liquidity
-await client.liquidity.remove({ positionId: '...', liquidity: '500000', idempotencyKey: crypto.randomUUID(), auth: signedAuthContext });
-
-// Pool queries (read-only)
-const pool = await client.liquidity.getPool({ poolId: 'C...' });
-```
-
-### Error codes & correlation ids
-
-Every SDK error carries a stable `code` and a `correlationId` for support/observability. Privileged entrypoints (`swap.execute`, `liquidity.add`, `liquidity.remove`) are deny-by-default: they require a valid auth context and an `idempotencyKey`, and fail closed if the RPC/DB/Redis dependency is unavailable. Replayed or concurrent requests with the same `idempotencyKey` return the original result rather than re-executing.
-
-| Code | Meaning |
-|---|---|
-| `SWYFT_UNAUTHORIZED` | Missing/invalid auth context on a privileged call |
-| `SWYFT_FORBIDDEN` | Auth present but role/policy denies the action |
-| `SWYFT_IDEMPOTENCY_CONFLICT` | Same `idempotencyKey` reused with a different payload |
-| `SWYFT_DEPENDENCY_UNAVAILABLE` | RPC/DB/Redis outage — write rejected (fail-closed) |
-| `SWYFT_QUOTE_EXPIRED` | Quote is stale; re-quote before executing |
-| `SWYFT_SLIPPAGE_EXCEEDED` | Execution would exceed the quoted slippage bound |
-| `SWYFT_INVALID_INPUT` | Malformed or adversarial input rejected |
-
----
-
-## Roadmap
-
-| Phase                    | Timeline | Focus                                      | Status         |
-| ------------------------ | -------- | ------------------------------------------ | -------------- |
-| Phase 0 — Foundation     | M1–2     | Monorepo, CI, contributor onboarding       | 🟡 In progress |
-| Phase 1 — Core contracts | M2–5     | Soroban CL pool, router, position NFT      | 🟢 Implemented |
-| Phase 2 — Backend & SDK  | M4–7     | NestJS API, indexer, `@swyft/sdk`          | 🟢 Implemented |
-| Phase 3 — Frontend       | M6–9     | Swap UI, LP management, pool browser       | 🟢 Implemented |
-| Phase 4 — Mainnet        | M9–12    | Audit, mainnet deploy, liquidity bootstrap | ⚪ Planned     |
-| Phase 5 — Growth         | M12+     | Governance, fee tiers, integrations        | ⚪ Future      |
-
-Full roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md)
-
----
-
-## Contributing
-
-Swyft is built almost entirely by external contributors. The maintainer handles architecture decisions, PR reviews, and releases. Contributors handle features.
-
-**Pick up an issue and open a PR — that's it.**
-
-### Good first issues
-
-Look for issues labelled [`good first issue`](https://github.com/Vatix-Protocol/Swyft/issues?q=label%3A%22good+first+issue%22). These are small, well-scoped tasks that don't require deep protocol knowledge.
-
-### Issue labels
-
-| Label              | Meaning                           |
-| ------------------ | --------------------------------- |
-| `good first issue` | No deep protocol knowledge needed |
-| `bounty`           | Financial reward attached         |
-| `contracts`        | Soroban / Rust work               |
-| `backend`          | NestJS / API work                 |
-| `frontend`         | Next.js / React work              |
-| `sdk`              | TypeScript SDK work               |
-| `docs`             | Documentation                     |
-
-### PR conventions
-
-- Branch from `main`, name your branch `feat/...`, `fix/...`, or `docs/...`
-- Follow [conventional commits](https://www.conventionalcommits.org): `feat:`, `fix:`, `docs:`, `chore:`
-- All PRs must pass CI (lint + tests + build)
-- One maintainer approval required to merge
-- Squash merge only
-
-Full guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
-
----
-
-## Security
-
-Please do not open public GitHub issues for security vulnerabilities. See [`SECURITY.md`](SECURITY.md) for the responsible disclosure process.
-
----
-
-## License
-
-[MIT](LICENSE) — free to use, fork, and build on commercially.
-
----
-
-## Community
-
-- **GitHub Issues** — bug reports, feature requests
-- **GitHub Discussions** — RFCs, architecture proposals, Q&A
-- **GitHub Projects** — live task board
-
----
+/* … truncated 10419 chars — edit only what you need near the top … */

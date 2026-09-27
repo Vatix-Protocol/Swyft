@@ -41,6 +41,36 @@ adapter.
 - Untrusted clients cannot reach privileged handlers by omitting or spoofing fields;
   the server re-derives identity and policy on every request.
 
+## Current-wallet decorator
+
+REST handlers get the caller's wallet only through `@CurrentWallet()` /
+`@CurrentWalletPrincipal()` ([`current-wallet.decorator.ts`](./current-wallet.decorator.ts)).
+Trust boundary invariants (#1033):
+
+- **Single trusted source.** The decorator reads the principal that
+  `JwtAuthGuard` stores with `attachWalletPrincipal` ([`wallet-principal.ts`](./wallet-principal.ts))
+  after verifying the JWT. `req.user`, `req.wallet`, headers, query and body
+  are never trusted, so middleware or a client cannot choose whose wallet a
+  handler acts on.
+- **Fail-closed.** A route that forgot the guard, or a token whose wallet
+  claim is not a valid Stellar ed25519 public key (`G...`), is rejected with
+  401 before the handler runs.
+- **Deny-by-default authz.** `@CurrentWallet({ scopes, roles })` requires every
+  listed scope and at least one listed role, otherwise 403.
+- **Network-agnostic.** A `G...` key is the same on testnet and mainnet;
+  network selection stays in server config (`STELLAR_NETWORK`), never the token.
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `AUTH_MISSING_WALLET` | 401 | No guard-verified principal on the request |
+| `AUTH_INVALID_WALLET` | 401 | Wallet claim is not a valid Stellar public key |
+| `AUTH_INSUFFICIENT_SCOPE` | 403 | A required scope is missing |
+| `AUTH_INSUFFICIENT_ROLE` | 403 | None of the allowed roles is granted |
+
+Every error body is `{ code, message, correlationId }` and never echoes the
+token or wallet. Outcomes are counted in `GET /metrics/security` →
+`currentWallet` (fixed label set).
+
 ## Idempotency & replay
 
 - Mutating money-path procedures accept an idempotency key. Concurrent or replayed
@@ -76,3 +106,4 @@ Rollback steps are documented in the corresponding PR description.
 - [`docs/GRAPHQL_VS_TRPC_SPIKE.md`](../../../docs/GRAPHQL_VS_TRPC_SPIKE.md) — recorded transport decision
 - [`docs/TRPC-IMPLEMENTATION.md`](../../../docs/TRPC-IMPLEMENTATION.md) — tRPC implementation guide
 - [`SECURITY.md`](../../../SECURITY.md) — security policy and reporting
+- [`docs/INTERNAL_KEY_ROTATION.md`](../../../docs/INTERNAL_KEY_ROTATION.md) — `x-internal-key` rotation runbook
