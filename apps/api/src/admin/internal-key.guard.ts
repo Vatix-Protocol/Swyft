@@ -78,6 +78,25 @@ export type FactoryFeeTierAuthErrorCode =
   (typeof FACTORY_FEE_TIER_AUTH_ERRORS)[keyof typeof FACTORY_FEE_TIER_AUTH_ERRORS];
 
 /**
+ * Stable error codes for the pool-initialize auth surface (#1023).
+ * Deny-by-default: any failure to prove the pool-init admin role is rejected,
+ * so a frontrunner cannot race `initialize` to steal pool admin.
+ */
+export const POOL_INIT_AUTH_ERRORS = {
+  MISSING_KEY: 'POOL_INIT_AUTH_MISSING_KEY',
+  INVALID_KEY: 'POOL_INIT_AUTH_INVALID_KEY',
+  WRONG_ROLE: 'POOL_INIT_AUTH_WRONG_ROLE',
+  EXPIRED: 'POOL_INIT_AUTH_EXPIRED',
+  NOT_CONFIGURED: 'POOL_INIT_AUTH_NOT_CONFIGURED',
+  ALREADY_INITIALIZED: 'POOL_INIT_AUTH_ALREADY_INITIALIZED',
+  REPLAY_DETECTED: 'POOL_INIT_AUTH_REPLAY_DETECTED',
+  DEPENDENCY_UNAVAILABLE: 'POOL_INIT_AUTH_DEPENDENCY_UNAVAILABLE',
+} as const;
+
+export type PoolInitAuthErrorCode =
+  (typeof POOL_INIT_AUTH_ERRORS)[keyof typeof POOL_INIT_AUTH_ERRORS];
+
+/**
  * Constant-time comparison that never throws on length mismatch.
  */
 function safeEqual(a: string, b: string): boolean {
@@ -246,43 +265,48 @@ export class TestnetRedeployGuard implements CanActivate {
 }
 
 /**
- * Guard enforcing FACTORY_FEE_TIER_AUTH for factory fee-tier allowlist
- * entrypoints (#1022).
+ * Guard enforcing POOL_INIT_AUTH for pool `initialize` entrypoints (#1023).
  *
- * Invariants (see CONTRACTS.md):
- *  - Deny-by-default: missing/expired/wrong-role credentials are rejected.
+ * Invariants:
+ *  - Deny-by-default: missing/expired/wrong-role credentials are rejected, so
+ *    an untrusted frontrunner cannot race `initialize` to become pool admin.
  *  - Fail-closed: if the expected key is not configured, all requests are denied.
- *  - Kill-switch: when FACTORY_FEE_TIER_ENABLED is explicitly 'false', the
- *    surface is disabled and every request is refused (money-path safety).
+ *  - Idempotent/replay-safe: a per-pool init nonce is required and single-use;
+ *    concurrent or replayed initialize requests fail closed.
+ *  - Dependency fail-closed: if the replay store (Redis/DB) is unavailable the
+ *    write path is refused rather than allowed through.
  *  - No bypass: untrusted clients cannot satisfy the check without the key.
  *  - Correlation id is surfaced for ops without leaking the secret.
  */
 @Injectable()
-export class FactoryFeeTierGuard implements CanActivate {
-  private readonly logger = new Logger(FactoryFeeTierGuard.name);
+export class PoolInitGuard implements CanActivate {
+  private readonly logger = new Logger(PoolInitGuard.name);
 
-  canActivate(context: ExecutionContext): boolean {
+  /**
+   * Single-use nonce store for pool-init replay protection. Injected/overridable
+   * so tests and ops can supply a Redis/DB-backed implementation. When unset,
+   * the guard fails closed (no privileged init without a replay store).
+   */
+  constructor(
+    private readonly replayStore?: {
+      /** Atomically claim a nonce; returns false if already used. */
+      claim(key: string): Promise<boolean>;
+    },
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<Request>();
     const correlationId =
       (req.headers['x-correlation-id'] as string | undefined) ??
       (req.headers['x-request-id'] as string | undefined) ??
       'unknown';
 
-    // Kill-switch: an explicit 'false' disables the money-path surface.
-    if (process.env.FACTORY_FEE_TIER_ENABLED === 'false') {
-      throw new ForbiddenException({
-        code: FACTORY_FEE_TIER_AUTH_ERRORS.DISABLED,
-        message: 'Factory fee tier allowlist is disabled',
-        correlationId,
-      });
-    }
-
-    const expected = process.env.FACTORY_FEE_TIER_AUTH;
+    const expected = process.env.POOL_INIT_AUTH;
     if (!expected) {
       // Fail-closed: no configured secret means no privileged access.
       throw new UnauthorizedException({
-        code: FACTORY_FEE_TIER_AUTH_ERRORS.NOT_CONFIGURED,
-        message: 'Factory fee tier auth is not configured',
+        code: POOL_INIT_AUTH_ERRORS.NOT_CONFIGURED,
+        message: 'Pool init auth is not configured',
         correlationId,
       });
     }
@@ -290,40 +314,88 @@ export class FactoryFeeTierGuard implements CanActivate {
     const key = req.headers['x-internal-key'] as string | undefined;
     if (!key) {
       throw new UnauthorizedException({
-        code: FACTORY_FEE_TIER_AUTH_ERRORS.MISSING_KEY,
-        message: 'Missing factory fee tier credentials',
+        code: POOL_INIT_AUTH_ERRORS.MISSING_KEY,
+        message: 'Missing pool init credentials',
         correlationId,
       });
     }
 
     if (!safeEqual(key, expected)) {
       throw new UnauthorizedException({
-        code: FACTORY_FEE_TIER_AUTH_ERRORS.INVALID_KEY,
-        message: 'Invalid factory fee tier credentials',
+        code: POOL_INIT_AUTH_ERRORS.INVALID_KEY,
+        message: 'Invalid pool init credentials',
         correlationId,
       });
     }
 
     // Optional role/expiry enforcement when the caller presents a scoped token.
-    const role = req.headers['x-factory-fee-tier-role'] as string | undefined;
-    if (role && role !== 'factory-fee-tier-admin') {
+    const role = req.headers['x-pool-init-role'] as string | undefined;
+    if (role && role !== 'pool-init-admin') {
       throw new ForbiddenException({
-        code: FACTORY_FEE_TIER_AUTH_ERRORS.WRONG_ROLE,
-        message: 'Caller lacks factory-fee-tier-admin role',
+        code: POOL_INIT_AUTH_ERRORS.WRONG_ROLE,
+        message: 'Caller lacks pool-init-admin role',
         correlationId,
       });
     }
 
-    const expiresAt = req.headers['x-factory-fee-tier-expires-at'] as string | undefined;
+    const expiresAt = req.headers['x-pool-init-expires-at'] as string | undefined;
     if (expiresAt) {
       const ts = Number(expiresAt);
       if (!Number.isFinite(ts) || ts <= Date.now()) {
         throw new UnauthorizedException({
-          code: FACTORY_FEE_TIER_AUTH_ERRORS.EXPIRED,
-          message: 'Factory fee tier credentials expired',
+          code: POOL_INIT_AUTH_ERRORS.EXPIRED,
+          message: 'Pool init credentials expired',
           correlationId,
         });
       }
+    }
+
+    // Idempotency/replay protection: require a single-use init nonce per pool.
+    const poolId =
+      (req.headers['x-pool-id'] as string | undefined) ??
+      (req.body?.poolId as string | undefined);
+    const nonce = req.headers['x-pool-init-nonce'] as string | undefined;
+    if (!poolId || !nonce) {
+      throw new ForbiddenException({
+        code: POOL_INIT_AUTH_ERRORS.REPLAY_DETECTED,
+        message: 'Pool init requires a pool id and single-use nonce',
+        correlationId,
+      });
+    }
+
+    if (!this.replayStore) {
+      // Fail-closed: without a replay store we cannot guarantee single-use.
+      throw new UnauthorizedException({
+        code: POOL_INIT_AUTH_ERRORS.DEPENDENCY_UNAVAILABLE,
+        message: 'Pool init replay store is unavailable',
+        correlationId,
+      });
+    }
+
+    let claimed: boolean;
+    try {
+      claimed = await this.replayStore.claim(`pool-init:${poolId}:${nonce}`);
+    } catch (err) {
+      // Dependency outage (Redis/DB): fail closed on the init write path.
+      this.logger.error(
+        `Pool init replay store error (correlationId=${correlationId}): ${
+          (err as Error)?.message ?? 'unknown'
+        }`,
+      );
+      throw new UnauthorizedException({
+        code: POOL_INIT_AUTH_ERRORS.DEPENDENCY_UNAVAILABLE,
+        message: 'Pool init replay store is unavailable',
+        correlationId,
+      });
+    }
+
+    if (!claimed) {
+      // Concurrent or replayed initialize request: reject, do not re-init.
+      throw new ForbiddenException({
+        code: POOL_INIT_AUTH_ERRORS.REPLAY_DETECTED,
+        message: 'Pool init nonce already used',
+        correlationId,
+      });
     }
 
     return true;

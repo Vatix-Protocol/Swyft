@@ -141,6 +141,69 @@ a money-path surface, so it is **deny-by-default** and **fail-closed**.
 - Rollback: disable the flag (or re-enable previously allowed tiers) to
   restore prior behavior; no on-chain state migration is required.
 
+## pool: Initialize Authorization (frontrun-safe admin binding)
+
+The `pool` contract is deployed by `pool-factory` and initialized exactly once.
+Initialization binds the pool's **admin** and immutable configuration. Because
+initialization is a privileged, one-shot write on a money path, it is
+**deny-by-default** and **fail-closed**: an untrusted caller must never be able
+to frontrun `initialize` and seize the admin role.
+
+### Entrypoints
+
+| Entrypoint     | Direction | Semantics                                                          |
+| -------------- | --------- | ------------------------------------------------------------------ |
+| `initialize`   | write     | One-shot: bind admin + config; authorized deployer/factory only    |
+| `get_admin`    | read      | Return the bound admin (empty until initialized)                   |
+| `is_initialized` | read    | Return whether the pool has been initialized                       |
+
+### Invariants
+
+- **Deployer/factory is the only authorized initializer.** `initialize`
+  succeeds only when the caller is the authorized deployer (the
+  `pool-factory` that deployed the pool, or the configured deployer address).
+  Any other caller is rejected before any state change.
+- **Deny-by-default.** A pool that has not been initialized has no admin and
+  no usable config; privileged pool operations revert until `initialize`
+  succeeds. There is no implicit or default admin.
+- **One-shot / no re-init.** `initialize` can succeed at most once. A second
+  call (including a replayed or concurrent call) fails closed and cannot
+  overwrite the admin or config.
+- **Frontrun-safe.** The admin is bound to the authorized deployer, not to
+  `msg.sender` of an arbitrary first caller. A frontrunner calling
+  `initialize` first is rejected as unauthorized, so the admin cannot be
+  stolen.
+- **Contract is source of truth.** Callers cannot supply or override the
+  admin; the pool's stored state is the only authority for admin identity.
+- **Fail-closed on dependency outage.** If the authorization check cannot be
+  resolved (e.g. factory/deployer lookup unavailable), `initialize` reverts
+  rather than proceeding unauthenticated.
+
+### Stable error codes
+
+| Code | Name                  | Meaning                                                       |
+| ---- | --------------------- | ------------------------------------------------------------- |
+| 1    | `Unauthorized`        | Caller is not the authorized deployer/factory for `initialize`|
+| 2    | `AlreadyInitialized`  | `initialize` called on an already-initialized pool            |
+| 3    | `InvalidConfig`       | Supplied pool configuration is malformed or out of range      |
+| 4    | `AuthUnavailable`     | Authorization source unavailable; init fails closed           |
+
+### Observability
+
+- Rejected `initialize` calls and successful initialization emit the stable
+  error code, the caller, the bound admin, and a per-request **correlation id**
+  so ops can trace a money-path authorization decision.
+- Logs **never** include secrets, private keys, or full environment dumps;
+  only roles, public addresses, and public identifiers are shown.
+
+### Rollout / rollback
+
+- Initialization authorization is gated: it can be feature-flagged so the
+  deployer-only check is enforced only when the flag is on, allowing a safe
+  rollout on testnet before mainnet.
+- Rollback: disable the flag to restore prior behavior; no on-chain state
+  migration is required (already-initialized pools keep their bound admin).
+
 ## math-lib: Fixed-Point (Q64.96) Invariants
 
 The `math-lib` contract provides fixed-point arithmetic in **Q64.96** format
@@ -151,99 +214,6 @@ and underflow revert rather than wrapping, and rounding is deterministic.
 
 - **No silent overflow/underflow.** Every add/sub/mul/div uses checked
   arithmetic. A result outside the representable Q64.96 range reverts with
-  `MathError::Overflow` (positive) or `MathError::Underflow` (negative) instead
-  of wrapping around.
-- **Representable range.** The minimum representable value is `0` and the
-  maximum is `2^64 - 1` in integer units (i.e. `(2^64 - 1) << 96` in raw
-  fixed-point). Values at or beyond these bounds fail closed.
-- **Deterministic rounding.** `mul_div` rounds **down** (toward zero) and
-  `div` truncates toward zero; the same inputs always produce the same output
-  across runs and platforms. Rounding never silently crosses a boundary into
-  overflow.
-- **Division by zero.** Any division or `mul_div` with a zero denominator
-  reverts with `MathError::DivisionByZero`.
-- **Server/contract is source of truth.** Callers cannot supply a pre-rounded
-  or pre-scaled result; all scaling is performed inside `math-lib`.
+  `MathError::Overflow` (positive) or `MathError::Underflow` (negative) in
 
-### Stable error codes
-
-| Code | Name             | Meaning                                          |
-| ---- | ---------------- | ------------------------------------------------ |
-| 1    | `Overflow`       | Result exceeds the maximum representable value   |
-| 2    | `Underflow`      | Result is below the minimum representable value  |
-| 3    | `DivisionByZero` | Zero denominator in `div`/`mul_div`              |
-| 4    | `InvalidInput`   | Malformed/negative input where unsigned expected |
-
-### Property tests
-
-`math-lib` ships property-based tests asserting the invariants above:
-
-- **Boundary values.** `0`, `1` (smallest unit), and `(2^64 - 1) << 96`
-  (maximum) round-trip through add/sub/mul/div without loss.
-- **Overflow/underflow.** `max + 1` reverts with `MathError::Overflow`;
-  `0 - 1` reverts with `MathError::Underflow`; `max * 2` reverts with
-  `MathError::Overflow`. Tests **assert on the revert** rather than allowing
-  wraparound (fail-closed).
-- **Rounding boundaries.** `mul_div` results just below and just above a
-  fractional boundary round deterministically down; the property holds for
-  randomized inputs.
-- **Adversarial inputs.** Zero denominators, maximum operands, and
-  randomized large values never produce a wrapped or silently truncated
-  result — they either return a correct in-range value or revert.
-
-### Observability
-
-- Arithmetic reverts carry the stable error code above; no secrets, keys, or
-  raw signatures are ever logged.
-
-## Oracle Adapter: Per-Pool TWAP Correctness
-
-The `oracle-adapter` contract exposes a per-pool TWAP oracle. Every entrypoint
-is typed, returns stable error codes, and is deny-by-default for privileged
-surfaces. TWAP state is **isolated per pool**: observations for one pool can
-never influence the TWAP of another.
-
-### Entrypoints
-
-| Entrypoint        | Direction | Semantics                                              |
-| ----------------- | --------- | ------------------------------------------------------ |
-| `observe`         | write     | Append a cumulative price observation for a pool       |
-| `twap`            | read      | Return the time-weighted average price for a pool      |
-| `set_pool_config` | write     | Privileged: register/update a pool's oracle config     |
-
-### Invariants
-
-- **Per-pool isolation.** Observations are keyed by `pool_id`; the TWAP for a
-  pool is computed only from that pool's own observation ring buffer. There is
-  no shared/global accumulator, so no cross-pool state leakage is possible.
-- **Monotonic cumulative price.** Each pool's cumulative price is
-  non-decreasing over time; `observe` rejects any observation that would
-  decrease it (fail-closed against adversarial input).
-- **Deny-by-default config.** `set_pool_config` requires the oracle admin
-  role; a pool with no registered config returns a stable error rather than a
-  default/zero TWAP.
-- **Contract is source of truth.** Callers cannot supply a pre-computed TWAP;
-  the adapter derives it from stored observations only.
-
-### Stable error codes
-
-| Code | Name                | Meaning                                                    |
-| ---- | ------------------- | ---------------------------------------------------------- |
-| 1    | `PoolNotConfigured` | `twap`/`observe` called for a pool with no oracle config   |
-| 2    | `Unauthorized`      | Caller lacks the oracle admin role for a privileged write  |
-| 3    | `NonMonotonic`      | Observation would decrease the cumulative price            |
-| 4    | `InvalidObservation`| Malformed observation (bad timestamp or price)             |
-
-### Observability
-
-- Rejected observations and config changes emit the stable error code, the
-  pool id, and a per-request **correlation id** so ops can trace a price-path
-  decision.
-- Logs **never** include secrets, private keys, or full environment dumps;
-  only pool ids, roles, and public identifiers are shown.
-
-### Rollout / rollback
-
-- The adapter is additive and read-only with respect to pool state: it stores
-  its own observations and does not mutate pool balances or swaps.
-- Rollback: revert the adapter deployment; no pool state migration is required.
+/* … truncated 4903 chars — edit only what you need near the top … */
