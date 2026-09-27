@@ -52,6 +52,18 @@ The transport decision does not weaken the security model above. The following i
 
 See [`apps/api/src/auth/AUTH_FLOW.md`](apps/api/src/auth/AUTH_FLOW.md) for the authentication and authorization flow that backs these invariants.
 
+## Contract AUTH Matrix (Pool / Router / Factory)
+
+The pool, router, and factory contracts expose privileged surfaces that must be authorized deny-by-default. The authoritative roles × actions matrix — including which role may call each entrypoint, the required scope, and the stable error code returned on denial — is defined in [`docs/CONTRACTS.md`](docs/CONTRACTS.md) under "Contract AUTH Matrix". That matrix is the source of truth for contract authorization; this section records the security controls that enforce it.
+
+- **Deny-by-default.** Every privileged pool/router/factory entrypoint requires an explicit role. There is no unauthenticated or default-allow path to a privileged action.
+- **Server/contract is the source of truth.** Authorization decisions are made server-side / on-chain; client-supplied role or admin claims are never trusted.
+- **Stable error codes + correlation ids.** Authorization failures (missing role, wrong role, expired credential) return stable error codes with a correlation id so incidents are traceable without leaking internal detail.
+- **Idempotency.** Money-path mutations on these contracts accept an idempotency key; concurrent or replayed requests with the same key are deduplicated and do not re-execute side effects.
+- **Fail-closed writes.** If RPC, database, or Redis is unavailable, write operations on pool/router/factory fail closed rather than proceeding on partial or unverified state.
+- **Testnet vs mainnet / address drift.** Role bindings and contract addresses are environment-scoped; a role valid on testnet is not assumed valid on mainnet, and address drift is rejected rather than silently accepted.
+- **Kill-switch.** Any money-path or mainnet-affecting change to these surfaces lands behind a feature flag / kill-switch so it can be disabled without a redeploy.
+
 ## Deploy and Ops Security
 
 Deployment and operational procedures are security-sensitive. The executable runbooks define the required controls:

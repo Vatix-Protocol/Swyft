@@ -15,6 +15,90 @@ All 8 Swyft smart contracts compile and build successfully. (The `hello-world` s
 | `oracle-adapter` | TWAP oracle (per-pool)      | ✅     |
 | `cl-pool`        | Concentrated-liquidity pool | ✅     |
 
+## Contract AUTH matrix (pool / router / factory)
+
+Every privileged surface on `pool`, `router`, and `pool-factory` is
+**deny-by-default**: a caller with no recognized role is rejected before any
+state is read or written. The matrix below is the single source of truth for
+which role may invoke which action. It is cross-linked from
+[`SECURITY.md`](SECURITY.md) (authorization policy) and enforced at the
+contract/API boundary.
+
+### Roles
+
+| Role        | Description                                                        |
+| ----------- | ------------------------------------------------------------------ |
+| `Public`    | Any untrusted client; no privileges.                               |
+| `Liquidity` | LP that owns a position in a specific pool.                        |
+| `Trader`    | Client performing swaps through the router.                        |
+| `Operator`  | Service account for routine, non-admin operations.                 |
+| `Admin`     | Governance/admin key; the only role that may change policy.        |
+
+### Matrix (roles × actions)
+
+| Action                          | Contract       | Public | Liquidity | Trader | Operator | Admin |
+| ------------------------------- | -------------- | :----: | :-------: | :----: | :------: | :---: |
+| `swap`                          | `router`       |   ✅   |    ✅     |   ✅   |    ✅    |  ✅   |
+| `quote`                         | `router`       |   ✅   |    ✅     |   ✅   |    ✅    |  ✅   |
+| `add_liquidity`                 | `pool`         |   ❌   |    ✅     |   ❌   |    ✅    |  ✅   |
+| `remove_liquidity`              | `pool`         |   ❌   |    ✅     |   ❌   |    ✅    |  ✅   |
+| `collect_fees`                  | `pool`         |   ❌   |    ✅     |   ❌   |    ✅    |  ✅   |
+| `create_pool`                   | `pool-factory` |   ❌   |    ❌     |   ❌   |    ✅    |  ✅   |
+| `set_pool_config`               | `pool`         |   ❌   |    ❌     |   ❌   |    ❌    |  ✅   |
+| `set_factory_config`            | `pool-factory` |   ❌   |    ❌     |   ❌   |    ❌    |  ✅   |
+| `pause` / `unpause`             | all            |   ❌   |    ❌     |   ❌   |    ❌    |  ✅   |
+| `transfer_admin`                | all            |   ❌   |    ❌     |   ❌   |    ❌    |  ✅   |
+
+### Invariants
+
+- **Deny-by-default.** Any action not explicitly granted to a role in the
+  matrix is rejected. New privileged surfaces start with **no** grants and
+  must be added to this matrix before they can be called.
+- **Server/contract is source of truth.** Balances, swaps, and admin state are
+  authoritative on-chain; clients cannot assert a role or balance.
+- **Role is bound to the authenticated caller**, never to a client-supplied
+  field. A `Liquidity` grant applies only to the pool the caller holds a
+  position in.
+- **Admin is the only policy mutator.** `set_pool_config`,
+  `set_factory_config`, `pause`/`unpause`, and `transfer_admin` are
+  `Admin`-only and cannot be delegated to `Operator`.
+- **Fail-closed on dependency outage.** If the RPC/DB/Redis dependency needed
+  to resolve a role or nonce is unavailable, writes are rejected rather than
+  allowed through.
+- **Idempotency.** Replayed or concurrent privileged requests are rejected via
+  a per-caller nonce; a replayed request never mutates state twice.
+
+### Stable error codes
+
+| Code | Name               | Meaning                                                    |
+| ---- | ------------------ | ---------------------------------------------------------- |
+| 1    | `Unauthorized`     | Caller has no role granting the requested action           |
+| 2    | `WrongRole`        | Caller is authenticated but lacks the required role        |
+| 3    | `AuthExpired`      | Caller's authorization has expired                         |
+| 4    | `ReplayedRequest`  | Nonce already used (idempotency violation)                 |
+| 5    | `DependencyDown`   | Role/nonce dependency unavailable; write failed closed     |
+| 6    | `InvalidInput`     | Malformed/adversarial input rejected before authorization  |
+
+### Observability
+
+- Every authorization decision emits the stable error code, the action, the
+  contract, and a per-request **correlation id** so ops can trace a denial
+  end-to-end.
+- Money-path actions (`swap`, `add_liquidity`, `remove_liquidity`,
+  `collect_fees`) emit success/failure counters; denials are counted
+  separately from errors.
+- Logs **never** include secrets, private keys, signatures, or full
+  environment dumps — only role names, action names, and public identifiers.
+
+### Rollout / rollback
+
+- Authorization enforcement is additive and deny-by-default; it does not
+  change balances or swap math.
+- Any mainnet-affecting change to this matrix lands behind a feature flag /
+  kill-switch and is documented in the PR with a rollback plan.
+- Rollback: revert the enforcement change; no on-chain state migration is
+  required.
+
 ## Testnet registry
 
 Deployed testnet contract IDs live in:
@@ -156,60 +240,5 @@ never influence the TWAP of another.
   pool is computed only from that pool's own observation ring buffer. There is
   no shared/global accumulator, so no cross-pool state leakage is possible.
 - **Monotonic cumulative price.** Each pool's cumulative price is
-  non-decreasing over time; `observe` reverts with
-  `OracleError::NonMonotonicObservation` if a new cumulative value is below the
-  last recorded value for that pool.
-- **Bounded window.** `twap` uses the pool's configured window; if fewer than
-  two observations exist within the window it reverts with
-  `OracleError::InsufficientObservations` rather than returning a stale or
-  fabricated price.
-- **Server/contract is source of truth.** Prices are derived from the pool's
-  own reserves/observations; client-supplied prices are never trusted.
-- **Idempotency.** Each `observe`/`set_pool_config` carries a caller-supplied
-  `correlation_id`. Replayed or concurrent requests with a previously consumed
-  id are rejected with `OracleError::DuplicateRequest` and never mutate oracle
-  state twice.
-- **Fail-closed on dependency outage.** If the pool/RPC dependency is
-  unavailable, writes revert with `OracleError::DependencyUnavailable` rather
-  than proceeding on stale data.
-
-### Stable error codes
-
-| Code | Name                       | Meaning                                          |
-| ---- | -------------------------- | ------------------------------------------------ |
-| 1    | `Unauthorized`             | Caller lacks the required role/authorization     |
-| 2    | `UnknownPool`              | `pool_id` is not registered with the oracle      |
-| 3    | `InsufficientObservations` | Not enough observations in the window for a TWAP |
-| 4    | `NonMonotonicObservation`  | Cumulative price went backwards for the pool     |
-| 5    | `DuplicateRequest`         | `correlation_id` already consumed (replay)       |
-| 6    | `DependencyUnavailable`    | Pool/RPC dependency outage; write failed closed  |
-| 7    | `InvalidWindow`            | Zero/negative or malformed TWAP window           |
-
-### Authorization
-
-- `observe` is permissionless for the caller's own pool but every request is
-  authorized against oracle policy; untrusted clients cannot write an
-  observation for a pool they do not control.
-- `set_pool_config` is **deny-by-default** and requires the admin role;
-  unauthorized callers receive `OracleError::Unauthorized`.
-- `twap` is a read and is permissionless, but still validates `pool_id` and
-  reverts with `OracleError::UnknownPool` for unregistered pools.
-
-### Observability
-
-- Money-path metrics are emitted per observation and query: pool id, window,
-  computed TWAP, observation count, and outcome code.
-- Logs carry the `correlation_id` for tracing and **never** include secrets,
-  private keys, or raw signatures.
-
-### Rollout / kill-switch
-
-- Oracle writes are gated behind a feature flag; disabling it makes `observe`
-  and `set_pool_config` revert with `OracleError::DependencyUnavailable`
-  (fail-closed). Reads continue to serve the last committed per-pool state.
-- Rollback: flip the flag off and redeploy the previous oracle-adapter wasm;
-  no pool state migration is required.
-
-## Router: Single-Hop Swap Routing (Exact In / Exact
-
-/* … truncated 2804 chars — edit only what you need near the top … */
+  non-decreasing over time; `observe` rejects any observation that would
+  decrease it.
