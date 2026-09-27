@@ -8,6 +8,7 @@ import { NextFunction, Request, Response } from 'express';
 import Redis from 'ioredis';
 import { RequestContext } from '../logging/request-context';
 import { ErrorResponse } from '../request-validation/error-response.interface';
+import { KeySlot, loadKeyRing, matchKeyRing } from '../admin/internal-key-ring';
 
 /** A named rate-limit rule that defines a sliding-window counter. */
 interface RateLimitRule {
@@ -388,7 +389,9 @@ export class RateLimitMiddleware
   /**
    * Derives a stable identity string for the caller.
    *
-   * Internal requests are identified by their `x-internal-key` header value.
+   * Internal requests are identified by the key-ring slot they matched
+   * (`internal:current` / `internal:previous`), never by the raw key, so the
+   * secret is not written into Redis key names (#1030).
    * Public requests use the first IP in `x-forwarded-for`, falling back to
    * `req.ip` and finally `req.socket.remoteAddress`.
    *
@@ -396,8 +399,9 @@ export class RateLimitMiddleware
    * @returns A string that uniquely identifies the caller for rate-limiting purposes
    */
   private identityFor(req: Request): string {
-    if (this.isInternalRequest(req)) {
-      return `internal:${req.headers['x-internal-key']}`;
+    const slot = this.internalSlot(req);
+    if (slot) {
+      return `internal:${slot}`;
     }
 
     const forwarded = req.headers['x-forwarded-for'];
@@ -409,15 +413,23 @@ export class RateLimitMiddleware
   }
 
   /**
-   * Returns `true` when the request carries the correct `x-internal-key`
-   * header matching the `INTERNAL_API_KEY` environment variable.
+   * Returns `true` when the request carries a valid `x-internal-key` for the
+   * `INTERNAL_API_KEY` ring (current key, or previous key inside its rotation
+   * window — see docs/INTERNAL_KEY_ROTATION.md).
    *
    * @param req - Incoming Express request
    * @returns `true` if the request is authenticated as an internal caller
    */
   private isInternalRequest(req: Request): boolean {
-    const expected = process.env.INTERNAL_API_KEY;
-    return Boolean(expected && req.headers['x-internal-key'] === expected);
+    return this.internalSlot(req) !== undefined;
+  }
+
+  private internalSlot(req: Request): KeySlot | undefined {
+    const match = matchKeyRing(
+      req.headers['x-internal-key'],
+      loadKeyRing('INTERNAL_API_KEY'),
+    );
+    return match.ok ? match.slot : undefined;
   }
 
   /**

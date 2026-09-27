@@ -51,6 +51,8 @@ fails closed at boot if any required var is missing (see
 | `STELLAR_NETWORK` | `testnet` or `mainnet` | Guards address drift (see below) |
 | `HORIZON_URL` | Horizon endpoint | Must match `STELLAR_NETWORK` |
 | `DEPLOY_KILL_SWITCH` | `on`/`off` | When `on`, deploy/ops entrypoints reject writes |
+| `INTERNAL_API_KEY` | Protects `/admin`, indexer replay, `/metrics` | Non-placeholder; rotate with `_PREVIOUS` + `_PREVIOUS_EXPIRES_AT` per [INTERNAL_KEY_ROTATION.md](INTERNAL_KEY_ROTATION.md) |
+| `ANALYTICS_SCHEDULER_ENABLED` | Analytics recompute kill switch | Optional, default `true`; `false` stops the worker and removes the scheduler |
 
 ```bash
 # Preflight: confirm all required vars are present and non-empty

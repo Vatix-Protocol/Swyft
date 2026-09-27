@@ -7,15 +7,25 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { timingSafeEqual } from 'crypto';
-
-const PLACEHOLDER_INTERNAL_API_KEY = 'change-me-in-production';
+import { resolveCorrelationId } from '../observability/correlation-id';
+import {
+  InternalKeySurface,
+  KeyRing,
+  KeyRingMatch,
+  keyRingConfigProblems,
+  loadKeyRing,
+  matchKeyRing,
+  PLACEHOLDER_INTERNAL_API_KEY,
+  recordKeyRingOutcome,
+} from './internal-key-ring';
 
 /**
- * Validate INTERNAL_API_KEY at startup (called in main.ts).
+ * Validate INTERNAL_API_KEY (and any in-flight key rotation) at startup
+ * (called in main.ts).
  * In production, refuses to boot if the key is unset or still the
  * placeholder from .env.example — /admin, indexer replay, and /metrics
- * must never silently reject (or silently accept) every caller.
+ * must never silently reject (or silently accept) every caller — or if a
+ * `<NAME>_PREVIOUS` rotation window is misconfigured (#1030).
  */
 export function validateInternalApiKeyConfig(): void {
   if (process.env.NODE_ENV === 'production') {
@@ -27,7 +37,46 @@ export function validateInternalApiKeyConfig(): void {
           '/metrics endpoints.',
       );
     }
+
+    const problems = (
+      ['INTERNAL_API_KEY', 'FEE_COLLECTOR_AUTH', 'TESTNET_REDEPLOY_AUTH'] as const
+    ).flatMap((name) => keyRingConfigProblems(loadKeyRing(name)));
+    if (problems.length > 0) {
+      throw new Error(
+        `Production startup failed: invalid key rotation config: ${problems.join('; ')}`,
+      );
+    }
   }
+}
+
+const previousSlotWarned = new Set<KeyRing['name']>();
+
+/**
+ * Checks the presented `x-internal-key` against a key ring, records the
+ * outcome metric, and logs slot/denial reason (never key material).
+ */
+function checkKeyRing(
+  req: Request,
+  ring: KeyRing,
+  surface: InternalKeySurface,
+  correlationId: string,
+  logger: Logger,
+): KeyRingMatch {
+  const match = matchKeyRing(req.headers['x-internal-key'], ring);
+  recordKeyRingOutcome(surface, match);
+  if (!match.ok) {
+    logger.warn(
+      `[${correlationId}] ${surface} internal-key denied reason=${match.reason}`,
+    );
+  } else if (match.slot === 'previous' && !previousSlotWarned.has(ring.name)) {
+    // Once per ring per process; the metric carries the ongoing count.
+    previousSlotWarned.add(ring.name);
+    logger.warn(
+      `[${correlationId}] ${surface} authenticated with ${ring.name}_PREVIOUS; ` +
+        'finish rotating callers before the window expires',
+    );
+  }
+  return match;
 }
 
 /**
@@ -62,21 +111,13 @@ export type TestnetRedeployAuthErrorCode =
   (typeof TESTNET_REDEPLOY_AUTH_ERRORS)[keyof typeof TESTNET_REDEPLOY_AUTH_ERRORS];
 
 /**
- * Constant-time comparison that never throws on length mismatch.
- */
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return timingSafeEqual(ab, bb);
-}
-
-/**
  * Guard enforcing FEE_COLLECTOR_AUTH for fee-collector entrypoints.
  *
  * Invariants:
  *  - Deny-by-default: missing/expired/wrong-role credentials are rejected.
  *  - Fail-closed: if the expected key is not configured, all requests are denied.
+ *  - Rotation (#1030): the `_PREVIOUS` key is honoured only until its
+ *    `_PREVIOUS_EXPIRES_AT`; afterwards it is rejected with the EXPIRED code.
  *  - No bypass: untrusted clients cannot satisfy the check without the key.
  *  - Correlation id is surfaced for ops without leaking the secret.
  */
@@ -86,36 +127,44 @@ export class InternalKeyGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request>();
-    const correlationId =
-      (req.headers['x-correlation-id'] as string | undefined) ??
-      (req.headers['x-request-id'] as string | undefined) ??
-      'unknown';
+    const correlationId = resolveCorrelationId(req.headers);
 
-    const expected = process.env.FEE_COLLECTOR_AUTH ?? process.env.INTERNAL_API_KEY;
-    if (!expected) {
-      // Fail-closed: no configured secret means no privileged access.
-      throw new UnauthorizedException({
-        code: FEE_COLLECTOR_AUTH_ERRORS.NOT_CONFIGURED,
-        message: 'Fee collector auth is not configured',
-        correlationId,
-      });
-    }
-
-    const key = req.headers['x-internal-key'] as string | undefined;
-    if (!key) {
-      throw new UnauthorizedException({
-        code: FEE_COLLECTOR_AUTH_ERRORS.MISSING_KEY,
-        message: 'Missing fee collector credentials',
-        correlationId,
-      });
-    }
-
-    if (!safeEqual(key, expected)) {
-      throw new UnauthorizedException({
-        code: FEE_COLLECTOR_AUTH_ERRORS.INVALID_KEY,
-        message: 'Invalid fee collector credentials',
-        correlationId,
-      });
+    // FEE_COLLECTOR_AUTH takes precedence whenever it is defined (an empty
+    // value fails closed rather than falling back); otherwise the shared
+    // INTERNAL_API_KEY ring (with its own rotation slot) is used.
+    const ring = loadKeyRing(
+      process.env.FEE_COLLECTOR_AUTH !== undefined
+        ? 'FEE_COLLECTOR_AUTH'
+        : 'INTERNAL_API_KEY',
+    );
+    const match = checkKeyRing(
+      req,
+      ring,
+      'fee_collector',
+      correlationId,
+      this.logger,
+    );
+    if (!match.ok) {
+      const [code, message] = {
+        // Fail-closed: no configured secret means no privileged access.
+        not_configured: [
+          FEE_COLLECTOR_AUTH_ERRORS.NOT_CONFIGURED,
+          'Fee collector auth is not configured',
+        ],
+        missing: [
+          FEE_COLLECTOR_AUTH_ERRORS.MISSING_KEY,
+          'Missing fee collector credentials',
+        ],
+        invalid: [
+          FEE_COLLECTOR_AUTH_ERRORS.INVALID_KEY,
+          'Invalid fee collector credentials',
+        ],
+        previous_expired: [
+          FEE_COLLECTOR_AUTH_ERRORS.EXPIRED,
+          'Fee collector credentials expired',
+        ],
+      }[match.reason];
+      throw new UnauthorizedException({ code, message, correlationId });
     }
 
     // Optional role/expiry enforcement when the caller presents a scoped token.
@@ -157,12 +206,11 @@ export class InternalKeyGuard implements CanActivate {
  */
 @Injectable()
 export class TestnetRedeployGuard implements CanActivate {
+  private readonly logger = new Logger(TestnetRedeployGuard.name);
+
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request>();
-    const correlationId =
-      (req.headers['x-correlation-id'] as string | undefined) ??
-      (req.headers['x-request-id'] as string | undefined) ??
-      'unknown';
+    const correlationId = resolveCorrelationId(req.headers);
 
     // Testnet-vs-mainnet separation: never allow a mainnet redeploy here.
     const network =
@@ -176,31 +224,34 @@ export class TestnetRedeployGuard implements CanActivate {
       });
     }
 
-    const expected = process.env.TESTNET_REDEPLOY_AUTH;
-    if (!expected) {
-      // Fail-closed: no configured secret means no privileged access.
-      throw new UnauthorizedException({
-        code: TESTNET_REDEPLOY_AUTH_ERRORS.NOT_CONFIGURED,
-        message: 'Testnet redeploy auth is not configured',
-        correlationId,
-      });
-    }
-
-    const key = req.headers['x-internal-key'] as string | undefined;
-    if (!key) {
-      throw new UnauthorizedException({
-        code: TESTNET_REDEPLOY_AUTH_ERRORS.MISSING_KEY,
-        message: 'Missing testnet redeploy credentials',
-        correlationId,
-      });
-    }
-
-    if (!safeEqual(key, expected)) {
-      throw new UnauthorizedException({
-        code: TESTNET_REDEPLOY_AUTH_ERRORS.INVALID_KEY,
-        message: 'Invalid testnet redeploy credentials',
-        correlationId,
-      });
+    const match = checkKeyRing(
+      req,
+      loadKeyRing('TESTNET_REDEPLOY_AUTH'),
+      'testnet_redeploy',
+      correlationId,
+      this.logger,
+    );
+    if (!match.ok) {
+      const [code, message] = {
+        // Fail-closed: no configured secret means no privileged access.
+        not_configured: [
+          TESTNET_REDEPLOY_AUTH_ERRORS.NOT_CONFIGURED,
+          'Testnet redeploy auth is not configured',
+        ],
+        missing: [
+          TESTNET_REDEPLOY_AUTH_ERRORS.MISSING_KEY,
+          'Missing testnet redeploy credentials',
+        ],
+        invalid: [
+          TESTNET_REDEPLOY_AUTH_ERRORS.INVALID_KEY,
+          'Invalid testnet redeploy credentials',
+        ],
+        previous_expired: [
+          TESTNET_REDEPLOY_AUTH_ERRORS.EXPIRED,
+          'Testnet redeploy credentials expired',
+        ],
+      }[match.reason];
+      throw new UnauthorizedException({ code, message, correlationId });
     }
 
     // Optional role/expiry enforcement when the caller presents a scoped token.

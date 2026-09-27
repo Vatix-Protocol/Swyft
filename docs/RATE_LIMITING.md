@@ -63,7 +63,8 @@ additional, stricter rule layered on top:
 | Ticks | `GET /pools/:id/ticks` | `TICKS_RATE_LIMIT_PER_MINUTE` (30) | `INTERNAL_TICKS_RATE_LIMIT_PER_MINUTE` (120) |
 
 "Internal" requests are those carrying a valid `x-internal-key` header
-matching `INTERNAL_API_KEY`. All limits are configurable via environment
+for the `INTERNAL_API_KEY` ring (the current key, or `INTERNAL_API_KEY_PREVIOUS`
+inside its rotation window — see [`INTERNAL_KEY_ROTATION.md`](INTERNAL_KEY_ROTATION.md)). All limits are configurable via environment
 variables — see `apps/api/.env.example`.
 
 ## Behaviour When Redis Is Unavailable
@@ -81,7 +82,9 @@ happens when Redis is unreachable for a request depends on `NODE_ENV`:
 
 ## Identity
 
-- **Internal requests** are keyed by their `x-internal-key` header value.
+- **Internal requests** are keyed by the key slot they matched
+  (`internal:current` / `internal:previous`). The raw key is never written
+  into Redis key names.
 - **Public requests** are keyed by the first IP in `x-forwarded-for`, falling
   back to the socket's remote address.
 
