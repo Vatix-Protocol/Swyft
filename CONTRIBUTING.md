@@ -185,6 +185,10 @@ docs: add CONTRIBUTING.md
    pnpm test
    pnpm build
    ```
+   These scripts are Turborepo tasks — each one runs `turbo run <task>` across the
+   workspace, so a single command covers every app and package. To scope a task to
+   one package, use a pnpm filter, e.g. `pnpm --filter api test` or
+   `pnpm --filter web lint`.
 4. Push your branch and open a PR against `main`.
 5. Fill in the PR template — summary, testing steps, linked issue.
 6. One maintainer approval is required to merge.
