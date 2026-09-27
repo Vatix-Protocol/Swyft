@@ -18,15 +18,21 @@ COPY . .
 ARG NEXT_PUBLIC_API_URL=http://localhost:3001
 ARG NEXT_PUBLIC_API_URL_TESTNET=
 ARG NEXT_PUBLIC_API_URL_PUBLIC=
+ARG NEXT_PUBLIC_SWYFT_API_KEY=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL_TESTNET=$NEXT_PUBLIC_API_URL_TESTNET
 ENV NEXT_PUBLIC_API_URL_PUBLIC=$NEXT_PUBLIC_API_URL_PUBLIC
+ENV NEXT_PUBLIC_SWYFT_API_KEY=$NEXT_PUBLIC_SWYFT_API_KEY
 # Next.js inlines NEXT_PUBLIC_* into the client bundle at build time, so the
 # per-network overrides MUST be baked in here (runtime `environment:` in
 # docker-compose is too late). Pass them with e.g.
 #   --build-arg NEXT_PUBLIC_API_URL_PUBLIC=https://api.mainnet.swyft.dev
+#   --build-arg NEXT_PUBLIC_SWYFT_API_KEY=<key>
 # An unset/blank arg bakes in an empty string, which lib/constants.ts treats
 # as "fall back to NEXT_PUBLIC_API_URL" — never a broken URL.
+# WARNING: a blank NEXT_PUBLIC_API_URL_PUBLIC on a PUBLIC/mainnet deployment
+# will cause the pool list and all market-data hooks to fall back to the
+# testnet API, serving wrong data without a visible error. Always set it.
 RUN pnpm --filter web build
 
 FROM node:20-slim AS runner

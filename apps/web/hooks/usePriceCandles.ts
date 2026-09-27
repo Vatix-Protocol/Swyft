@@ -13,6 +13,8 @@ export interface Candle {
   low: number;
   close: number;
   volume: number;
+  /** True when this candle was synthetically inserted to fill a gap (see CANDLE_GAP_POLICY.md). */
+  gap?: boolean;
 }
 
 interface ApiCandle {
@@ -28,6 +30,22 @@ interface CandlesApiResponse {
   poolId?: string;
   candles: ApiCandle[];
 }
+
+// ── Interval step sizes (seconds) ────────────────────────────────────────────
+
+const INTERVAL_STEP: Record<Interval, number> = {
+  '1m': 60,
+  '5m': 300,
+  '1h': 3_600,
+  '1d': 86_400,
+};
+
+// ── Gap-fill flag ─────────────────────────────────────────────────────────────
+// Set NEXT_PUBLIC_CANDLE_GAP_FILL=false to disable gap-filling (see CANDLE_GAP_POLICY.md).
+
+const GAP_FILL_ENABLED = process.env.NEXT_PUBLIC_CANDLE_GAP_FILL !== 'false';
+
+// ── Type guards & mappers ─────────────────────────────────────────────────────
 
 function isApiCandle(v: unknown): v is ApiCandle {
   if (!v || typeof v !== 'object') return false;
@@ -46,6 +64,106 @@ function mapApiCandleToCandle(c: ApiCandle): Candle {
   };
 }
 
+// ── Gap-fill helpers (Rule 1–5 from docs/CANDLE_GAP_POLICY.md) ───────────────
+
+/**
+ * Returns true when a candle's timestamp is valid for inclusion.
+ * Drops NaN, Infinity, and future candles (Rule 2).
+ */
+function isValidCandleTime(time: number, nowSecs: number, stepSecs: number): boolean {
+  return (
+    Number.isFinite(time) &&
+    time > 0 &&
+    time <= nowSecs + stepSecs // allow at most one step into the future (live tick)
+  );
+}
+
+/**
+ * Sorts candles ascending by time, deduplicates (keeps last seen per time),
+ * and drops malformed timestamps (Rule 2 + 3).
+ */
+function sanitize(candles: Candle[], interval: Interval): Candle[] {
+  const nowSecs = Math.floor(Date.now() / 1_000);
+  const step = INTERVAL_STEP[interval];
+
+  const seen = new Map<number, Candle>();
+  for (const c of candles) {
+    if (!isValidCandleTime(c.time, nowSecs, step)) continue;
+    seen.set(c.time, c); // last-write-wins dedup
+  }
+
+  return Array.from(seen.values()).sort((a, b) => a.time - b.time);
+}
+
+/**
+ * Inserts synthetic gap candles for every missing interval step (Rule 1).
+ * Gap candles carry `gap: true` and zero volume.
+ */
+function fillGaps(candles: Candle[], interval: Interval): Candle[] {
+  if (!GAP_FILL_ENABLED || candles.length < 2) return candles;
+
+  const step = INTERVAL_STEP[interval];
+  const result: Candle[] = [];
+
+  for (let i = 0; i < candles.length; i++) {
+    const current = candles[i];
+    result.push(current);
+
+    if (i < candles.length - 1) {
+      const next = candles[i + 1];
+      const expectedNext = current.time + step;
+
+      // Insert gap candles for every missing step between current and next.
+      let t = expectedNext;
+      while (t < next.time) {
+        result.push({
+          time: t,
+          open: current.close,
+          high: current.close,
+          low: current.close,
+          close: current.close,
+          volume: 0,
+          gap: true,
+        });
+        t += step;
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Merges a live WebSocket candle into the existing series, maintaining gap
+ * policy for the live path (Rule 4).
+ */
+function mergeLiveCandle(prev: Candle[], incoming: Candle, interval: Interval): Candle[] {
+  if (prev.length === 0) return [incoming];
+
+  const step = INTERVAL_STEP[interval];
+  const last = prev[prev.length - 1];
+
+  // Stale delivery — ignore (Rule 4).
+  if (incoming.time < last.time) return prev;
+
+  // Tick update — replace last candle (Rule 4).
+  if (incoming.time === last.time) {
+    return [...prev.slice(0, -1), incoming];
+  }
+
+  // One step ahead — append (optionally with gaps) (Rule 4).
+  const withGap = fillGaps([...prev, incoming], interval);
+  // Trim to 168 real candles (Rule 5: gaps don't count toward the 168 limit).
+  const realCandles = withGap.filter((c) => !c.gap);
+  if (realCandles.length <= 168) return withGap;
+
+  // Drop oldest real candle and rebuild.
+  const trimmedReal = realCandles.slice(-168);
+  return fillGaps(trimmedReal, interval);
+}
+
+// ── WebSocket base URL helper ─────────────────────────────────────────────────
+
 /** Derives the WS base from the API host (apps/api, :3001), not the Next.js host. */
 function getWsBase(): string {
   if (process.env.NEXT_PUBLIC_WS_URL) {
@@ -55,6 +173,8 @@ function getWsBase(): string {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
   return apiUrl.replace(/^http/, 'ws');
 }
+
+// ── Hook ─────────────────────────────────────────────────────────────────────
 
 export function usePriceCandles(tokenA: string | null, tokenB: string | null, interval: Interval) {
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -75,8 +195,10 @@ export function usePriceCandles(tokenA: string | null, tokenB: string | null, in
       }
       const data = (await res.json()) as CandlesApiResponse;
       const rawCandles = Array.isArray(data.candles) ? data.candles : [];
-      const validCandles = rawCandles.filter(isApiCandle).map(mapApiCandleToCandle);
-      setCandles(validCandles);
+      const mapped = rawCandles.filter(isApiCandle).map(mapApiCandleToCandle);
+      const sanitized = sanitize(mapped, interval);
+      const filled = fillGaps(sanitized, interval);
+      setCandles(filled);
       if (data.poolId) {
         setPoolId(data.poolId);
       }
@@ -137,14 +259,8 @@ export function usePriceCandles(tokenA: string | null, tokenB: string | null, in
         try {
           const msg = JSON.parse(e.data as string);
           if (msg.event === 'price' && msg.data?.poolId === poolId) {
-            setCandles((prev) => {
-              if (prev.length === 0) return [msg.data as Candle];
-              const last = prev[prev.length - 1];
-              if (last.time === (msg.data as Candle).time) {
-                return [...prev.slice(0, -1), msg.data as Candle];
-              }
-              return [...prev.slice(-167), msg.data as Candle];
-            });
+            const incoming = msg.data as Candle;
+            setCandles((prev) => mergeLiveCandle(prev, incoming, interval));
           }
         } catch {
           // ignore malformed messages
@@ -161,7 +277,9 @@ export function usePriceCandles(tokenA: string | null, tokenB: string | null, in
     };
   }, [tokenA, tokenB, interval, poolId]);
 
-  const currentPrice = candles.length > 0 ? candles[candles.length - 1].close : null;
+  // Derive current price from the last *real* (non-gap) candle.
+  const lastRealCandle = [...candles].reverse().find((c) => !c.gap) ?? null;
+  const currentPrice = lastRealCandle ? lastRealCandle.close : null;
 
   return { candles, loading, currentPrice, poolId };
 }

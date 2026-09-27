@@ -89,17 +89,32 @@ function drawChart(
   // Candles
   candles.forEach((c, i) => {
     const x = PADDING.left + i * (candleW + CANDLE_GAP);
+    const cx = x + candleW / 2;
+
+    if (c.gap) {
+      // Gap candle: dotted vertical centre line only — no body (see CANDLE_GAP_POLICY.md).
+      ctx.strokeStyle = isDark ? '#3f3f46' : '#d4d4d8'; // zinc-700 / zinc-300
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(cx, toY(c.high));
+      ctx.lineTo(cx, toY(c.low));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      return;
+    }
+
     const isUp = c.close >= c.open;
     const color = isUp ? colors.up : colors.down;
 
     const bodyTop = toY(Math.max(c.open, c.close));
     const bodyBot = toY(Math.min(c.open, c.close));
     const bodyH = Math.max(1, bodyBot - bodyTop);
-    const cx = x + candleW / 2;
 
     // Wick
     ctx.strokeStyle = color;
     ctx.lineWidth = 1;
+    ctx.setLineDash([]);
     ctx.beginPath();
     ctx.moveTo(cx, toY(c.high));
     ctx.lineTo(cx, toY(c.low));
@@ -178,7 +193,7 @@ export function PriceChart({ tokenA, tokenB, tokenASymbol, tokenBSymbol }: Props
     const chartW = rect.width - PADDING.left - PADDING.right;
     const candleW = chartW / candles.length;
     const idx = Math.floor((mx - PADDING.left) / candleW);
-    if (idx < 0 || idx >= candles.length) {
+    if (idx < 0 || idx >= candles.length || candles[idx].gap) {
       setTooltip(null);
       return;
     }
@@ -192,7 +207,7 @@ export function PriceChart({ tokenA, tokenB, tokenASymbol, tokenBSymbol }: Props
     const chartW = rect.width - PADDING.left - PADDING.right;
     const candleW = chartW / candles.length;
     const idx = Math.floor((mx - PADDING.left) / candleW);
-    if (idx < 0 || idx >= candles.length) {
+    if (idx < 0 || idx >= candles.length || candles[idx].gap) {
       setTooltip(null);
       return;
     }

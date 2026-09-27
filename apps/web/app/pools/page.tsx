@@ -177,7 +177,7 @@ export default function PoolsPage() {
     setPage(1);
   }, []);
 
-  const { data, isLoading, isError } = usePools({
+  const { data, isLoading, isError, misconfigError } = usePools({
     page,
     orderBy: SORT_MAP[sortKey],
     search: debouncedSearch,
@@ -216,6 +216,17 @@ export default function PoolsPage() {
           className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 sm:w-72"
         />
       </div>
+
+      {/* ── Misconfiguration banner (mainnet without a real API URL) ── */}
+      {misconfigError && (
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400"
+        >
+          <p className="font-semibold mb-0.5">Production API not configured</p>
+          <p className="font-mono text-xs">{misconfigError}</p>
+        </div>
+      )}
 
       {/* ── Table ── */}
       <div
@@ -284,7 +295,9 @@ export default function PoolsPage() {
             {isError && (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-red-500">
-                  Failed to load pools. Please try again.
+                  {misconfigError
+                    ? 'Mainnet API not configured — see banner above.'
+                    : 'Failed to load pools. Please try again.'}
                 </td>
               </tr>
             )}

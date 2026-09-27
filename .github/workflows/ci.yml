@@ -11,9 +11,90 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Turbo pipeline gate ───────────────────────────────────────────────────
+  # This job is the single required status check that branch-protection rules
+  # gate on.  It fans out build → lint → test across all JS/TS packages in
+  # dependency order via Turbo's remote-cache-aware task graph.  The Rust
+  # contract jobs remain separate because Turbo cannot orchestrate cargo.
+  turbo-pipeline:
+    name: Turbo pipeline (build / lint / test)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: swyft
+        options: >-
+          --health-cmd "pg_isready -U postgres -d swyft"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swyft
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-test-secret
+      NODE_ENV: test
+      STELLAR_RPC_URL: ${{ secrets.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org' }}
+      HORIZON_URL: ${{ secrets.HORIZON_URL || 'https://horizon-testnet.stellar.org' }}
+      STELLAR_NETWORK: testnet
+      # Turbo remote cache (optional — falls back to local cache when unset)
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Apply database migrations
+        run: pnpm db:migrate:deploy
+
+      # Run the full build → lint → test graph in dependency order.
+      # --filter excludes the Rust contract package (handled by `contracts` job).
+      # --concurrency=4 caps parallelism to stay within GitHub-hosted runner
+      # memory limits.
+      - name: Turbo build
+        run: pnpm turbo run build --filter=!contracts --concurrency=4
+
+      - name: Turbo lint
+        run: pnpm turbo run lint --filter=!contracts --concurrency=4
+
+      - name: Turbo test
+        run: pnpm turbo run test --filter=!contracts --concurrency=4
+
+  # ── Per-package jobs (kept for targeted PR feedback) ─────────────────────
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
+    needs: [turbo-pipeline]
     steps:
       - uses: actions/checkout@v4
 
@@ -41,6 +122,7 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    needs: [turbo-pipeline]
     services:
       postgres:
         image: postgres:16
@@ -111,6 +193,7 @@ jobs:
   sdk:
     name: SDK
     runs-on: ubuntu-latest
+    needs: [turbo-pipeline]
     steps:
       - uses: actions/checkout@v4
 
@@ -138,6 +221,7 @@ jobs:
   ui:
     name: UI
     runs-on: ubuntu-latest
+    needs: [turbo-pipeline]
     steps:
       - uses: actions/checkout@v4
 
