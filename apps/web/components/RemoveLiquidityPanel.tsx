@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { PositionRangeBadge, type PositionSnapshot } from '@swyft/ui';
 import { estimateRemoveAmounts, estimateRemoveAmountsAsync } from '@swyft/sdk';
 import { useRemoveLiquidity } from '@/hooks/useRemoveLiquidity';
+import { useWalletContext } from '@/context/WalletContext';
 
 const PRESETS = [25, 50, 75, 100];
 
@@ -32,12 +33,14 @@ export function RemoveLiquidityPanel({
   onSuccess,
 }: Props) {
   const router = useRouter();
+  const { signTransaction } = useWalletContext();
   const [pct, setPct] = useState(100);
   const [customInput, setCustomInput] = useState('100');
   const [confirming, setConfirming] = useState(false);
   const { status, txError, txHash, removeLiquidity, collectFees, reset } = useRemoveLiquidity(
     position,
-    authToken
+    authToken,
+    signTransaction
   );
 
   const [estimates, setEstimates] = useState({ amount0: '0', amount1: '0' });

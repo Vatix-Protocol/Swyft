@@ -13,7 +13,7 @@ interface PageProps {
 
 export default function RemoveLiquidityPage({ params }: PageProps) {
   const { id } = use(params);
-  const { address } = useWalletContext();
+  const { address, walletKind } = useWalletContext();
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -28,14 +28,14 @@ export default function RemoveLiquidityPage({ params }: PageProps) {
     setAuthenticating(true);
     setAuthError(null);
     try {
-      const token = await authenticateWallet(address);
+      const token = await authenticateWallet(address, walletKind);
       setAuthToken(token);
     } catch {
       setAuthError('Failed to authenticate wallet. Please try again.');
     } finally {
       setAuthenticating(false);
     }
-  }, [address]);
+  }, [address, walletKind]);
 
   if (loading) {
     return (

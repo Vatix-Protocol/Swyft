@@ -1,6 +1,6 @@
 'use client';
 
-import { signMessage } from '@stellar/freighter-api';
+import { signMessage as freighterSignMessage } from '@stellar/freighter-api';
 import { API_BASE } from '@/lib/constants';
 
 /** localStorage key used to persist the short-lived wallet-auth JWT. */
@@ -22,9 +22,57 @@ export function clearAuthToken(): void {
 }
 
 /**
+ * Resolves a wallet-kind-aware `signMessage` function.
+ *
+ * For Freighter we call its native `signMessage`.
+ * For xBull we attempt to use the wallets-kit's `signMessage` if available,
+ * falling back to Freighter as a last resort so the auth flow always has a
+ * signer to call.
+ *
+ * The returned function accepts a `(message, address)` pair and returns the
+ * signed message string.
+ */
+async function resolveMessageSigner(
+  walletKind: 'freighter' | 'xbull',
+  walletAddress: string
+): Promise<(message: string) => Promise<string>> {
+  if (walletKind === 'xbull') {
+    try {
+      const kit = await import('@creit.tech/stellar-wallets-kit');
+      if (typeof kit.StellarWalletsKit === 'function') {
+        const instance = new (kit.StellarWalletsKit as new (opts: unknown) => unknown)({
+          network: 'TESTNET',
+          selectedWalletId: kit.XBULL_ID ?? 'xbull',
+          modules: kit.allowAllModules ? kit.allowAllModules() : [],
+        }) as { signMessage?: (msg: string, opts?: Record<string, unknown>) => Promise<{ signedMessage: string }> };
+
+        if (typeof instance.signMessage === 'function') {
+          return async (message: string) => {
+            const result = await instance.signMessage!(message, { address: walletAddress });
+            return result.signedMessage;
+          };
+        }
+      }
+    } catch {
+      // Kit unavailable — fall through to Freighter
+    }
+  }
+
+  // Default: Freighter signMessage
+  return async (message: string) => {
+    const signResult = await freighterSignMessage(message, { address: walletAddress });
+    if (typeof signResult === 'string') return signResult;
+    if (signResult && typeof signResult === 'object' && 'signedMessage' in signResult) {
+      return (signResult as { signedMessage: string }).signedMessage;
+    }
+    throw new Error('Wallet signature was rejected.');
+  };
+}
+
+/**
  * Runs the full wallet-based auth handshake against the API:
  *   1. POST /auth/nonce  — obtain a short-lived nonce for `walletAddress`.
- *   2. Sign the nonce with Freighter (`signMessage`).
+ *   2. Sign the nonce with the active wallet.
  *   3. POST /auth/verify — exchange the signature for a JWT.
  *
  * On success the JWT is persisted to localStorage under
@@ -32,8 +80,15 @@ export function clearAuthToken(): void {
  * (nonce issuance, wallet rejection, or verification) — callers are
  * responsible for surfacing the error to the user. Never logs the
  * signature, nonce, or resulting token.
+ *
+ * @param walletAddress - Connected wallet address.
+ * @param walletKind    - Which wallet is active ('freighter' | 'xbull').
+ *                        Defaults to 'freighter' for backward compatibility.
  */
-export async function authenticateWallet(walletAddress: string): Promise<string> {
+export async function authenticateWallet(
+  walletAddress: string,
+  walletKind: 'freighter' | 'xbull' = 'freighter'
+): Promise<string> {
   const nonceRes = await fetch(`${API_BASE}/auth/nonce`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -49,13 +104,8 @@ export async function authenticateWallet(walletAddress: string): Promise<string>
     throw new Error('Failed to request an authentication nonce.');
   }
 
-  const signResult = await signMessage(nonceData.nonce, { address: walletAddress });
-  const signature =
-    typeof signResult === 'string'
-      ? signResult
-      : 'signedMessage' in signResult
-        ? (signResult as { signedMessage: string }).signedMessage
-        : null;
+  const signer = await resolveMessageSigner(walletKind, walletAddress);
+  const signature = await signer(nonceData.nonce);
 
   if (!signature) {
     throw new Error('Wallet signature was rejected.');
