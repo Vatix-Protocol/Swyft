@@ -3,10 +3,13 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  HttpException,
+  HttpStatus,
+  SetMetadata,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -38,6 +41,7 @@ export const FeeCollectorAuth = (): MethodDecorator =>
 
 interface RequestWithUser {
   headers: { 'x-api-key'?: string; 'x-correlation-id'?: string };
+  correlationId?: string;
   user?: {
     walletAddress: string;
     apiKeyId: string;
@@ -75,8 +79,6 @@ export class ApiKeyGuard implements CanActivate {
     req.correlationId = correlationId;
 
     const raw = req.headers['x-api-key'];
-    const correlationId =
-      req.headers['x-correlation-id'] ?? createHash('sha256').update(`${Date.now()}`).digest('hex').slice(0, 16);
 
     if (!raw) {
       throw new UnauthorizedException({

@@ -17,19 +17,48 @@ import path from 'path';
  *                                blob: is needed for canvas toDataURL exports.
  *  - font-src    'self' https://fonts.gstatic.com
  *                              — Geist font served via Google Fonts CDN.
- *  - connect-src 'self' https: wss:
- *                              — Soroban RPC, Horizon, and the Swyft WebSocket feed.
+ *  - connect-src 'self' <configured origins>
+ *                              — Soroban RPC, Horizon, the API, and the
+ *                                Swyft WebSocket feed only.
  *  - frame-ancestors 'none'   — Prevents the app from being iframed (clickjacking).
  *  - object-src  'none'       — Disallow Flash and similar plugins.
  *  - base-uri    'self'       — Prevent base-tag injection.
  */
+function originOf(value: string | undefined, fallback: string): string {
+  try {
+    return new URL(value || fallback).origin;
+  } catch {
+    return new URL(fallback).origin;
+  }
+}
+
+const connectSrc = [
+  "'self'",
+  originOf(
+    process.env.NEXT_PUBLIC_SOROBAN_RPC_URL,
+    'https://soroban-testnet.stellar.org',
+  ),
+  originOf(
+    process.env.NEXT_PUBLIC_HORIZON_URL,
+    'https://horizon-testnet.stellar.org',
+  ),
+  originOf(process.env.NEXT_PUBLIC_API_URL, 'http://localhost:3001'),
+  originOf(process.env.NEXT_PUBLIC_WS_URL, 'ws://localhost:3001'),
+  ...[
+    process.env.NEXT_PUBLIC_API_URL_TESTNET,
+    process.env.NEXT_PUBLIC_API_URL_PUBLIC,
+  ]
+    .filter(Boolean)
+    .map((value) => originOf(value, 'http://localhost:3001')),
+].filter((value, index, values) => values.indexOf(value) === index);
+
 const ContentSecurityPolicy = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' https://fonts.gstatic.com",
-  "connect-src 'self' https: wss:",
+  `connect-src ${connectSrc.join(' ')}`,
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",
