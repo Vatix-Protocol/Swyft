@@ -1,3 +1,15 @@
+# Root compose: orchestrates the FULL Swyft stack (postgres + redis + api + web).
+#
+# Use this file when you want the whole local stack running together:
+#   docker compose up --build
+#   API:  http://localhost:3001/health
+#   Web:  http://localhost:3000/
+#
+# Use apps/api/docker-compose.yml instead when you only need the API and its
+# backing services (postgres + redis) in isolation, e.g. API-focused work.
+# The two files are intentionally separate: this root file is the source of
+# truth for the full stack, while apps/api/docker-compose.yml is API-local.
+# Keep service names, ports, and env var names consistent across both.
 services:
   postgres:
     image: postgres:16
