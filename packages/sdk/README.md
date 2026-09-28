@@ -165,6 +165,13 @@ try {
 | `calculateSwapQuote(params)` | Off-chain constant-product swap estimate |
 | `SwapValidationError` | Thrown when swap parameters are invalid |
 
+Swap transactions expire by default 120 seconds after they are built. Both
+exact-input and exact-output builders enforce the deadline in the router call
+and as the Stellar transaction `maxTime` precondition. A caller-supplied
+deadline must be in the future and no more than 300 seconds from build time;
+expired or excessively long-lived transactions are rejected before XDR is
+returned.
+
 ### Liquidity Management
 
 | Export | Description |

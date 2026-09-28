@@ -6,6 +6,8 @@ import {
   toXdrBase64,
   SwapValidationError,
   DEFAULT_SWAP_DEADLINE_SECONDS,
+  MAX_SWAP_DEADLINE_SECONDS,
+  buildExactOutputSwapTx,
 } from '../swap';
 
 const POOL = toStellarAddress('CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526');
@@ -265,11 +267,57 @@ describe('deadline', () => {
     expect(() => buildSwapTx({ ...validParams, deadline: 1.5 })).toThrow(SwapValidationError);
   });
 
+  it('rejects a deadline beyond the maximum swap TTL', () => {
+    const deadline = Math.floor(Date.now() / 1000) + MAX_SWAP_DEADLINE_SECONDS + 1;
+
+    expect(() => buildSwapTx({ ...validParams, deadline })).toThrow(SwapValidationError);
+  });
+
+  it('accepts an explicit deadline within the maximum swap TTL', () => {
+    const deadline = Math.floor(Date.now() / 1000) + MAX_SWAP_DEADLINE_SECONDS - 1;
+
+    expect(() => buildSwapTx({ ...validParams, deadline })).not.toThrow();
+  });
+
   it('produces different XDR for different deadlines', () => {
     const now = Math.floor(Date.now() / 1000);
     const tx1 = buildSwapTx({ ...validParams, deadline: now + 60 });
     const tx2 = buildSwapTx({ ...validParams, deadline: now + 120 });
     expect(tx1.xdr).not.toBe(tx2.xdr);
+  });
+});
+
+describe('exact-output swap deadline', () => {
+  it('applies and bounds the same TTL on exact-output transactions', () => {
+    const now = Math.floor(Date.now() / 1000);
+    const validParams = {
+      routerId: POOL,
+      tokenInId: TOKEN_IN,
+      tokenOutId: TOKEN_OUT,
+      fee: 3000,
+      amountOut: toRawAmount('990000'),
+      amountInMax: toRawAmount('1000000'),
+      ownerAddress: OWNER,
+    };
+    const transaction = (deadline?: number) =>
+      buildExactOutputSwapTx({
+        ...validParams,
+        ...(deadline === undefined ? {} : { deadline }),
+      });
+    const decoded = TransactionBuilder.fromXDR(
+      transaction().xdr,
+      Networks.TESTNET,
+    ) as Transaction;
+
+    expect(Number(decoded.timeBounds?.maxTime)).toBeGreaterThanOrEqual(
+      now + DEFAULT_SWAP_DEADLINE_SECONDS,
+    );
+    expect(Number(decoded.timeBounds?.maxTime)).toBeLessThanOrEqual(
+      now + DEFAULT_SWAP_DEADLINE_SECONDS + 5,
+    );
+    expect(() =>
+      transaction(now + MAX_SWAP_DEADLINE_SECONDS + 1),
+    ).toThrow(SwapValidationError);
   });
 });
 

@@ -67,6 +67,8 @@ export {
   toRawAmount,
   toXdrBase64,
   SwapValidationError,
+  DEFAULT_SWAP_DEADLINE_SECONDS,
+  MAX_SWAP_DEADLINE_SECONDS,
 } from './swap';
 export type {
   PoolId,
