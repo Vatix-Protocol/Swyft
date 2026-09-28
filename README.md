@@ -4,6 +4,15 @@ Swyft is the liquidity, trading, and settlement surface of the Vatix-Protocol
 monorepo. This repository ships the API service, the web client, and the
 supporting infrastructure used to run them locally and in production.
 
+## License
+
+Swyft is released under the MIT License. The root [`LICENSE`](./LICENSE) file is
+the single authoritative source of the license text and copyright holder; every
+package manifest in this monorepo (for example `apps/api/package.json` and
+`apps/web/package.json`) declares `"license": "MIT"` to stay consistent with it.
+If the license ever changes, update the root `LICENSE` and every package
+manifest in the same change so tooling and npm consumers see the same terms.
+
 ## Repository layout
 
 - `apps/api/` — the Swyft API service (HTTP + workers).
