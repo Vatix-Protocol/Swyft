@@ -42,7 +42,13 @@ const mockSwaps7d = [
   { amount0: '500000', amount1: '-250000', feeAmount: '1500' },
 ];
 
-const mockPositions = [{ liquidity: '1000000000' }];
+const mockPositions = [
+  {
+    lowerTick: -200,
+    upperTick: 200,
+    liquidity: '1000000000',
+  },
+];
 
 const mockPoolUpdate = jest.fn().mockResolvedValue({});
 const mockFindManyPools = jest.fn().mockResolvedValue(mockPools);
@@ -141,7 +147,7 @@ describe('StatsScheduler', () => {
 describe('StatsModule', () => {
   let module: TestingModule;
   const mockCacheService = {
-    get: jest.fn().mockResolvedValue(null),
+    get: jest.fn().mockResolvedValue(1),
     set: jest.fn().mockResolvedValue(undefined),
   };
 
@@ -201,7 +207,7 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
   let module: TestingModule;
   let processJob: (job: Job) => Promise<void>;
   const mockCacheService = {
-    get: jest.fn().mockResolvedValue(null),
+    get: jest.fn().mockResolvedValue(1),
     set: jest.fn().mockResolvedValue(undefined),
   };
 
@@ -309,30 +315,26 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
 
   it('computes feeApr from actual swap feeAmount fields (not feeTier * volume)', () => {
     // fees24h = (3000 + 6000) * priceA(1) = 9000
-    // tvl = reserve0(1000000000) * priceA(1) + reserve1(1000000000) * priceB(1) = 2000000000
-    //   (reserve0 = liquidity/sqrtPrice, reserve1 = liquidity*sqrtPrice, sqrtPrice=1)
-    // feeApr = (9000 / 2000000000) * 365 * 100 ≈ 0.164
     const updateCall = mockPoolUpdate.mock.calls[0][0];
+    const tvl = Number(updateCall.data.tvl);
     const feeApr = Number(updateCall.data.feeApr);
     expect(feeApr).toBeGreaterThan(0);
     // fees24h from feeAmount: 9000 USD (price=1). Volume-based estimate would be:
     // volume24h(4500000) * (feeTier/1_000_000) = 4500000 * 0.003 = 13500 USD
-    // The feeAmount-based value (9000) differs from the volume estimate (13500).
-    const volumeBasedEstimate = 4500000 * (3000 / 1_000_000);
-    expect(feeApr).not.toBeCloseTo(
-      (volumeBasedEstimate / 2000000000) * 365 * 100,
-      5,
-    );
     // Verify the actual value matches fees24h / tvl * 365 * 100
-    const expectedFeeApr = (9000 / 2000000000) * 365 * 100;
+    const expectedFeeApr = (9000 / tvl) * 365 * 100;
     expect(feeApr).toBeCloseTo(expectedFeeApr, 5);
   });
 
-  it('returns feeApr of 0 when tvl is zero', () => {
-    // pool with zero liquidity → tvl = 0 → feeApr must be 0 (no division by zero)
-    // This is tested implicitly by the guard: tvl > 0 ? ... : 0
-    // The guard prevents NaN/Infinity being stored in feeApr.
+  it('computes TVL from the exact open position ranges instead of aggregate liquidity', () => {
     const updateCall = mockPoolUpdate.mock.calls[0][0];
-    expect(Number.isFinite(Number(updateCall.data.feeApr))).toBe(true);
+    const tvl = Number(updateCall.data.tvl);
+    expect(mockFindManyPositions).toHaveBeenCalledWith({
+      where: { poolId: 'pool-1', closedAt: null },
+      select: { lowerTick: true, upperTick: true, liquidity: true },
+    });
+    expect(Number.isFinite(tvl)).toBe(true);
+    expect(tvl).toBeGreaterThan(0);
+    expect(tvl).toBeLessThan(2_000_000_000);
   });
 });

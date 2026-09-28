@@ -53,24 +53,31 @@ const fees24h = swaps24h.reduce(
 
 ### 2. TVL Calculation
 
-The TVL is calculated from the pool's actual on-chain reserves at the current
-tick, using the concentrated-liquidity virtual-reserve formulas:
+The API reconstructs token reserves by summing every open indexed position at
+the pool's current Q64.96 sqrt price and the position's lower/upper ticks. It
+uses the SDK's integer concentrated-liquidity amount math, then converts base
+units using each token's indexed decimals:
 
 ```typescript
-const sqrtPrice = Number(pool.currentSqrtPrice) / 2 ** 96;
-const liquidity = Number(pool.liquidity);
-const reserve0 = liquidity / sqrtPrice / 10 ** decimals0;
-const reserve1 = (liquidity * sqrtPrice) / 10 ** decimals1;
-const tvl = reserve0 * priceA + reserve1 * priceB;
+const { amount0, amount1 } = getAmountsForLiquidity({
+  sqrtPriceX96: BigInt(pool.currentSqrtPrice),
+  sqrtPriceLowerX96: tickToSqrtPriceX96(position.lowerTick),
+  sqrtPriceUpperX96: tickToSqrtPriceX96(position.upperTick),
+  liquidity: BigInt(position.liquidity),
+});
+const tvl =
+  (Number(amount0) / 10 ** decimals0) * priceA +
+  (Number(amount1) / 10 ** decimals1) * priceB;
 ```
 
-- `pool.liquidity`: The in-range liquidity (L) at the pool's current tick
-- `pool.currentSqrtPrice`: The current sqrt price, Q64.96 fixed point
+- `pool.currentSqrtPrice`: The indexed current sqrt price, Q64.96 fixed point
+- `position.lowerTick` / `position.upperTick`: Each open position's range
+- `position.liquidity`: The position's indexed liquidity
 - `decimals0`, `decimals1`: Decimals of token0 and token1, used to convert
   raw reserve amounts into human-readable units
 - `priceA`, `priceB`: Current USD prices of the two tokens in the pool
-- Each token's reserve is priced independently and summed, rather than
-  approximating the pool's value with `liquidity * average price`
+- Closed positions are excluded. Missing token metadata or missing, zero, or
+  invalid USD prices fail that pool's update rather than fabricating a value.
 
 ### 3. Edge Cases
 
@@ -78,6 +85,8 @@ const tvl = reserve0 * priceA + reserve1 * priceB;
 - **No Swaps in 24h**: If there are no swaps in the last 24 hours, `fees24h = 0` and `feeApr = 0`
 - **Non-finite inputs**: If `fees24h` or `tvl` is `NaN`/`Infinity` (e.g. a
   missing price feed), the result is `0` rather than a non-finite APR
+- **Missing price feed**: The pool update is skipped; stale or fabricated TVL
+  and APR values are not written.
 
 ## Update Frequency
 
