@@ -75,6 +75,77 @@ Husky hooks run automatically:
 Do not use `--no-verify` to skip hooks. CI enforces the same checks, so skipped
 hooks will still fail the pull request.
 
+## Turbo remote cache policy
+
+Swyft uses Turborepo. `turbo.json` is the **source of truth** for the task graph
+and cache policy; this section documents the invariants contributors must
+respect. If this section and `turbo.json` ever disagree, `turbo.json` wins —
+update this doc in the same PR that changes the config.
+
+### What is cached
+
+- Only task outputs declared in `turbo.json` (`outputs`) are cached. Tasks with
+  no declared outputs cache only their logs/exit status.
+- Tasks marked `"cache": false` (for example dev servers or anything with
+  side effects) are never cached and must stay that way.
+- Cache artifacts are build/test outputs only. Never place secrets, `.env`
+  files, credentials, or tokens in a task's `outputs`.
+
+### Cache key inputs
+
+A cache hit requires an identical key. The key is derived from:
+
+- The task name and the package's source files (per `inputs`, or all tracked
+  files when `inputs` is unset).
+- Resolved dependency task hashes (the `dependsOn` graph).
+- Relevant environment variables declared in `turbo.json` (`env` / `globalEnv`).
+- The lockfile and `turbo.json` itself.
+
+If a task's behavior depends on an environment variable, declare it in
+`turbo.json` so it participates in the key. Undeclared env vars cause stale
+cache hits — treat that as a bug, not a convenience.
+
+### Remote cache auth
+
+- The remote cache is an optimization, not a trust boundary. Access is
+  deny-by-default: only CI and authorized maintainers may read or write it.
+- Credentials (`TURBO_TOKEN`, `TURBO_TEAM`, registry tokens) are injected via
+  CI secrets or the local environment. **Never** commit them, echo them, or
+  print them in logs. Do not add them to `turbo.json`, `outputs`, or any
+  committed file.
+- Untrusted clients (forks, external PRs) must not be able to write to the
+  shared remote cache. Keep write access scoped to trusted CI contexts.
+
+### Fail-closed behavior
+
+- A remote cache outage must never change correctness. If the remote cache is
+  unreachable, tasks fall back to a local run; builds and tests still execute
+  and must pass on their own merits.
+- Never treat a cache miss or cache error as success. Do not add fallbacks that
+  skip tests, lint, or type checks when the cache is unavailable.
+- Money-path and mainnet-affecting tasks must remain reproducible from source
+  alone; the cache only speeds them up.
+
+### Edge cases
+
+- **Cache poisoning / adversarial input:** only trusted CI writes to the shared
+  cache. Treat cache contents as untrusted input — never execute cached
+  artifacts as privileged, and never source secrets from them.
+- **Dependency outage:** if the remote cache (or its backing store) is down,
+  fail closed on writes and fall back to local execution; do not silently skip
+  required checks.
+- **Testnet vs mainnet separation:** cache keys must not collide across
+  environments. Keep environment-specific values in declared env vars so
+  testnet and mainnet artifacts never share a cache entry.
+
+### Security
+
+- No secrets in the repo, in `turbo.json`, or in logs.
+- Deny-by-default for any new privileged cache surface (new writers, new
+  tokens, new scopes).
+- The server/contract remains the source of truth for balances, swaps, and
+  admin. The cache never holds authoritative state for money paths.
+
 ## Pull requests
 
 1. Branch from `main` and keep changes scoped to the issue.
