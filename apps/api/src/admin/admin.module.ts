@@ -11,8 +11,8 @@ import { FactoryFeeTierController } from './factory-fee-tier.controller';
 import { FactoryFeeTierService } from './factory-fee-tier.service';
 import { TwapWindowController } from './twap-window.controller';
 import { TwapWindowService } from './twap-window.service';
-import { PoolTradingController } from './pool-trading.controller';
-import { PoolTradingService } from './pool-trading.service';
+import { ProtocolFeeCapController } from './protocol-fee-cap.controller';
+import { ProtocolFeeCapService } from './protocol-fee-cap.service';
 import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
@@ -22,7 +22,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     TestnetRegistryController,
     FactoryFeeTierController,
     TwapWindowController,
-    PoolTradingController,
+    ProtocolFeeCapController,
   ],
   providers: [
     AnalyticsService,
@@ -32,7 +32,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     TestnetRegistryService,
     FactoryFeeTierService,
     TwapWindowService,
-    PoolTradingService,
+    ProtocolFeeCapService,
     {
       provide: APP_INTERCEPTOR,
       useExisting: AdminAuditInterceptor,
@@ -43,6 +43,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     TestnetRegistryService,
     FactoryFeeTierService,
     TwapWindowService,
+    ProtocolFeeCapService,
   ],
 })
 export class AdminModule {}

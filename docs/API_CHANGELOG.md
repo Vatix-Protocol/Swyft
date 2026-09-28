@@ -63,6 +63,45 @@ When proposing a breaking API change:
 
 *(No unreleased breaking changes)*
 
+### Dead-letter replay admin authz (#1026)
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-09-27 |
+| Version | MINOR |
+| Change type | security, breaking (ops-only surface) |
+| Affected endpoints | `POST /indexer/dead-letters/replay` |
+| Error codes | added `DLQ_REPLAY_AUTH_MISSING_KEY`, `DLQ_REPLAY_AUTH_INVALID_KEY`, `DLQ_REPLAY_AUTH_EXPIRED`, `DLQ_REPLAY_AUTH_NOT_CONFIGURED`, `DLQ_REPLAY_AUTH_WRONG_ROLE`, `DLQ_REPLAY_AUTH_DISABLED`, `DLQ_REPLAY_AUTH_MAINNET_DISABLED`, `DLQ_REPLAY_AUTH_RATE_LIMITED`, `DLQ_REPLAY_INVALID_IDEMPOTENCY_KEY`, `DLQ_REPLAY_NOT_FOUND`, `DLQ_REPLAY_DEPENDENCY_UNAVAILABLE` |
+| Authz / scope impact | Only the `INTERNAL_API_KEY` ring grants replay (previously `FEE_COLLECTOR_AUTH` was accepted when set). Rate-limited. See [docs/INDEXER_DLQ_REPLAY.md](INDEXER_DLQ_REPLAY.md) and [SECURITY.md → Deploy and Ops Security](../SECURITY.md#deploy-and-ops-security) |
+| Migration notes | Operators must set `INDEXER_DLQ_REPLAY_ENABLED=true` (and on mainnet `INDEXER_DLQ_REPLAY_MAINNET_ENABLED=true`). Response gains `correlationId` and `deduplicated`. `jobId` must match `[A-Za-z0-9._:-]{1,128}`. A DLQ store outage now returns 503 instead of `total: 0` / 404 |
+| Rollback / flag | `INDEXER_DLQ_REPLAY_ENABLED=false` |
+
+### Price WebSocket pool-updates authn policy (#1027)
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-09-27 |
+| Version | MINOR |
+| Change type | feature, security |
+| Affected endpoints | `WS /price` |
+| Error codes | error frames now carry `code` + `correlationId`; added `WS_AUTH_INVALID`, `WS_INVALID_REQUEST`, `WS_SUBSCRIPTION_LIMIT`; uses existing `WS_AUTH_REQUIRED`, `WS_AUTH_EXPIRED`, `WS_FORBIDDEN` |
+| Authz / scope impact | Default unchanged (JWT required). Opt-in `WS_POOL_UPDATES_AUTH_MODE=optional` allows anonymous read-only sessions; invalid/expired tokens are never downgraded. See [docs/WEBSOCKET_RECONNECT.md](WEBSOCKET_RECONNECT.md#pool-updates-authn-policy-price) |
+| Migration notes | none by default. Clients should branch on `code`, not `message`. Invalid `poolId` values now get a `WS_INVALID_REQUEST` frame instead of silence |
+| Rollback / flag | `WS_POOL_UPDATES_AUTH_MODE=required` (default) |
+
+### Compression middleware safe defaults (#1028)
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-09-27 |
+| Version | PATCH |
+| Change type | fix, security |
+| Affected endpoints | all HTTP responses; `/auth/*` and `/v1/auth/*` are no longer compressed (BREACH) |
+| Error codes | none |
+| Authz / scope impact | none |
+| Migration notes | none. `Accept-Encoding` q-values are now honoured, and compressed responses carry an accurate `Content-Length` |
+| Rollback / flag | `COMPRESSION_ENABLED=false`. See [docs/COMPRESSION.md](COMPRESSION.md) |
+
 ### Current-wallet decorator trust boundary (#1033)
 
 | Field | Value |
