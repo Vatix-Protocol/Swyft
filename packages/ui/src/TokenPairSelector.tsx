@@ -103,6 +103,7 @@ export function TokenPairSelector({
         />
 
         <button
+          type="button"
           onClick={swapPair}
           aria-label="Swap token pair direction"
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 hover:border-indigo-400 hover:text-indigo-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-indigo-400 transition-colors"

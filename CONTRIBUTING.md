@@ -83,6 +83,17 @@ cd packages/contract
 cargo test --workspace
 ```
 
+From the repository root, validate that every Soroban contract builds for the
+WASM target before opening a PR:
+
+```bash
+pnpm validate:contracts
+```
+
+To also compare deployed testnet contract hashes against the current builds,
+run `pnpm validate:contracts:drift`. This drift check requires the deployed
+hashes to be recorded in `packages/contract/deployments/testnet.json`.
+
 ### Run API tests
 
 ```bash
@@ -210,7 +221,7 @@ docs: add CONTRIBUTING.md
 
 | Layer | How to run | Expectation |
 |---|---|---|
-| Soroban contracts | `cargo test --workspace` in `packages/contract` | All tests pass |
+| Soroban contracts | `cargo test --workspace` in `packages/contract`; `pnpm validate:contracts` from the repository root | Tests pass and every contract builds for WASM |
 | NestJS API unit | `pnpm --filter api test` | All tests pass |
 | NestJS API e2e | `pnpm --filter api test:e2e` | Requires running Postgres + Redis |
 | TypeScript SDK | `pnpm --filter @swyft/sdk test` | All tests pass |

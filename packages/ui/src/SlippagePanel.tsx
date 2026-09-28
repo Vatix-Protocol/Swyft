@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 const PRESETS = [
   { label: '0.1%', bps: 10 },
@@ -16,6 +16,8 @@ interface Props {
 export function SlippagePanel({ slippageBps, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState('');
+  const panelId = useId();
+  const labelId = `${panelId}-label`;
 
   const isPreset = PRESETS.some((p) => p.bps === slippageBps);
   const displayLabel = isPreset
@@ -38,6 +40,7 @@ export function SlippagePanel({ slippageBps, onChange }: Props) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
+        aria-controls={panelId}
         aria-label={`Slippage tolerance: ${displayLabel}. Click to change.`}
         className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-600 hover:border-indigo-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 transition-colors"
       >
@@ -59,8 +62,13 @@ export function SlippagePanel({ slippageBps, onChange }: Props) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-2 w-56 rounded-xl border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-          <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+        <div
+          id={panelId}
+          role="group"
+          aria-labelledby={labelId}
+          className="absolute right-0 top-full z-20 mt-2 w-56 rounded-xl border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          <p id={labelId} className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
             Slippage tolerance
           </p>
           <div className="flex gap-1.5">
@@ -68,6 +76,7 @@ export function SlippagePanel({ slippageBps, onChange }: Props) {
               <button
                 key={p.bps}
                 type="button"
+                aria-pressed={slippageBps === p.bps}
                 onClick={() => {
                   onChange(p.bps);
                   setCustom('');

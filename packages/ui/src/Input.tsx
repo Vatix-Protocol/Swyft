@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 
 export type InputSize = 'sm' | 'md' | 'lg';
 
@@ -49,10 +49,16 @@ export function Input({
   id,
   className = '',
   disabled,
+  'aria-label': ariaLabel,
+  'aria-describedby': ariaDescribedBy,
+  'aria-invalid': ariaInvalid,
   ...props
 }: InputProps) {
-  // Generate a stable id when one is not provided so the label stays associated.
-  const inputId = id ?? (label ? `swyft-input-${label.toLowerCase().replace(/\s+/g, '-')}` : undefined);
+  const generatedId = useId();
+  const inputId = id ?? `swyft-input-${generatedId}`;
+  const describedBy = [ariaDescribedBy, hint ? `${inputId}-hint` : undefined]
+    .filter(Boolean)
+    .join(' ');
 
   const borderClass = error
     ? 'border-red-400 dark:border-red-500 focus-within:ring-red-400'
@@ -92,9 +98,9 @@ export function Input({
         <input
           id={inputId}
           disabled={disabled}
-          aria-label={props['aria-label'] ?? label}
-          aria-invalid={error}
-          aria-describedby={hint ? `${inputId}-hint` : undefined}
+          aria-label={ariaLabel ?? label}
+          aria-invalid={error || ariaInvalid || undefined}
+          aria-describedby={describedBy || undefined}
           className={[
             'flex-1 bg-transparent text-zinc-900 placeholder-zinc-400',
             'focus:outline-none',

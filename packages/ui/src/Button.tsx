@@ -65,8 +65,7 @@ export function Button({
     <button
       type="button"
       disabled={isDisabled}
-      aria-busy={loading}
-      aria-disabled={isDisabled}
+      aria-busy={loading || undefined}
       className={[
         'inline-flex items-center justify-center gap-2 rounded-full font-semibold',
         'transition-all duration-150',
@@ -82,12 +81,7 @@ export function Button({
     >
       {loading ? (
         <>
-          <svg
-            className="h-4 w-4 animate-spin"
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden="true"
-          >
+          <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <circle
               className="opacity-25"
               cx="12"
@@ -102,7 +96,8 @@ export function Button({
               d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
             />
           </svg>
-          <span className="sr-only">Loading…</span>
+          <span className="sr-only">Loading</span>
+          <span>{children}</span>
         </>
       ) : (
         children
