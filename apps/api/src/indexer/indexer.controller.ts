@@ -1,21 +1,29 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   Headers,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 import { IndexerWorker } from './indexer.worker';
 import {
-  DeadLetterReplaySummary,
+  DeadLetterReplayResponse,
   IndexerReplayService,
   ReplaySummary,
 } from './indexer-replay.service';
 import { ReplayDto } from './dto/replay.dto';
-import { ReplayDeadLetterDto } from './dto/replay-dead-letter.dto';
+import {
+  DLQ_ID_MAX_LENGTH,
+  DLQ_ID_PATTERN,
+  ReplayDeadLetterDto,
+} from './dto/replay-dead-letter.dto';
 import { InternalKeyGuard } from '../admin/internal-key.guard';
+import { DlqReplayGuard, requestCorrelationId } from './dlq-replay.guard';
 import { SWAGGER_TAGS } from '../swagger.constants';
 
 export interface IndexerStatusResponse {
@@ -122,7 +130,7 @@ export class IndexerController {
   }
 
   /**
-   * Re-enqueues poison jobs from `indexer_dead_letter`.
+   * Re-enqueues poison jobs from `indexer_dead_letter` (#1026).
    *
    * **Usage**
    * - `POST /indexer/dead-letters/replay` with `{ "jobId": "<bull-job-id>" }`
@@ -130,12 +138,33 @@ export class IndexerController {
    * - `POST /indexer/dead-letters/replay` with `{}` re-enqueues all unrecovered
    *   DLQ rows (cap 500).
    *
-   * Replays are idempotent: handlers upsert on `eventId` / pool id / position
-   * keys, and BullMQ job ids are stable (`dlq-replay:<jobId>`), so a second
-   * replay is a no-op or upsert-safe and must not double-apply balances/TVL.
+   * **Authz** — `DlqReplayGuard`: `x-internal-key` must match the
+   * INTERNAL_API_KEY ring (FEE_COLLECTOR_AUTH does not grant replay), the
+   * `INDEXER_DLQ_REPLAY_ENABLED` kill switch must be on, mainnet additionally
+   * needs `INDEXER_DLQ_REPLAY_MAINNET_ENABLED`, and requests are rate-limited.
+   *
+   * **Idempotency** — replays are idempotent at three layers: an optional
+   * `x-idempotency-key` collapses concurrent/retried requests, BullMQ job ids
+   * are stable (`dlq-replay:<jobId>`), and handlers upsert on `eventId` /
+   * pool id / position keys, so a replay never double-applies balances/TVL.
+   *
+   * **Fail-closed** — if the dead-letter store is unreachable the request
+   * fails with 503 `DLQ_REPLAY_DEPENDENCY_UNAVAILABLE` and nothing is
+   * enqueued. See docs/INDEXER_DLQ_REPLAY.md.
    */
   @Post('dead-letters/replay')
-  @UseGuards(InternalKeyGuard)
+  @UseGuards(DlqReplayGuard)
+  @ApiHeader({
+    name: 'x-internal-key',
+    required: true,
+    description: 'INTERNAL_API_KEY (current or in-window previous slot).',
+  })
+  @ApiHeader({
+    name: 'x-idempotency-key',
+    required: false,
+    description:
+      'Optional dedupe key ([A-Za-z0-9._:-], max 128). Retries with the same key and target return the original result.',
+  })
   @ApiOperation({
     summary: 'Replay dead-letter indexer jobs (internal, idempotent)',
     description:
@@ -143,7 +172,26 @@ export class IndexerController {
   })
   replayDeadLetters(
     @Body() body: ReplayDeadLetterDto,
-  ): Promise<DeadLetterReplaySummary> {
-    return this.replayService.replayDeadLetters(body.jobId);
+    @Req() req: Request,
+    @Headers('x-idempotency-key') idempotencyKey?: string,
+  ): Promise<DeadLetterReplayResponse> {
+    const correlationId = requestCorrelationId(req);
+    if (
+      idempotencyKey !== undefined &&
+      (idempotencyKey.length > DLQ_ID_MAX_LENGTH ||
+        !DLQ_ID_PATTERN.test(idempotencyKey))
+    ) {
+      throw new BadRequestException({
+        code: 'DLQ_REPLAY_INVALID_IDEMPOTENCY_KEY',
+        message:
+          'x-idempotency-key may only contain letters, digits, ".", "_", ":" and "-" (max 128)',
+        correlationId,
+      });
+    }
+    return this.replayService.replayDeadLettersIdempotent({
+      jobId: body.jobId,
+      idempotencyKey,
+      correlationId,
+    });
   }
 }

@@ -35,6 +35,22 @@ export interface ReplayResult {
   message?: string;
 }
 
+export interface DeadLetterReadOptions {
+  /**
+   * Rethrow store errors as {@link DeadLetterStoreUnavailableError} instead of
+   * returning an empty result. Write paths (replay) set this so a DB outage
+   * fails closed rather than looking like "nothing to replay" / "not found".
+   */
+  failClosed?: boolean;
+}
+
+export class DeadLetterStoreUnavailableError extends Error {
+  constructor(readonly underlying: unknown) {
+    super('Dead-letter store unavailable');
+    this.name = 'DeadLetterStoreUnavailableError';
+  }
+}
+
 /**
  * Callback invoked to actually re-enqueue a dead-lettered job. Injected by the
  * indexer module so this service stays free of queue transport concerns.
@@ -94,6 +110,7 @@ export class IndexerDeadLetterService {
     queueName?: string,
     limit: number = 100,
     unrecoveredOnly = false,
+    options: DeadLetterReadOptions = {},
   ): Promise<DeadLetterEntry[]> {
     try {
       const entries = await this.prisma.indexerDeadLetter.findMany({
@@ -110,6 +127,7 @@ export class IndexerDeadLetterService {
       this.logger.error(
         `Failed to retrieve dead letters: ${(err as Error).message}`,
       );
+      if (options.failClosed) throw new DeadLetterStoreUnavailableError(err);
       return [];
     }
   }
@@ -117,7 +135,10 @@ export class IndexerDeadLetterService {
   /**
    * Look up a single dead-letter row by BullMQ job id (recovered or not).
    */
-  async getDeadLetter(jobId: string): Promise<DeadLetterEntry | null> {
+  async getDeadLetter(
+    jobId: string,
+    options: DeadLetterReadOptions = {},
+  ): Promise<DeadLetterEntry | null> {
     try {
       const entry = await this.prisma.indexerDeadLetter.findUnique({
         where: { jobId },
@@ -127,6 +148,7 @@ export class IndexerDeadLetterService {
       this.logger.error(
         `Failed to retrieve dead letter ${jobId}: ${(err as Error).message}`,
       );
+      if (options.failClosed) throw new DeadLetterStoreUnavailableError(err);
       return null;
     }
   }
@@ -232,11 +254,7 @@ export class IndexerDeadLetterService {
         return this.fail(request.jobId, correlationId, 'DLQ_NOT_FOUND');
       }
       if (record.recoveredAt) {
-        return this.fail(
-          request.jobId,
-          correlationId,
-          'DLQ_ALREADY_RECOVERED',
-        );
+        return this.fail(request.jobId, correlationId, 'DLQ_ALREADY_RECOVERED');
       }
       let data: Record<string, unknown> = {};
       try {

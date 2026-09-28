@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
@@ -14,6 +15,20 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+
+/**
+ * Body for `POST /indexer/replay` (ledger replay). Restored after #1088
+ * dropped it while `IndexerController` still depends on it.
+ */
+export class ReplayDto {
+  @ApiProperty({
+    description: 'Re-enqueue every persisted event from this ledger onward',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  fromLedger!: number;
+}
 
 /**
  * Stable error codes for the indexer dead-letter replay surface.

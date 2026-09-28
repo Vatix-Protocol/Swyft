@@ -4,41 +4,48 @@ import {
   OnGatewayDisconnect,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { verify, VerifyOptions } from 'jsonwebtoken';
 import { Server, WebSocket } from 'ws';
 import { IncomingMessage as HttpIncomingMessage } from 'http';
 import { PriceService } from './price.service';
+import {
+  authenticateWsHandshake,
+  isActionAllowed,
+  isValidPoolId,
+  recordHandshakeOutcome,
+  resolveWsAuthPolicy,
+  subscriptionLimitFor,
+  WS_CLOSE_UNAUTHORIZED,
+  WS_ERROR_CODES,
+  WsAction,
+  WsAuthPolicy,
+  WsErrorCode,
+  wsPoolUpdatesAuthOutcomes,
+  WsPrincipal,
+} from './ws-auth-policy';
 
 interface IncomingMessage {
-  action: 'subscribe' | 'unsubscribe' | 'swap';
-  poolId: string;
-  tokenA?: string;
-  tokenB?: string;
+  action?: unknown;
+  poolId?: unknown;
+  tokenA?: unknown;
+  tokenB?: unknown;
 }
 
-interface JwtPayload {
-  sub?: string;
-  walletAddress?: string;
-  wallet?: string;
-  address?: string;
-}
+const ACTIONS: ReadonlySet<string> = new Set<WsAction>([
+  'subscribe',
+  'unsubscribe',
+  'swap',
+]);
+
+/** Inbound frames larger than this are ignored (griefing guard). */
+const MAX_MESSAGE_BYTES = 4096;
 
 /**
- * Maximum number of pool subscriptions a single WebSocket connection may
- * hold at once. Prevents a single client from subscribing to every pool and
- * exhausting server/Redis resources. Configurable via
- * PRICE_WS_MAX_SUBSCRIPTIONS_PER_CLIENT (default: 50).
+ * Pool price updates over WebSocket.
+ *
+ * Authn follows the pool-updates policy in ./ws-auth-policy.ts (#1027):
+ * `required` by default, `optional` (anonymous read-only) only when an
+ * operator opts in. See docs/WEBSOCKET_RECONNECT.md.
  */
-const DEFAULT_MAX_SUBSCRIPTIONS_PER_CLIENT = 50;
-
-function getMaxSubscriptionsPerClient(): number {
-  const raw = process.env.PRICE_WS_MAX_SUBSCRIPTIONS_PER_CLIENT;
-  const parsed = raw ? parseInt(raw, 10) : NaN;
-  return Number.isFinite(parsed) && parsed > 0
-    ? parsed
-    : DEFAULT_MAX_SUBSCRIPTIONS_PER_CLIENT;
-}
-
 @WebSocketGateway({ path: '/price' })
 export class PriceGateway implements OnGatewayDisconnect {
   private readonly logger = new Logger(PriceGateway.name);
@@ -47,103 +54,137 @@ export class PriceGateway implements OnGatewayDisconnect {
 
   constructor(private readonly priceService: PriceService) {}
 
-  /**
-   * Verifies the JWT carried by the client (as a `token` query param, since
-   * browsers cannot set custom headers on a WebSocket handshake). Returns
-   * the authenticated wallet address, or null if the token is missing or
-   * invalid. In production, a missing/invalid JWT_SECRET or token always
-   * fails closed (connection rejected) — there is no anonymous fallback.
-   */
-  private authenticate(request: HttpIncomingMessage): string | null {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
+  afterInit(server: Server) {
+    const policy = resolveWsAuthPolicy();
+    if (policy.downgradeReason) {
       this.logger.warn(
-        'JWT_SECRET is not configured; rejecting price WebSocket connection',
+        `WS_POOL_UPDATES_AUTH_MODE refused (${policy.downgradeReason}); enforcing mode=required`,
       );
-      return null;
     }
-
-    const url = new URL(request.url ?? '', 'http://localhost');
-    const token = url.searchParams.get('token');
-    if (!token) return null;
-
-    const options: VerifyOptions = {};
-    if (process.env.JWT_ISSUER) options.issuer = process.env.JWT_ISSUER;
-    if (process.env.JWT_AUDIENCE) options.audience = process.env.JWT_AUDIENCE;
-
-    try {
-      const payload = verify(token, secret, options) as JwtPayload;
-      const walletAddress =
-        payload.walletAddress ??
-        payload.wallet ??
-        payload.address ??
-        payload.sub;
-      return typeof walletAddress === 'string' && walletAddress
-        ? walletAddress
-        : null;
-    } catch {
-      return null;
-    }
+    this.logger.log(
+      `price WebSocket auth mode=${policy.mode} maxSubs=${policy.maxSubscriptions} anonMaxSubs=${policy.anonymousMaxSubscriptions}`,
+    );
+    server.on('connection', (client: WebSocket, request: HttpIncomingMessage) =>
+      this.onClientConnection(client, request, policy),
+    );
   }
 
-  afterInit(server: Server) {
-    server.on(
-      'connection',
-      (client: WebSocket, request: HttpIncomingMessage) => {
-        const walletAddress = this.authenticate(request);
-        if (!walletAddress) {
-          this.send(client, {
-            event: 'error',
-            message: 'Unauthorized: missing or invalid token',
-          });
-          client.close(4401, 'Unauthorized');
-          return;
-        }
+  // Not named handleConnection: Nest would also invoke that hook itself.
+  onClientConnection(
+    client: WebSocket,
+    request: HttpIncomingMessage,
+    policy: WsAuthPolicy = resolveWsAuthPolicy(),
+  ): void {
+    const auth = authenticateWsHandshake(request, policy);
+    recordHandshakeOutcome(auth);
+    if (!auth.ok) {
+      this.logger.warn(
+        `[${auth.correlationId}] price WebSocket rejected code=${auth.code}`,
+      );
+      this.send(client, {
+        event: 'error',
+        code: auth.code,
+        message: auth.message,
+        correlationId: auth.correlationId,
+      });
+      client.close(WS_CLOSE_UNAUTHORIZED, 'Unauthorized');
+      return;
+    }
 
-        const maxSubscriptions = getMaxSubscriptionsPerClient();
+    const { principal, correlationId } = auth;
+    const maxSubscriptions = subscriptionLimitFor(principal, policy);
 
-        const cleanup = () => this.priceService.removeClient(client);
-        client.once('close', cleanup);
-        client.once('error', cleanup);
-        client.on('message', (raw: Buffer) => {
-          let msg: IncomingMessage;
-          try {
-            msg = JSON.parse(raw.toString()) as IncomingMessage;
-          } catch {
-            return;
-          }
-
-          if (!msg.poolId) return;
-
-          if (msg.action === 'subscribe') {
-            const currentCount = this.priceService.getSubscriptionCount(client);
-            if (currentCount >= maxSubscriptions) {
-              this.send(client, {
-                event: 'error',
-                message: `Subscription limit reached (${maxSubscriptions} max)`,
-                poolId: msg.poolId,
-              });
-              return;
-            }
-            this.priceService.subscribe(client, msg.poolId);
-            this.send(client, { event: 'subscribed', poolId: msg.poolId });
-          } else if (msg.action === 'unsubscribe') {
-            this.priceService.unsubscribe(client, msg.poolId);
-            this.send(client, { event: 'unsubscribed', poolId: msg.poolId });
-          } else if (msg.action === 'swap' && msg.tokenA && msg.tokenB) {
-            void this.priceService
-              .invalidatePairCache(msg.tokenA, msg.tokenB)
-              .catch((error: unknown) =>
-                this.logger.warn(
-                  `Price cache invalidation failed: ${
-                    error instanceof Error ? error.message : String(error)
-                  }`,
-                ),
-              );
-          }
-        });
-      },
+    const cleanup = () => this.priceService.removeClient(client);
+    client.once('close', cleanup);
+    client.once('error', cleanup);
+    client.on('message', (raw: Buffer) =>
+      this.handleMessage(
+        client,
+        raw,
+        principal,
+        correlationId,
+        maxSubscriptions,
+      ),
     );
+  }
+
+  private handleMessage(
+    client: WebSocket,
+    raw: Buffer,
+    principal: WsPrincipal,
+    correlationId: string,
+    maxSubscriptions: number,
+  ): void {
+    if (raw.length > MAX_MESSAGE_BYTES) return;
+
+    let msg: IncomingMessage;
+    try {
+      msg = JSON.parse(raw.toString()) as IncomingMessage;
+    } catch {
+      return;
+    }
+    if (!msg || typeof msg !== 'object') return;
+
+    const reject = (code: WsErrorCode, message: string, poolId?: string) =>
+      this.send(client, {
+        event: 'error',
+        code,
+        message,
+        correlationId,
+        ...(poolId ? { poolId } : {}),
+      });
+
+    if (typeof msg.action !== 'string' || !ACTIONS.has(msg.action)) return;
+    const action = msg.action as WsAction;
+
+    if (!isValidPoolId(msg.poolId)) {
+      reject(WS_ERROR_CODES.INVALID_REQUEST, 'Invalid poolId');
+      return;
+    }
+    const poolId = msg.poolId;
+
+    if (!isActionAllowed(principal, action)) {
+      wsPoolUpdatesAuthOutcomes.inc('forbidden_action');
+      reject(
+        WS_ERROR_CODES.FORBIDDEN,
+        `Action "${action}" requires an authenticated wallet`,
+        poolId,
+      );
+      return;
+    }
+
+    if (action === 'subscribe') {
+      const currentCount = this.priceService.getSubscriptionCount(client);
+      if (currentCount >= maxSubscriptions) {
+        wsPoolUpdatesAuthOutcomes.inc('subscription_limit');
+        reject(
+          WS_ERROR_CODES.SUBSCRIPTION_LIMIT,
+          `Subscription limit reached (${maxSubscriptions} max)`,
+          poolId,
+        );
+        return;
+      }
+      // Idempotent: re-subscribing to a held pool is a no-op server-side.
+      this.priceService.subscribe(client, poolId);
+      this.send(client, { event: 'subscribed', poolId });
+    } else if (action === 'unsubscribe') {
+      this.priceService.unsubscribe(client, poolId);
+      this.send(client, { event: 'unsubscribed', poolId });
+    } else if (
+      action === 'swap' &&
+      typeof msg.tokenA === 'string' &&
+      typeof msg.tokenB === 'string'
+    ) {
+      void this.priceService
+        .invalidatePairCache(msg.tokenA, msg.tokenB)
+        .catch((error: unknown) =>
+          this.logger.warn(
+            `[${correlationId}] Price cache invalidation failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+        );
+    }
   }
 
   handleDisconnect(client: WebSocket) {
