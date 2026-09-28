@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { usePoolDetail } from '@/hooks/usePoolDetail';
 import { TokenLogo } from '@swyft/ui';
 import type { Token } from '@swyft/ui';
+import { formatFeeApr } from '@/lib/fee-apr';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -16,11 +17,6 @@ function fmt(n: string | number, prefix = '$') {
   if (num >= 1_000_000) return `${prefix}${(num / 1_000_000).toFixed(2)}M`;
   if (num >= 1_000) return `${prefix}${(num / 1_000).toFixed(2)}K`;
   return `${prefix}${num.toFixed(2)}`;
-}
-
-function fmtApr(n: string | number) {
-  const num = typeof n === 'string' ? parseFloat(n) : n;
-  return `${(num * 100).toFixed(2)}%`;
 }
 
 function fmtFee(bps: number) {
@@ -186,7 +182,7 @@ export default function PoolDetailPage({ params }: PageProps) {
         <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">Fee APR</p>
           <p className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
-            {fmtApr(pool.feeApr)}
+            {formatFeeApr(pool.feeApr)}
           </p>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">

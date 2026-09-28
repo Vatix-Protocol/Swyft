@@ -4,25 +4,26 @@ import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useWalletContext } from '@/context/WalletContext';
 import { useNetworkContext } from '@/context/NetworkContext';
+import { useTransactionStatus } from '@/context/TransactionStatusContext';
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { PositionCard } from '@/components/PositionCard';
 import { WalletButton } from '@/components/WalletButton';
-import { API_BASE, getNetworkPassphrase } from '@/lib/constants';
 import { getAuthToken, authenticateWallet } from '@/lib/auth';
-import { signTransaction } from '@stellar/freighter-api';
 import { buildCollectTx } from '@swyft/sdk';
 import Link from 'next/link';
 
 export default function PortfolioPage() {
   const router = useRouter();
-  const { address } = useWalletContext();
-  const { network } = useNetworkContext();
+  const { address, signTransaction } = useWalletContext();
+  const { apiBase, network } = useNetworkContext();
+  const { reportTx } = useTransactionStatus();
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const { active, closed, loading, refresh, totalValueUsd } = usePortfolio(authToken);
+  const { active, closed, loading, error: positionsError, refresh, totalValueUsd } = usePortfolio(authToken);
   const [showClosed, setShowClosed] = useState(false);
   const [collectingId, setCollectingId] = useState<string | null>(null);
+  const [collectError, setCollectError] = useState<string | null>(null);
 
   useEffect(() => {
     setAuthToken(getAuthToken());
@@ -59,6 +60,8 @@ export default function PortfolioPage() {
       if (!position) return;
 
       setCollectingId(positionId);
+      setCollectError(null);
+      reportTx({ label: 'Collect fees', status: 'signing', txHash: null, network });
       try {
         const { xdr } = buildCollectTx({
           positionId: position.id,
@@ -67,19 +70,13 @@ export default function PortfolioPage() {
           ownerWallet: position.ownerWallet,
         });
 
-        const signResult = await signTransaction(xdr, {
-          networkPassphrase: getNetworkPassphrase(network),
-        });
-        const signedXdr =
-          typeof signResult === 'string'
-            ? signResult
-            : 'signedTxXdr' in signResult
-              ? (signResult as { signedTxXdr: string }).signedTxXdr
-              : null;
+        if (!signTransaction) throw new Error('Wallet is not connected');
+        const signedXdr = await signTransaction(xdr);
 
-        if (!signedXdr) return;
+        if (!signedXdr) throw new Error('Transaction signature was rejected');
 
-        await fetch(`${API_BASE}/transactions`, {
+        reportTx({ label: 'Collect fees', status: 'submitting', txHash: null, network });
+        const response = await fetch(`${apiBase}/transactions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -87,15 +84,31 @@ export default function PortfolioPage() {
           },
           body: JSON.stringify({ xdr: signedXdr }),
         });
+        if (!response.ok) {
+          throw new Error(`Transaction submission failed (HTTP ${response.status})`);
+        }
+        const result = (await response.json()) as { hash?: string; successful?: boolean };
+        if (!result.hash || result.successful !== true) {
+          throw new Error('Transaction was not confirmed by the network');
+        }
 
+        reportTx({ label: 'Collect fees', status: 'success', txHash: result.hash, network });
         await refresh();
-      } catch {
-        // silent — user rejected or network error
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : 'Failed to collect fees';
+        setCollectError(message);
+        reportTx({
+          label: 'Collect fees',
+          status: 'error',
+          txHash: null,
+          errorMessage: message,
+          network,
+        });
       } finally {
         setCollectingId(null);
       }
     },
-    [authToken, active, refresh, network]
+    [authToken, active, apiBase, network, refresh, reportTx, signTransaction, router]
   );
 
   if (!address) return null;
@@ -142,6 +155,20 @@ export default function PortfolioPage() {
         </div>
       )}
 
+      {(positionsError || collectError) && (
+        <div
+          role="alert"
+          className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400"
+        >
+          <span>{collectError ?? positionsError}</span>
+          {positionsError && (
+            <button type="button" onClick={refresh} className="shrink-0 font-semibold underline">
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Controls */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-base font-semibold text-zinc-900 dark:text-white">
@@ -180,7 +207,7 @@ export default function PortfolioPage() {
       )}
 
       {/* Empty state */}
-      {!loading && positions.length === 0 && (
+      {!loading && !positionsError && positions.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
           {!address && (
             <div className="mb-4">

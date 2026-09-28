@@ -105,6 +105,22 @@ describe('PositionsService', () => {
       expect(result.items[0].tokenId).toBe('nft-99');
     });
 
+    it('includes the live pool price used to calculate position range status', async () => {
+      priceService.getSpotPrice.mockResolvedValue({ currentPrice: '1.5' });
+      repository.listPositionsByWallet.mockResolvedValue({
+        items: [makeSnapshot({ poolCurrentPrice: 1.25 })],
+        total: 1,
+      });
+
+      const result = await service.getPositions('wallet-owner-1', {
+        status: 'all',
+        page: 1,
+        limit: 20,
+      });
+
+      expect(result.items[0].poolCurrentPrice).toBe(1.5);
+    });
+
     it('passes through null tokenId when the snapshot has no NFT id', async () => {
       repository.listPositionsByWallet.mockResolvedValue({
         items: [makeSnapshot({ tokenId: null })],

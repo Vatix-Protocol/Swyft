@@ -284,6 +284,8 @@ export function RemoveLiquidityPanel({
               <p className="text-xs font-medium text-red-700 dark:text-red-400">
                 {txError === 'rejected' && 'Transaction rejected in wallet.'}
                 {txError === 'already_closed' && 'This position has already been closed.'}
+                {txError === 'failed' &&
+                  'Transaction failed on-ledger. The requested operation was not completed.'}
                 {txError === 'network' && 'Network error — please try again.'}
               </p>
               <button

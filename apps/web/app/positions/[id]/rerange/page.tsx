@@ -285,6 +285,8 @@ export default function RerangeLiquidityPage({ params }: PageProps) {
               <div className="flex-1">
                 <p className="text-xs font-medium text-red-700 dark:text-red-400">
                   {txError === 'rejected' && 'Transaction rejected in wallet.'}
+                  {txError === 'failed' &&
+                    'Transaction failed on-ledger. The requested operation was not completed.'}
                   {txError === 'network' && 'Network error — please try again.'}
                 </p>
                 <button

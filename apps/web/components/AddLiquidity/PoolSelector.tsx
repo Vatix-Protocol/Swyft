@@ -1,6 +1,7 @@
 'use client';
 
 import { usePools, type PoolDetail } from '@/hooks/usePoolTicks';
+import { formatFeeApr } from '@/lib/fee-apr';
 
 export interface PoolSelectorProps {
   /** The currently selected pool, or null if none is selected */
@@ -63,7 +64,7 @@ export function PoolSelector({ selected, onSelect }: PoolSelectorProps) {
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                    {pool.feeApr.toFixed(1)}% APR
+                    {formatFeeApr(pool.feeApr)} APR
                   </p>
                   <p className="text-xs text-zinc-400">${(pool.tvl / 1_000_000).toFixed(1)}M TVL</p>
                 </div>

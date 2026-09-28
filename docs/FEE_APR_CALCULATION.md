@@ -136,6 +136,10 @@ await this.prisma.pool.update({
 });
 ```
 
+The API stores and returns this result in **percentage points**. For example,
+`36.5` means `36.5%`, not `0.365`; web clients must display the value directly
+and must not multiply it by 100 again.
+
 ## Testing
 
 The invariants above are covered by unit tests in

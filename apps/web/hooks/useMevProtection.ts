@@ -1,15 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { getNetworkRpcUrl, type StellarNetwork } from '@/lib/constants';
+import { useNetworkContext } from '@/context/NetworkContext';
 
 const STORAGE_KEY = 'swyft:mev_protection';
-
-/**
- * Public Stellar testnet Soroban RPC used as an unconditional fallback.
- * The actual endpoint comes from env vars; this value is intentionally a
- * publicly accessible URL (no credentials) so the app degrades safely.
- */
-const TESTNET_FALLBACK_RPC = 'https://soroban-testnet.stellar.org';
 
 /**
  * Returns `true` when `url` is a syntactically valid http(s) URL.
@@ -29,19 +24,22 @@ export function isValidRpcUrl(url: string | undefined | null): url is string {
 
 /**
  * Resolves the active Soroban RPC URL from environment variables with
- * validation and safe fallback.
+ * validation and a network-specific public RPC fallback.
  *
  * Priority (highest → lowest):
  *   1. `NEXT_PUBLIC_MEV_PROTECTED_RPC_URL` — when MEV protection is enabled
  *   2. `NEXT_PUBLIC_SOROBAN_RPC_URL`
- *   3. Hardcoded testnet fallback
+ *   3. Public RPC for the selected Stellar network
  *
  * Invalid (malformed) env var values are silently ignored and the next
  * candidate in the priority chain is tried.
  *
  * @internal — exported for testing only.
  */
-export function resolveRpcUrl(mevEnabled: boolean): string {
+export function resolveRpcUrl(
+  mevEnabled: boolean,
+  network: StellarNetwork = 'TESTNET',
+): string {
   const sorobanUrl = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL;
   const mevUrl = process.env.NEXT_PUBLIC_MEV_PROTECTED_RPC_URL;
 
@@ -53,7 +51,7 @@ export function resolveRpcUrl(mevEnabled: boolean): string {
     return sorobanUrl;
   }
 
-  return TESTNET_FALLBACK_RPC;
+  return getNetworkRpcUrl(network);
 }
 
 /**
@@ -98,11 +96,12 @@ export interface MevProtectionState {
  *
  * - Reads the stored preference **only on the client** (inside `useEffect`)
  *   to avoid SSR hydration mismatches.
- * - Both env var values are validated; an invalid or missing URL gracefully
- *   falls back to the public Stellar testnet endpoint.
+ * - Both env var values are validated; an invalid or missing URL falls back
+ *   to the public RPC for the selected Stellar network.
  */
 export function useMevProtection(): MevProtectionState {
   const [enabled, setEnabled] = useState(false);
+  const { network } = useNetworkContext();
 
   // Hydrate from localStorage on mount (client-only).
   useEffect(() => {
@@ -130,7 +129,7 @@ export function useMevProtection(): MevProtectionState {
     enabled,
     available,
     toggle,
-    rpcUrl: resolveRpcUrl(enabled),
+    rpcUrl: resolveRpcUrl(enabled, network),
     mevRpcUrl: available ? mevUrl : undefined,
   };
 }

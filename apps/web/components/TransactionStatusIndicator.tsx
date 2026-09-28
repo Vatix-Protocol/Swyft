@@ -21,7 +21,10 @@ export function TransactionStatusIndicator() {
 
   if (!pendingTx) return null;
 
-  const isBusy = pendingTx.status === 'signing' || pendingTx.status === 'submitting';
+  const isBusy =
+    pendingTx.status === 'signing' ||
+    pendingTx.status === 'submitting' ||
+    pendingTx.status === 'pending';
 
   return (
     <div
@@ -45,13 +48,14 @@ export function TransactionStatusIndicator() {
       <span className="max-w-[9rem] truncate sm:max-w-none">
         {pendingTx.status === 'signing' && 'Waiting for signature…'}
         {pendingTx.status === 'submitting' && `Submitting ${pendingTx.label}…`}
+        {pendingTx.status === 'pending' && `${pendingTx.label} pending confirmation…`}
         {pendingTx.status === 'success' && `${pendingTx.label} confirmed`}
         {pendingTx.status === 'error' && (pendingTx.errorMessage ?? `${pendingTx.label} failed`)}
       </span>
 
       {pendingTx.status === 'success' && pendingTx.txHash && (
         <a
-          href={getExplorerTxUrl(pendingTx.txHash, network)}
+          href={getExplorerTxUrl(pendingTx.txHash, pendingTx.network ?? network)}
           target="_blank"
           rel="noopener noreferrer"
           className="text-indigo-600 underline hover:text-indigo-500 dark:text-indigo-400"
