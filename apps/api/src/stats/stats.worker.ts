@@ -12,6 +12,11 @@ import { makeQueueOptions } from '../indexer/queues';
 import { STATS_QUEUE_NAME } from './stats.queue';
 import { TvlAlertService } from './tvl-alert.service';
 import { calculatePoolTvl } from './pool-tvl';
+import {
+  calculateSwapFeesUsd,
+  calculateSwapVolumeUsd,
+  isInHalfOpenWindow,
+} from './volume-metrics';
 
 /** Cache key prefix for per-pool stats written by StatsWorker. */
 export const STATS_CACHE_KEY = (poolId: string) => `stats:pool:${poolId}`;
@@ -57,14 +62,16 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
 
     for (const pool of pools) {
       try {
-        const [swaps24h, swaps7d] = await Promise.all([
-          this.prisma.swap.findMany({
-            where: { poolId: pool.id, timestamp: { gte: ago24h } },
-          }),
-          this.prisma.swap.findMany({
-            where: { poolId: pool.id, timestamp: { gte: ago7d } },
-          }),
-        ]);
+        const swaps7d = await this.prisma.swap.findMany({
+          where: { poolId: pool.id, timestamp: { gte: ago7d, lt: now } },
+          orderBy: { timestamp: 'asc' },
+        });
+        const swapsIn7d = swaps7d.filter((swap) =>
+          isInHalfOpenWindow(swap.timestamp, ago7d, now),
+        );
+        const swaps24h = swapsIn7d.filter((swap) =>
+          isInHalfOpenWindow(swap.timestamp, ago24h, now),
+        );
 
         const [priceA, priceB, token0, token1, positions] = await Promise.all([
           this.getUsdPrice(pool.token0Address),
@@ -100,22 +107,40 @@ export class StatsWorker implements OnModuleInit, OnModuleDestroy {
         const volume24h = swaps24h.reduce(
           (sum: number, s: Swap) =>
             sum +
-            Math.abs(Number(s.amount0)) * priceA +
-            Math.abs(Number(s.amount1)) * priceB,
+            calculateSwapVolumeUsd(
+              s,
+              token0.decimals,
+              token1.decimals,
+              priceA,
+              priceB,
+            ),
           0,
         );
-        const volume7d = swaps7d.reduce(
+        const volume7d = swapsIn7d.reduce(
           (sum: number, s: Swap) =>
             sum +
-            Math.abs(Number(s.amount0)) * priceA +
-            Math.abs(Number(s.amount1)) * priceB,
+            calculateSwapVolumeUsd(
+              s,
+              token0.decimals,
+              token1.decimals,
+              priceA,
+              priceB,
+            ),
           0,
         );
 
         const fees24h = swaps24h.reduce(
-          (sum: number, s: Swap) => sum + Number(s.feeAmount) * priceA,
+          (sum: number, s: Swap) =>
+            sum + calculateSwapFeesUsd(s.feeAmount, token0.decimals, priceA),
           0,
         );
+        if (
+          !Number.isFinite(volume24h) ||
+          !Number.isFinite(volume7d) ||
+          !Number.isFinite(fees24h)
+        ) {
+          throw new Error('Computed volume metrics are invalid');
+        }
         const feeApr = tvl > 0 ? (fees24h / tvl) * 365 * 100 : 0;
 
         await this.prisma.pool.update({

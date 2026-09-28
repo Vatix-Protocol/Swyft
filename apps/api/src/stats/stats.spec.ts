@@ -33,13 +33,28 @@ const mockPools = [
 ];
 
 const mockSwaps24h = [
-  { amount0: '1000000', amount1: '-500000', feeAmount: '3000' },
-  { amount0: '2000000', amount1: '-1000000', feeAmount: '6000' },
+  {
+    amount0: '1000000',
+    amount1: '-500000',
+    feeAmount: '3000',
+    timestamp: new Date(Date.now() - 60 * 60 * 1000),
+  },
+  {
+    amount0: '2000000',
+    amount1: '-1000000',
+    feeAmount: '6000',
+    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
+  },
 ];
 
 const mockSwaps7d = [
   ...mockSwaps24h,
-  { amount0: '500000', amount1: '-250000', feeAmount: '1500' },
+  {
+    amount0: '500000',
+    amount1: '-250000',
+    feeAmount: '1500',
+    timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+  },
 ];
 
 const mockPositions = [
@@ -55,7 +70,7 @@ const mockFindManyPools = jest.fn().mockResolvedValue(mockPools);
 const mockFindManySwaps = jest.fn();
 const mockFindManyPositions = jest.fn().mockResolvedValue(mockPositions);
 
-const mockFindUniqueToken = jest.fn().mockResolvedValue({ decimals: 0 });
+const mockFindUniqueToken = jest.fn().mockResolvedValue({ decimals: 6 });
 
 const mockPrismaService = {
   pool: { findMany: mockFindManyPools, update: mockPoolUpdate },
@@ -200,7 +215,7 @@ describe('StatsModule', () => {
   });
 });
 
-// ─── StatsWorker — volume24h from Swap timestamps (#356) ─────────────────────
+// ─── StatsWorker — exact rolling volume windows (#1053) ────────────────────────
 
 describe('StatsWorker — volume24h from swap timestamps', () => {
   let worker: StatsWorker;
@@ -258,44 +273,39 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
     await module?.close();
   });
 
-  it('queries swaps using a Date-based timestamp filter', () => {
+  it('queries one bounded seven-day swap window using Date filters', () => {
     const swapCalls = mockFindManySwaps.mock.calls.filter(
       (c: [{ where?: { timestamp?: unknown } }]) => c[0]?.where?.timestamp,
     );
-    expect(swapCalls.length).toBeGreaterThanOrEqual(2);
-    for (const call of swapCalls) {
-      expect(call[0].where.timestamp.gte).toBeInstanceOf(Date);
-    }
+    expect(swapCalls).toHaveLength(1);
+    expect(swapCalls[0][0].where.timestamp.gte).toBeInstanceOf(Date);
+    expect(swapCalls[0][0].where.timestamp.lt).toBeInstanceOf(Date);
   });
 
-  it('uses Swap.timestamp (not job-enqueue time) as both the 24h and 7d window cutoffs', () => {
+  it('bounds the query to the rolling seven-day window ending at the aggregation time', () => {
     const now = Date.now();
-    const cutoffs = mockFindManySwaps.mock.calls
+    const query = mockFindManySwaps.mock.calls
       .filter(
-        (c: [{ where?: { timestamp?: { gte?: Date } } }]) =>
+        (c: [{ where?: { timestamp?: { gte?: Date; lt?: Date } } }]) =>
           c[0]?.where?.timestamp?.gte,
       )
-      .map((c: [{ where: { timestamp: { gte: Date } } }]) =>
-        c[0].where.timestamp.gte.getTime(),
-      );
-
-    const ago24h = now - 24 * 60 * 60 * 1000;
+      .map(
+        (c: [{ where: { timestamp: { gte: Date; lt: Date } } }]) =>
+          c[0].where.timestamp,
+      )[0];
     const ago7d = now - 7 * 24 * 60 * 60 * 1000;
 
-    expect(cutoffs.some((t: number) => Math.abs(t - ago24h) < 60_000)).toBe(
-      true,
-    );
-    expect(cutoffs.some((t: number) => Math.abs(t - ago7d) < 60_000)).toBe(
-      true,
-    );
+    expect(query.gte.getTime()).toBeGreaterThanOrEqual(ago7d - 60_000);
+    expect(query.gte.getTime()).toBeLessThanOrEqual(ago7d + 60_000);
+    expect(query.lt.getTime()).toBeGreaterThanOrEqual(now - 1000);
+    expect(query.lt.getTime()).toBeLessThanOrEqual(now + 1000);
   });
 
-  it('computes volume24h as sum of |amount0| + |amount1| across 24h swaps (price=1)', () => {
-    // swap1: |1000000| + |500000| = 1500000
-    // swap2: |2000000| + |1000000| = 3000000 → total 4500000
+  it('computes volume24h in USD from base-unit amounts in the half-open 24-hour window', () => {
+    // (1.0 + 0.5) + (2.0 + 1.0) = $4.50 at a $1 token price.
     expect(mockPoolUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ volume24h: '4500000' }),
+        data: expect.objectContaining({ volume24h: '4.5' }),
       }),
     );
   });
@@ -314,15 +324,14 @@ describe('StatsWorker — volume24h from swap timestamps', () => {
   });
 
   it('computes feeApr from actual swap feeAmount fields (not feeTier * volume)', () => {
-    // fees24h = (3000 + 6000) * priceA(1) = 9000
+    // fees24h = (3000 + 6000) base units / 10^6 * priceA(1) = $0.009
     const updateCall = mockPoolUpdate.mock.calls[0][0];
     const tvl = Number(updateCall.data.tvl);
     const feeApr = Number(updateCall.data.feeApr);
     expect(feeApr).toBeGreaterThan(0);
-    // fees24h from feeAmount: 9000 USD (price=1). Volume-based estimate would be:
-    // volume24h(4500000) * (feeTier/1_000_000) = 4500000 * 0.003 = 13500 USD
+    // The fee amount is converted from token0 base units using its indexed decimals.
     // Verify the actual value matches fees24h / tvl * 365 * 100
-    const expectedFeeApr = (9000 / tvl) * 365 * 100;
+    const expectedFeeApr = (0.009 / tvl) * 365 * 100;
     expect(feeApr).toBeCloseTo(expectedFeeApr, 5);
   });
 

@@ -11,6 +11,7 @@ feeApr = (fees24h / tvl) * 365 * 100
 ```
 
 Where:
+
 - `fees24h`: Total fees collected in the pool over the last 24 hours (in USD)
 - `tvl`: Total Value Locked in the pool (in USD)
 - `365`: Days in a year (annual projection)
@@ -30,7 +31,7 @@ implementation MUST preserve them, and they are asserted by the tests in
 4. **Monotonic in fees**: for a fixed `tvl > 0`, a larger `fees24h` yields a
    larger-or-equal `feeApr`.
 5. **Finite output**: `feeApr` is always a finite number; non-finite inputs
-   (`NaN`, `Infinity`) are treated as `0` rather than propagated.
+   are rejected before persistence rather than converted to plausible values.
 6. **Deterministic**: the same `(fees24h, tvl)` pair always produces the same
    `feeApr`; the function is pure and has no hidden state.
 
@@ -42,14 +43,16 @@ The 24-hour fees are calculated as:
 
 ```typescript
 const fees24h = swaps24h.reduce(
-  (sum: number, s: Swap) => sum + Number(s.feeAmount) * tokenPrice,
-  0,
+  (sum: number, s: Swap) => sum + calculateSwapFeesUsd(s.feeAmount, token0Decimals, token0UsdPrice),
+  0
 );
 ```
 
 - Each swap's `feeAmount` is derived from the transaction amount and the pool's fee tier
-- Fees are converted to USD using the token's current price
-- Only swaps from the last 24 hours are included
+- `feeAmount` is in token0 base units and is divided by `10 ** token0Decimals`
+  before applying token0's cached USD price
+- The rolling window is half-open: `[aggregationTime - 24 hours, aggregationTime)`.
+  Swaps at the lower bound are included; future-dated swaps are excluded.
 
 ### 2. TVL Calculation
 
@@ -66,8 +69,7 @@ const { amount0, amount1 } = getAmountsForLiquidity({
   liquidity: BigInt(position.liquidity),
 });
 const tvl =
-  (Number(amount0) / 10 ** decimals0) * priceA +
-  (Number(amount1) / 10 ** decimals1) * priceB;
+  (Number(amount0) / 10 ** decimals0) * priceA + (Number(amount1) / 10 ** decimals1) * priceB;
 ```
 
 - `pool.currentSqrtPrice`: The indexed current sqrt price, Q64.96 fixed point
@@ -83,8 +85,8 @@ const tvl =
 
 - **Zero TVL**: If `tvl = 0`, then `feeApr = 0` to avoid division by zero
 - **No Swaps in 24h**: If there are no swaps in the last 24 hours, `fees24h = 0` and `feeApr = 0`
-- **Non-finite inputs**: If `fees24h` or `tvl` is `NaN`/`Infinity` (e.g. a
-  missing price feed), the result is `0` rather than a non-finite APR
+- **Invalid inputs**: Non-finite amounts, invalid decimals, or missing prices
+  fail the pool update instead of being converted to zero
 - **Missing price feed**: The pool update is skipped; stale or fabricated TVL
   and APR values are not written.
 
@@ -95,10 +97,12 @@ The fee APR is updated every 5 minutes by the `StatsWorker` as part of the pool 
 ## Example
 
 Given:
+
 - Total fees collected in last 24 hours: $1,000 USD
 - Pool TVL: $1,000,000 USD
 
 Calculation:
+
 ```
 feeApr = ($1,000 / $1,000,000) * 365 * 100
        = 0.001 * 365 * 100
@@ -112,10 +116,10 @@ The pool's fee APR would be 36.5%.
 The fee APR calculation is implemented in `/workspaces/Swyft/apps/api/src/stats/stats.worker.ts`:
 
 ```typescript
-// Calculate fees collected in last 24 hours
+// Calculate fees in USD from token0 base units over [now - 24h, now)
 const fees24h = swaps24h.reduce(
-  (sum: number, s: Swap) => sum + Number(s.feeAmount) * priceA,
-  0,
+  (sum: number, s: Swap) => sum + calculateSwapFeesUsd(s.feeAmount, token0Decimals, priceA),
+  0
 );
 
 // Calculate fee APR
