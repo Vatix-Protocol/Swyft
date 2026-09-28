@@ -1310,6 +1310,46 @@ mod tests {
         assert_eq!(get_amount_1_delta(p_high, p_low, 0, true), 0);
     }
 
+    #[test]
+    fn tick_bitmap_handles_signed_word_edges_and_round_trips() {
+        let env = Env::default();
+        let spacing = 60;
+        let edge_ticks = [-887_220, -7_680, -60, 0, 60, 7_680, 887_220];
+
+        for tick in edge_ticks {
+            let compressed = super::compressed_tick(tick, spacing);
+            let (_, bit) = super::tick_position(compressed);
+            assert!(bit < 128, "bitmap bit must stay within a u128 word");
+            super::flip_bitmap(&env, tick, spacing, true);
+        }
+
+        for window in edge_ticks.windows(2) {
+            let (next, found) =
+                super::next_initialized_tick(&env, window[0], spacing, false);
+            assert!(found, "bitmap must find the next initialized edge");
+            assert_eq!(next, window[1]);
+        }
+
+        super::flip_bitmap(&env, edge_ticks[0], spacing, true);
+        let (next, found) = super::next_initialized_tick(&env, edge_ticks[0], spacing, false);
+        assert!(found);
+        assert_eq!(next, edge_ticks[1]);
+
+        for tick in &edge_ticks[1..] {
+            super::flip_bitmap(&env, *tick, spacing, true);
+        }
+    }
+
+    #[test]
+    fn compressed_tick_uses_floor_division_for_negative_remainders() {
+        assert_eq!(super::compressed_tick(-1, 60), -1);
+        assert_eq!(super::compressed_tick(-59, 60), -1);
+        assert_eq!(super::compressed_tick(-60, 60), -1);
+        assert_eq!(super::compressed_tick(0, 60), 0);
+        assert_eq!(super::compressed_tick(59, 60), 0);
+        assert_eq!(super::compressed_tick(60, 60), 1);
+    }
+
     // ── Tick crossing in swap ───────────────────────────────────────────────
 
     #[test]
