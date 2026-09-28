@@ -31,6 +31,13 @@ reference only.
 REST is the canonical transport. Any copy elsewhere implying tRPC or GraphQL is
 canonical is stale and should be corrected to point here.
 
+The API bootstrap enforces this choice: `API_TRANSPORT` may only be `rest`,
+`API_VERSION` may only be `v1`, and setting `API_TRPC_ENABLED` or
+`API_GRAPHQL_ENABLED` to a truthy value aborts startup. These settings do not
+create an alternate route or a partial compatibility layer. Reconsidering
+either transport requires a superseding ADR and an intentionally designed,
+fully tested implementation; the archived blueprint below is not deployable.
+
 ## Invariants (apply to every transport, REST included)
 
 These hold regardless of transport and are the contract the decision must not
