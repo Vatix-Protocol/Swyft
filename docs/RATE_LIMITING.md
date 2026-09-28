@@ -59,6 +59,7 @@ additional, stricter rule layered on top:
 | Global | all requests | `RATE_LIMIT_PER_MINUTE` (300) | `INTERNAL_RATE_LIMIT_PER_MINUTE` (1200) |
 | Candles | `GET /prices/:base/:quote/candles` | `CANDLE_RATE_LIMIT_PER_MINUTE` (60) | `INTERNAL_CANDLE_RATE_LIMIT_PER_MINUTE` (240) |
 | Auth | `/auth/*` | `AUTH_RATE_LIMIT_PER_MINUTE` (10) | `INTERNAL_AUTH_RATE_LIMIT_PER_MINUTE` (60) |
+| Nonce issuance | `POST /auth/nonce` | `NONCE_RATE_LIMIT_PER_MINUTE` (5) | `INTERNAL_NONCE_RATE_LIMIT_PER_MINUTE` (30) |
 | Transactions | `POST /transactions` | `TRANSACTION_RATE_LIMIT_PER_MINUTE` (20) | `INTERNAL_TRANSACTION_RATE_LIMIT_PER_MINUTE` (120) |
 | Ticks | `GET /pools/:id/ticks` | `TICKS_RATE_LIMIT_PER_MINUTE` (30) | `INTERNAL_TICKS_RATE_LIMIT_PER_MINUTE` (120) |
 

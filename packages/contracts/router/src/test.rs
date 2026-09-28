@@ -74,6 +74,39 @@ fn reverts_on_expired_deadline() {
 }
 
 #[test]
+#[should_panic]
+fn reverts_on_deadline_beyond_maximum_ttl() {
+    let (env, router_id, token_a, token_b, _) = setup();
+    let client = RouterClient::new(&env, &router_id);
+    client.set_pool_rate(&token_a, &token_b, &2);
+
+    client.exact_input_single(
+        &token_a,
+        &token_b,
+        &10,
+        &1,
+        &(NOW + MAX_SWAP_DEADLINE_SECONDS + 1),
+    );
+}
+
+#[test]
+fn accepts_deadline_at_maximum_ttl() {
+    let (env, router_id, token_a, token_b, _) = setup();
+    let client = RouterClient::new(&env, &router_id);
+    client.set_pool_rate(&token_a, &token_b, &2);
+
+    let amount_out = client.exact_input_single(
+        &token_a,
+        &token_b,
+        &10,
+        &19,
+        &(NOW + MAX_SWAP_DEADLINE_SECONDS),
+    );
+
+    assert_eq!(amount_out, 20);
+}
+
+#[test]
 fn multi_hop_exact_input_success() {
     let (env, router_id, token_a, token_b, token_c) = setup();
     let client = RouterClient::new(&env, &router_id);

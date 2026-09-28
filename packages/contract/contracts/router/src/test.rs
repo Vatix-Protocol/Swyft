@@ -185,7 +185,7 @@ fn test_exact_input_single_zero_amount() {
         token_out,
         fee: 3000,
         recipient,
-        deadline: u64::MAX,
+        deadline: env.ledger().timestamp() + 120,
         amount_in: 0,
         amount_out_min: 0,
         sqrt_price_limit_x96: 0,
@@ -220,6 +220,23 @@ fn test_exact_output_single_deadline_expired() {
 
 #[test]
 #[should_panic]
+fn test_exact_input_single_deadline_too_far() {
+    let env = Env::default();
+    env.ledger().with_mut(|ledger| ledger.timestamp = 100);
+
+    crate::check_deadline(&env, 100 + crate::MAX_SWAP_DEADLINE_SECONDS + 1);
+}
+
+#[test]
+fn test_deadline_at_maximum_ttl_is_valid() {
+    let env = Env::default();
+    env.ledger().with_mut(|ledger| ledger.timestamp = 100);
+
+    crate::check_deadline(&env, 100 + crate::MAX_SWAP_DEADLINE_SECONDS);
+}
+
+#[test]
+#[should_panic]
 fn test_exact_output_single_zero_amount() {
     let (env, id) = setup();
     let client = RouterClient::new(&env, &id);
@@ -235,7 +252,7 @@ fn test_exact_output_single_zero_amount() {
         token_out,
         fee: 3000,
         recipient,
-        deadline: u64::MAX,
+        deadline: env.ledger().timestamp() + 120,
         amount_out: 0,
         amount_in_max: 1_000,
         sqrt_price_limit_x96: 0,
@@ -254,7 +271,7 @@ fn test_exact_input_reverts_when_amount_out_below_min_out() {
         token_out: s.token_out,
         fee: 3000,
         recipient: Address::generate(&env),
-        deadline: u64::MAX,
+        deadline: env.ledger().timestamp() + 120,
         amount_in: 1_000,
         amount_out_min: 1_000,
         sqrt_price_limit_x96: 0,
@@ -279,7 +296,7 @@ fn test_exact_input_succeeds_when_amount_out_equals_min_out() {
         token_out: s.token_out,
         fee: 3000,
         recipient: Address::generate(&env),
-        deadline: u64::MAX,
+        deadline: env.ledger().timestamp() + 120,
         amount_in: 1_000,
         amount_out_min: 999,
         sqrt_price_limit_x96: 0,
@@ -303,7 +320,7 @@ fn test_exact_input_emits_no_swap_event_on_slippage_revert() {
         token_out: s.token_out,
         fee: 3000,
         recipient: Address::generate(&env),
-        deadline: u64::MAX,
+        deadline: env.ledger().timestamp() + 120,
         amount_in: 1_000,
         amount_out_min: 1_000,
         sqrt_price_limit_x96: 0,
@@ -385,7 +402,7 @@ fn test_exact_input_single_round_trips_through_real_cl_pool() {
         token_out: token_1.clone(),
         fee: 3000,
         recipient: user.clone(),
-        deadline: u64::MAX,
+        deadline: env.ledger().timestamp() + 120,
         amount_in: SWAP_AMOUNT_IN,
         // cl-pool has in-range liquidity, so output must be > 0; minOut=1 guards
         // against a silent zero-output "success".
@@ -432,7 +449,7 @@ fn test_exact_output_single_reverts_as_unsupported() {
         token_out: token_1,
         fee: 3000,
         recipient: Address::generate(&env),
-        deadline: u64::MAX,
+        deadline: env.ledger().timestamp() + 120,
         amount_out: 50_000,
         amount_in_max: 1_000_000,
         sqrt_price_limit_x96: 0,

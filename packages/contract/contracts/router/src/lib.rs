@@ -59,7 +59,12 @@ pub enum RouterError {
     AlreadyInitialized = 7,
     InvalidPair = 8,
     ExactOutputUnsupported = 9,
+    /// The requested swap deadline exceeds the maximum TTL.
+    DeadlineTooFar = 10,
 }
+
+/// Router-enforced maximum interval between ledger time and a swap deadline.
+const MAX_SWAP_DEADLINE_SECONDS: u64 = 300;
 
 
 // ── Pool interface (cross-contract call stubs) ────────────────────────────────
@@ -251,8 +256,11 @@ fn panic_router(env: &Env, e: RouterError) -> ! {
 
 fn check_deadline(env: &Env, deadline: u64) {
     let now = env.ledger().timestamp();
-    if now > deadline {
+    if deadline <= now {
         panic_router(env, RouterError::DeadlineExpired);
+    }
+    if deadline - now > MAX_SWAP_DEADLINE_SECONDS {
+        panic_router(env, RouterError::DeadlineTooFar);
     }
 }
 

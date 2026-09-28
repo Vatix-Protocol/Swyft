@@ -79,6 +79,54 @@ describe('RateLimitMiddleware', () => {
     expect(next).toHaveBeenCalled();
   });
 
+  it('applies the dedicated nonce limit to the versioned issuance route', async () => {
+    const middleware = new RateLimitMiddleware();
+    (middleware as unknown as { redis: object }).redis = {
+      incr: jest.fn().mockResolvedValue(1),
+      expire: jest.fn(),
+      ttl: jest.fn().mockResolvedValue(60),
+    };
+    const res = response();
+
+    await middleware.use(
+      {
+        path: '/v1/auth/nonce',
+        method: 'POST',
+        headers: {},
+        ip: '127.0.0.1',
+      } as never,
+      res as never,
+      next,
+    );
+
+    expect(res.headers.get('X-RateLimit-Limit')).toBe('5');
+    expect(res.headers.get('X-RateLimit-Remaining')).toBe('4');
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('does not apply the nonce limit to other auth endpoints', async () => {
+    const middleware = new RateLimitMiddleware();
+    (middleware as unknown as { redis: object }).redis = {
+      incr: jest.fn().mockResolvedValue(1),
+      expire: jest.fn(),
+      ttl: jest.fn().mockResolvedValue(60),
+    };
+    const res = response();
+
+    await middleware.use(
+      {
+        path: '/v1/auth/verify',
+        method: 'POST',
+        headers: {},
+        ip: '127.0.0.1',
+      } as never,
+      res as never,
+      next,
+    );
+
+    expect(res.headers.get('X-RateLimit-Limit')).toBe('10');
+  });
+
   it('applies a dedicated rate limit for GET /pools/:id/ticks when Redis is unavailable', async () => {
     const middleware = new RateLimitMiddleware();
     const res = response();
