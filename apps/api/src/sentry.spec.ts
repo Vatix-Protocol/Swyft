@@ -3,11 +3,9 @@
  * Verifies that sensitive wallet addresses and authentication data
  * are properly redacted before being sent to Sentry.
  */
+import { redactSensitiveData, scrubSentryEvent } from './sentry';
 
 describe('Sentry scrubber (beforeSend hook)', () => {
-  // The beforeSend hook requires actual Sentry instance; we test the redaction
-  // logic indirectly by checking the behavior during error capture.
-  // This is a placeholder for manual verification and integration testing.
 
   it('should redact Stellar wallet addresses in exception context', () => {
     // When an exception includes a wallet address like:
@@ -19,9 +17,7 @@ describe('Sentry scrubber (beforeSend hook)', () => {
       'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW';
     const message = `Failed for wallet ${walletAddress}`;
 
-    // Pattern from sentry.ts
-    const pattern = /\bG[A-Z2-7]{55}\b/g;
-    const redacted = message.replace(pattern, '[REDACTED]');
+    const redacted = redactSensitiveData(message);
 
     expect(redacted).toBe('Failed for wallet [REDACTED]');
     expect(redacted).not.toContain('GABCDEFGHIJKLMNOPQRSTUVWXYZ');
@@ -32,9 +28,7 @@ describe('Sentry scrubber (beforeSend hook)', () => {
     const nonce = 'a1b2c3d4e5f6789012345678abcdef01';
     const message = `Nonce mismatch: nonce="${nonce}" received`;
 
-    // Pattern from sentry.ts
-    const pattern = /nonce["\s:=]*:?["\s]?([a-f0-9]{32,}|[a-zA-Z0-9+/]{40,})/gi;
-    const redacted = message.replace(pattern, '[REDACTED]');
+    const redacted = redactSensitiveData(message) as string;
 
     expect(redacted).toContain('[REDACTED]');
     expect(redacted).not.toContain(nonce);
@@ -131,5 +125,32 @@ describe('Sentry scrubber (beforeSend hook)', () => {
     expect(event.message).toBe('Unauthorized');
     expect(event.path).toBe('/v1/auth/verify');
     expect(event.method).toBe('POST');
+  });
+
+  it('scrubs user identity and exception stack data through the real beforeSend hook', () => {
+    const walletAddress = `G${'A'.repeat(55)}`;
+    const event = scrubSentryEvent({
+      user: { id: walletAddress },
+      exception: [
+        {
+          value: `signature: secret-value`,
+          stacktrace: { frames: [{ vars: { walletAddress } }] },
+        },
+      ],
+    });
+
+    expect(event).not.toBeNull();
+    expect(event?.user?.id).toBe('[REDACTED]');
+    expect(event?.exception[0].value).toBe('[REDACTED]');
+    expect(event?.exception[0].stacktrace.frames[0].vars.walletAddress).toBe(
+      '[REDACTED]',
+    );
+  });
+
+  it('drops an event when the scrubber encounters an unsupported recursive value', () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    expect(scrubSentryEvent({ extra: circular })).toBeNull();
   });
 });

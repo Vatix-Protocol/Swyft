@@ -24,9 +24,13 @@ const SENSITIVE_PATTERNS = {
  * Recursively redacts sensitive values in an object/string.
  * Preserves structure but replaces matched patterns with [REDACTED].
  */
-function redactSensitiveData(value: unknown, depth = 0): unknown {
-  // Prevent infinite recursion on deeply nested objects
-  if (depth > 50) return value;
+export function redactSensitiveData(
+  value: unknown,
+  depth = 0,
+  seen = new WeakSet<object>(),
+): unknown {
+  // Fail closed rather than returning an unredacted deeply nested payload.
+  if (depth > 50) return '[REDACTED]';
 
   if (typeof value === 'string') {
     let redacted = value;
@@ -37,10 +41,14 @@ function redactSensitiveData(value: unknown, depth = 0): unknown {
   }
 
   if (Array.isArray(value)) {
-    return value.map((v) => redactSensitiveData(v, depth + 1));
+    if (seen.has(value)) throw new Error('circular sensitive payload');
+    seen.add(value);
+    return value.map((v) => redactSensitiveData(v, depth + 1, seen));
   }
 
   if (value !== null && typeof value === 'object') {
+    if (seen.has(value)) throw new Error('circular sensitive payload');
+    seen.add(value);
     const obj = value as Record<string, unknown>;
     const redacted: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(obj)) {
@@ -60,13 +68,43 @@ function redactSensitiveData(value: unknown, depth = 0): unknown {
       ) {
         redacted[key] = '[REDACTED]';
       } else {
-        redacted[key] = redactSensitiveData(val, depth + 1);
+        redacted[key] = redactSensitiveData(val, depth + 1, seen);
       }
     }
     return redacted;
   }
 
   return value;
+}
+
+export function scrubSentryEvent(event: Record<string, any>): Record<string, any> | null {
+  try {
+    const scrubbed = { ...event };
+
+    if (scrubbed.breadcrumbs) {
+      scrubbed.breadcrumbs = scrubbed.breadcrumbs.map((bc: any) => ({
+        ...bc,
+        message:
+          typeof bc.message === 'string'
+            ? redactSensitiveData(bc.message)
+            : bc.message,
+        data: redactSensitiveData(bc.data),
+      }));
+    }
+
+    for (const field of ['contexts', 'extra', 'request', 'user']) {
+      if (scrubbed[field]) scrubbed[field] = redactSensitiveData(scrubbed[field]);
+    }
+
+    if (scrubbed.exception) {
+      scrubbed.exception = redactSensitiveData(scrubbed.exception);
+    }
+
+    return scrubbed;
+  } catch {
+    // Never send an event if the scrubber itself fails.
+    return null;
+  }
 }
 
 export function initSentry() {
@@ -80,43 +118,7 @@ export function initSentry() {
       dsn,
       environment: process.env.NODE_ENV ?? 'development',
       tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1),
-      beforeSend(event: any) {
-        // Redact sensitive data from breadcrumbs, context, and exception messages
-        if (event.breadcrumbs) {
-          event.breadcrumbs = event.breadcrumbs.map((bc: any) => ({
-            ...bc,
-            message:
-              typeof bc.message === 'string'
-                ? redactSensitiveData(bc.message)
-                : bc.message,
-            data: redactSensitiveData(bc.data),
-          }));
-        }
-
-        if (event.contexts) {
-          event.contexts = redactSensitiveData(event.contexts);
-        }
-
-        if (event.extra) {
-          event.extra = redactSensitiveData(event.extra);
-        }
-
-        if (event.request) {
-          event.request = redactSensitiveData(event.request);
-        }
-
-        if (event.exception) {
-          event.exception = event.exception.map((ex: any) => ({
-            ...ex,
-            value:
-              typeof ex.value === 'string'
-                ? redactSensitiveData(ex.value)
-                : ex.value,
-          }));
-        }
-
-        return event;
-      },
+      beforeSend: scrubSentryEvent,
     });
   } catch {
     // @sentry/node not installed — Sentry stays disabled

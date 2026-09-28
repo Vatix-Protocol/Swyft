@@ -383,6 +383,14 @@ export class BalancesService {
     const whole = amount / divisor;
     const frac = (amount % divisor)
       .toString()
-      .pad
+      .padStart(decimals, '0')
+      .replace(/0+$/, '');
+    return frac ? `${whole}.${frac}` : whole.toString();
+  }
 
-/* … truncated 329 chars — edit only what you need near the top … */
+  private newCorrelationId(): string {
+    return `balances-${Date.now().toString(36)}-${Math.random()
+      .toString(36)
+      .slice(2, 10)}`;
+  }
+}
