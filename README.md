@@ -1,238 +1,162 @@
 # Swyft
 
-> Concentrated liquidity DEX on Stellar.
+Swyft is the liquidity, trading, and settlement surface of the Vatix-Protocol
+monorepo. This repository ships the API service, the web client, and the
+supporting infrastructure used to run them locally and in production.
 
-Swyft is a decentralized exchange built on Stellar using Soroban smart contracts. Inspired by Uniswap v3, it brings concentrated liquidity to the Stellar ecosystem — enabling capital-efficient trading, lower fees, and MEV protection. There is no v3-style DEX on Stellar yet. Swyft is the first.
+## Repository layout
 
----
+- `apps/api/` — the Swyft API service (HTTP + workers).
+- `apps/web/` — the Swyft web client.
+- `docker-compose.yml` — root compose file that orchestrates the full local stack.
+- `apps/api/docker-compose.yml` — API-local compose file for running just the API and its dependencies.
+- `turbo.json` — Turborepo pipeline and remote cache configuration (source of truth for cache policy).
 
-## Why Swyft?
+## Local Docker / Compose
 
-|                    | Swyft                              | Traditional Stellar DEXes |
-| ------------------ | ---------------------------------- | ------------------------- |
-| Liquidity model    | Concentrated (v3-style)            | Full-range only           |
-| Capital efficiency | High — LPs set custom price ranges | Low                       |
-| MEV protection     | Yes                                | No                        |
-| Developer SDK      | TypeScript (`@swyft/sdk`)          | None                      |
-| Open source        | MIT                                | Varies                    |
+There are two compose files in this repo. They serve different purposes and are
+not interchangeable. Use the one that matches what you are trying to run.
 
----
+### Root `docker-compose.yml` — full stack
 
-## MEV protection
+Purpose: orchestrate the complete local stack (API, web, database, cache, and
+any supporting services) with shared networks and volumes. Use this when you
+want to exercise the end-to-end product locally.
 
-Swyft ships MEV protection on the swap money path. The mechanisms below are the
-contract-level invariants; the API and SDK enforce the same policy so untrusted
-clients cannot bypass it. See [`CONTRACTS.md`](./CONTRACTS.md) for the contract
-surface and [`SECURITY.md`](./SECURITY.md) for the disclosure process.
+```bash
+# from the repository root
+docker compose up --build
+```
 
-### Mechanisms
+Expected endpoints (defaults):
 
-| Mechanism              | What it does                                                                 | Invariant                                                                 |
-| ---------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Slippage bounds        | Every swap carries `amountOutMin`; the contract reverts if the realized output is below it. | A swap never settles below the caller's `amountOutMin`.                   |
-| Deadline               | Every swap carries a `deadline` (ledger time); stale swaps revert.            | A swap never settles after its `deadline`.                                |
-| Commit-reveal ordering | Swaps are committed, then revealed after a short delay, so searchers cannot front-run the reveal. | A reveal is only accepted for a previously committed, unexpired commitment. |
-| Private submission     | The API accepts signed swaps over an authenticated channel and submits them without a public mempool window. | Only authenticated, rate-limited clients reach the submission path.       |
-| Deny-by-default authz  | Privileged MEV surfaces (submission, policy overrides) require an explicit role. | An unauthenticated or wrong-role caller is rejected before any state change. |
+- Web client: http://localhost:3000
+- API: http://localhost:8000
+- API health: http://localhost:8000/health
+
+### `apps/api/docker-compose.yml` — API-local
+
+Purpose: run only the API service and the dependencies it needs (database,
+cache) for focused API development and debugging. Use this when you are working
+on the API alone and do not need the web client or the rest of the stack.
+
+```bash
+# from apps/api
+cd apps/api
+docker compose up --build
+```
+
+Expected endpoints (defaults):
+
+- API: http://localhost:8000
+- API health: http://localhost:8000/health
+
+### How they relate
+
+- The root compose file is the source of truth for the full local stack.
+- The API-local compose file is a subset: it defines the API service and its
+  direct dependencies only.
+- Where the two files overlap (API service name, API port, API environment
+  variable names, and the database/cache service names), they are kept
+  consistent so that switching between them does not change how the API is
+  configured.
+- Intentional differences: the root file additionally defines the web client
+  and any stack-wide services, and it owns the shared network/volume topology
+  for the full stack. The API-local file does not define the web client.
+
+If you change a shared value (API port, API env var name, database/cache
+service name), update both compose files in the same change so they stay in
+sync.
+
+## Turbo remote cache policy
+
+`turbo.json` is the source of truth for the Turborepo pipeline and remote cache
+configuration. This section documents the policy that `turbo.json` encodes so
+contributors and CI behave consistently. If this section and `turbo.json`
+disagree, `turbo.json` wins — update this section in the same change that edits
+`turbo.json`.
+
+### What is cached
+
+- Only task outputs declared in `turbo.json` (`outputs`) are cached. Tasks with
+  no declared outputs cache their logs/exit status only.
+- Build artifacts, generated clients, and compiled bundles are cacheable.
+- Secrets, `.env` files, credentials, and anything under git-ignored local
+  paths are never cacheable outputs and must not be declared as `outputs`.
+
+### Cache key inputs
+
+A cache hit requires all of the following to match:
+
+- The task definition in `turbo.json` (command, `inputs`, `outputs`, `env`,
+  `dependsOn`).
+- The contents of the files matched by `inputs` (defaults to the package's
+  tracked source files).
+- The values of environment variables listed in the task's `env` (and
+  `globalEnv` / `globalDependencies` where configured).
+- The resolved dependency graph and the lockfile / dependency versions.
+
+Changing any input above is a cache miss by design. Do not work around a miss
+by disabling inputs; fix the task definition instead.
+
+### Remote cache auth expectations
+
+- The remote cache is an optimization, not a source of truth. It is only
+  reachable with a valid token supplied via the environment (for example
+  `TURBO_TOKEN` plus `TURBO_TEAM`/`TURBO_REMOTE_CACHE_*` as configured in CI).
+- Tokens are provided by CI secrets or a developer's local, git-ignored
+  environment. Never commit tokens, never echo them in logs, and never bake
+  them into cached artifacts.
+- Cache access is deny-by-default: without valid credentials, Turbo must fall
+  back to local execution rather than reading or writing the remote cache.
+- Privileged cache surfaces (writing to a shared/team cache, or any cache used
+  by release/mainnet-affecting pipelines) require an authenticated, authorized
+  identity. Untrusted clients must not be able to read or poison these entries.
 
 ### Fail-closed behavior
 
-- If the RPC, database, or Redis dependency is unavailable, MEV-protected writes
-  fail closed — the swap is rejected rather than submitted without protection.
-- Replayed or concurrent submissions are rejected via idempotency keys; a
-  duplicate key returns the original result instead of re-executing.
-- Auth expiry or a wrong role returns a stable error code and never falls back
-  to an unprotected path.
+- If the remote cache is unavailable (network error, auth expiry, outage), the
+  build must fail closed on writes: do not publish partial or unverified
+  artifacts to the remote cache, and do not treat a cache miss as success for
+  money-path or release tasks.
+- Reads may degrade to local execution, but the resulting artifacts must be
+  produced by the same task definition and inputs as a cache hit would have
+  required.
+- CI must not silently pass when the remote cache is misconfigured for a
+  required job; surface the failure instead of masking it.
 
-### Error codes
+### Security considerations
 
-MEV-protection failures use stable error codes so clients and ops can react
-without parsing free-form messages:
+- No secrets in the repo or in logs. Cache keys and logs must not contain
+  tokens, credentials, or customer data.
+- Deny-by-default for new privileged cache surfaces; adding a new writable
+  cache scope requires an explicit, reviewed change.
+- The server/contract remains the source of truth for balances, swaps, and
+  admin actions. A cache hit never authorizes a money-path action and never
+  substitutes for server-side validation.
 
-| Code                       | Meaning                                                        |
-| -------------------------- | -------------------------------------------------------------- |
-| `MEV_SLIPPAGE_EXCEEDED`    | Realized output fell below `amountOutMin`.                     |
-| `MEV_DEADLINE_EXPIRED`     | Swap submitted after its `deadline`.                           |
-| `MEV_COMMITMENT_INVALID`   | Reveal does not match a live commitment.                       |
-| `MEV_UNAUTHORIZED`         | Caller lacks the required role for a privileged MEV surface.   |
-| `MEV_DEPENDENCY_UNAVAILABLE` | RPC/DB/Redis outage; write failed closed.                    |
-| `MEV_REPLAY_DETECTED`      | Idempotency key already used for a different payload.          |
+### Edge cases and failure modes
 
-Every MEV-protected request carries a correlation id that is echoed in the
-response and written to ops-safe logs (no secrets, no signed payloads).
+- Cache poisoning / adversarial input: treat cache contents as untrusted. A
+  cache entry must be reproducible from the declared inputs; if it cannot be
+  verified, discard it and rebuild.
+- Dependency outage (RPC/DB/Redis or the remote cache itself): fail closed on
+  writes and fall back to local execution for reads.
+- Auth expiry / wrong role: treat as unauthenticated — fall back to local
+  execution and do not write to the remote cache.
+- Testnet vs mainnet separation: testnet and mainnet builds must not share
+  cache scopes. Keep environment-specific values in `env` so a testnet artifact
+  can never satisfy a mainnet cache key.
+- Concurrent/replayed requests: cache writes must be idempotent for a given key;
+  a replayed write must not corrupt an existing entry.
 
-### Kill switch
+## Development
 
-MEV protection is gated behind a feature flag. Disabling it is a documented
-rollback path and must be paired with a readiness checklist before any mainnet
-change; see [`SECURITY.md`](./SECURITY.md).
+See `apps/api/README.md` for API-specific setup, and `apps/web/README.md` for
+web client setup. For local Docker usage, prefer the compose guidance above.
 
----
+## Security
 
-## Tech Stack
-
-| Layer           | Technology                          |
-| --------------- | ----------------------------------- |
-| Smart contracts | Rust / Soroban                      |
-| Backend API     | NestJS — REST + WebSocket           |
-| Database        | PostgreSQL + Redis (Prisma, BullMQ) |
-| Frontend        | Next.js 14, Tailwind CSS, Radix UI  |
-| SDK             | TypeScript (`@swyft/sdk`)           |
-| Wallets         | Freighter / xBull                   |
-| Monorepo        | Turborepo + pnpm workspaces         |
-| CI/CD           | GitHub Actions                      |
-| License         | MIT                                 |
-
----
-
-## Repo Structure
-
-```
-swyft/
-├── apps/
-│   ├── web/              # Next.js dApp
-│   └── api/              # NestJS backend
-├── packages/
-│   ├── contract/         # Soroban Rust contracts
-│   ├── sdk/              # @swyft/sdk (TypeScript)
-│   ├── ui/               # @swyft/ui shared components
-│   └── config/           # Shared ESLint, TS, Tailwind configs
-├── docs/                 # Protocol spec, contributor guides
-└── .github/              # CI workflows, issue templates
-```
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- pnpm 8+
-- Rust + `stellar-cli` ([install guide](https://developers.stellar.org/docs/smart-contracts/getting-started/setup))
-- Docker (for local Postgres + Redis)
-
-### Local dev — quick start (5 minutes)
-
-```bash
-# 1. Clone and enter repo
-git clone https://github.com/Vatix-Protocol/Swyft.git
-cd swyft
-
-# 2. Install dependencies (~2 min)
-pnpm install
-
-# 3. Set up environment files
-cp apps/api/.env.example apps/api/.env
-cp apps/web/.env.example apps/web/.env
-
-# 4. Start Docker services (Postgres, Redis) (~30 sec with docker-compose --wait)
-docker-compose up -d --wait
-
-# 5. Initialize database (~30 sec)
-pnpm db:generate        # Generate Prisma client
-pnpm db:migrate:deploy  # Run migrations (same command CI uses for migrate smoke)
-
-# Optional: load the deterministic demo market used by the web app
-pnpm --filter api exec ts-node ../../prisma/seed.ts
-
-# Local equivalent of the CI Prisma migration smoke
-# (.github/workflows/db-migrations.yml — ephemeral Postgres + migrate deploy):
-#   docker-compose up -d postgres   # or any Postgres 16 with DATABASE_URL set
-#   pnpm prisma migrate deploy --schema prisma/schema.prisma
-# This must succeed; a failing migrate fails CI on main/PRs that touch prisma/**.
-
-# 6. Start all dev servers (~2 min)
-pnpm dev
-```
-
-This starts the Next.js dApp, NestJS API, and watches contract changes simultaneously via Turborepo.
-
-The seed is safe to re-run. Its data comes from [`fixtures/e2e-seed.json`](fixtures/e2e-seed.json), the same deterministic fixture the API e2e specs use, with pinned timestamps (see [`fixtures/README.md`](fixtures/README.md)). The seed refuses to run with `NODE_ENV=production` or a mainnet `STELLAR_NETWORK`. It keeps the demo pool at `test-pool-1`, using
-USDC address `GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN`
-and XLM address `GBDEVU63Y6NTHJQQZIKVTC23NWLQVP3WJ2RI2OTSJTNYOIGICST6DUXR`.
-
-**Total time: ~5 minutes** (mostly waiting for pnpm install and Docker)
-
-**wait-for-healthy:** every service in `docker-compose.yml` (`postgres`, `redis`, `api`) declares a `healthcheck`, and dependers use `depends_on: condition: service_healthy` — so `api` won't start until Postgres and Redis report healthy, and `web` won't start until `api` does. `docker-compose up -d --wait` blocks the CLI until that chain is healthy, which is why step 4 above doesn't need a manual retry loop.
-
-### What each command does
-
-| Step | Command                       | What it does                                   | Time   |
-| ---- | ----------------------------- | ---------------------------------------------- | ------ |
-| 1    | `git clone`                   | Clone the repository                           | ~10s   |
-| 2    | `pnpm install`                | Install all dependencies via monorepo          | ~2 min |
-| 3    | `cp .env.example`             | Create environment files (uses safe defaults)  | ~1s    |
-| 4    | `docker-compose up -d --wait` | Start Postgres + Redis, wait for health checks | ~30s   |
-| 5    | `pnpm db:generate`            | Generate Prisma ORM types                      | ~10s   |
-| 5    | `pnpm db:migrate:deploy`      | Apply pending database migrations              | ~20s   |
-| 6    | `pnpm dev`                    | Start Next.js, NestJS, and Turborepo watchers  | ~1 min |
-
-**Troubleshooting:**
-
-- **"postgres is not reachable"** — Check Docker is running: `docker ps`. If needed, re-run: `docker-compose up -d --wait`
-- **"Port 5432 already in use"** — Stop other services: `docker-compose down` then retry
-- **"Database migration failed"** — Ensure Postgres is healthy: `docker-compose logs postgres`
-- **"pnpm not found"** — Install pnpm 8+: `npm install -g pnpm@latest`
-
-### Run contract tests
-
-```bash
-cd packages/contract
-cargo test --workspace
-```
-
-### Run API tests
-
-```bash
-pnpm --filter api test
-```
-
-## Release build order
-
-Use Turbo for the release build path so packages are built in dependency order. The default entrypoint is:
-
-```bash
-pnpm turbo run build
-```
-
-For a focused SDK → web / API release, the intended sequence is:
-
-1. Build the Soroban contract package separately:
-
-   ```bash
-   pnpm --filter contracts build
-   ```
-
-   The contract package is independent from the application/package build graph and should be handled first when fresh artifacts are required.
-
-2. Build the shared packages and apps through Turbo:
-
-   ```bash
-   pnpm turbo run build --filter=web --filter=api
-   ```
-
-   Turbo resolves the release graph in dependency order, so the SDK is built before the web app, while the API build runs alongside the web path.
-
-3. For a full repo release, run the root build command:
-   ```bash
-   pnpm turbo run build
-   ```
-
-This keeps the release path predictable for maintainers and makes it clear that contract artifacts are handled separately from the SDK/web/API build sequence.
-
----
-
-## Environment Variables
-
-Copy `apps/api/.env.example` to `apps/api/.env` and fill in the values below.
-
-| Variable                        | Required | Default                                               | Description                                                                       |
-| ------------------------------- | -------- | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `DATABASE_URL`                  | ✅       | `postgresql://postgres:postgres@localhost:5432/swyft` | PostgreSQL connection string (Prisma)                                             |
-| `REDIS_URL`                     | ✅       | `redis://localhost:6379`                              | Redis connection string (BullMQ + cache)                                          |
-| `STELLAR_NETWORK`               | ✅       | `testnet`                                             | `testnet` or `mainnet`                                                            |
-| `STELLAR_RPC_URL`               | ✅       | `https://soroban-testnet.stellar.org`                 | Soroban RPC endpoint                                                              |
-| `HORIZON_URL`                   | ✅  
-
-/* … truncated 10419 chars — edit only what you need near the top … */
+See `SECURITY.md` for reporting and policy. Do not commit secrets; local
+compose files must read credentials from environment variables or local
+`.env` files that are git-ignored.

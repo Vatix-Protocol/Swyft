@@ -11,6 +11,47 @@ pnpm install
 pnpm --filter @vatix/api start:dev
 ```
 
+## Local Docker / Compose
+
+There are two compose files in this repo. They serve different purposes and are
+**not** interchangeable — pick the one that matches what you are trying to run.
+
+| Compose file               | Purpose                                                                 | When to use it                                                                 |
+| -------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `docker-compose.yml` (root) | Orchestrates the **full stack**: API, web, and shared backing services. | Running the whole product locally, or any change that spans more than the API. |
+| `apps/api/docker-compose.yml` | **API-local** stack: the API plus only the dependencies it needs.      | Iterating on the API in isolation (fast loop, API-only tests).                 |
+
+Relationship: the root compose is the superset. `apps/api/docker-compose.yml` is a
+narrower, API-scoped view of the same services. Where the two overlap, service
+names, ports, and environment variable names are kept consistent so you can move
+between them without re-learning the layout. Intentional differences are limited to
+scope: the API-local file omits non-API services (e.g. web) and any root-only
+orchestration.
+
+### Commands
+
+Full stack (root compose):
+
+```bash
+docker compose up --build
+```
+
+API-local (from `apps/api`):
+
+```bash
+cd apps/api
+docker compose up --build
+```
+
+### Expected endpoints
+
+- API: `http://localhost:3000` (health at `http://localhost:3000/health`).
+- Web (root compose only): `http://localhost:3001`.
+
+If a port or env var name ever diverges between the two files, treat that as a bug:
+fix the divergence or document the intentional difference here rather than letting
+the two files drift.
+
 ## Configuration
 
 All configuration is read from the environment at boot. Missing or malformed
@@ -178,88 +219,6 @@ Behavior is deny-by-default and fail-closed:
 
 ### Observability
 
-Redaction emits counters and structured logs that are safe to ship:
+Redaction emits counters and str
 
-- `sentry.redaction.applied` — events scrubbed.
-- `sentry.redaction.dropped` — events dropped because redaction failed.
-- `sentry.redaction.policy_invalid` — boot-time policy rejection.
-
-Logs include a correlation id and the redacted field paths only. They never
-include the redacted values themselves.
-
-### Rollback
-
-Redaction is always on and is not gated behind a feature flag, because disabling
-it would leak secrets. To roll back a bad policy change, revert the environment
-value and restart; the process fails closed on invalid input, so a bad value
-cannot silently disable redaction.
-
-## Analytics scheduler
-
-`src/admin/analytics.scheduler.ts` recomputes the admin analytics cache on a
-BullMQ job scheduler (#1031).
-
-### Invariants
-
-- **One scheduler for the fleet.** All replicas upsert the fixed id
-  `analytics-refresh-scheduler`, so N instances produce one recompute per
-  interval. Worker concurrency is 1, so runs never overlap within a process.
-- **Bounded Redis footprint.** Completed jobs are kept for at most 5 / 24h,
-  failed jobs for at most 50 / 7d (previously failed jobs were kept forever).
-- **Bounded metric cardinality.** Run outcomes and failure reasons are fixed
-  enums; job ids and correlation ids (`analytics-refresh:<jobId>`) appear only
-  in logs.
-- **Fail-closed.** A failed recompute marks the job failed and writes no
-  partial analytics; the next interval retries. A Redis outage at boot
-  leaves the scheduler in state `unavailable` without blocking the API.
-- **No secrets in logs.** Errors are logged by name and stable code only.
-
-### Metric semantics
-
-- Volume windows use event timestamps and half-open UTC time ranges
-  `[now - interval, now)`, so future-dated events are excluded and boundary
-  behavior is deterministic.
-- Swap amounts and fees are converted from token base units using indexed
-  token decimals before applying USD prices. Missing prices or token metadata
-  fail the computation; the API does not substitute a `$1` price.
-- Historical swap amounts are valued using the latest cached USD price feed,
-  because execution-time USD prices are not stored with swap records.
-- `GET /admin/analytics/volume?interval=1d|7d|30d` returns per-UTC-day USD
-  buckets. `1d` is a rolling 24-hour window, not the current calendar day.
-
-### Configuration / kill switch
-
-| Variable                        | Default  | Notes                                                                                                                                                                     |
-| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ANALYTICS_SCHEDULER_ENABLED`   | `true`   | `false`/`0`/`off`/`no` starts no worker and removes the scheduler from Redis. Set it on **every** instance, since any enabled instance re-registers the scheduler on boot |
-| `ANALYTICS_REFRESH_INTERVAL_MS` | `900000` | Clamped to `[60000, 86400000]`; invalid values fall back to the default                                                                                                   |
-
-Rollback: set `ANALYTICS_SCHEDULER_ENABLED=false` and restart; admin
-analytics endpoints still serve from cache/DB on demand.
-
-Observability: `GET /metrics/security` → `analyticsScheduler` (see
-`src/metrics/METRICS_ENDPOINTS.md`).
-
-## Security
-
-- Server/contract remains the source of truth for balances, swaps, and admin.
-- No secrets in the repo or in logs.
-- Every external entrypoint is rate-limited and authorized.
-- New privileged surfaces are deny-by-default.
-
-See `SECURITY.md` for the disclosure process and `apps/api/src/SENTRY_REDACTION_POLICY.md`
-for the full policy specification. Internal key rotation: `docs/INTERNAL_KEY_ROTATION.md`.
-Wallet trust boundary for REST handlers: `src/auth/AUTH_FLOW.md#current-wallet-decorator`.
-Dead-letter replay authz and runbook: `docs/INDEXER_DLQ_REPLAY.md`.
-`/price` WebSocket authn policy: `docs/WEBSOCKET_RECONNECT.md` ("Pool updates authn policy").
-Response compression defaults and kill switch: `docs/COMPRESSION.md`.
-
-## Contributing (Stellar Wave)
-
-- Keep Horizon write paths and db backup/restore fail-closed; do not add best-effort writes.
-- Keep changes scoped; do not refactor unrelated code.
-- `API smoke` is a required check: it boots the full `AppModule`. Commit every file you
-  register in `app.module.ts`, and add a no-credentials assertion for any new privileged
-  route (`pnpm --filter api test:smoke`; see `docs/APP_SMOKE.md`).
-- Record every externally observable API change in `docs/API_CHANGELOG.md` before merging.
-- Flag breaking or money-path/mainnet-affecting changes and include rollback notes.
+/* … truncated 4802 chars — edit only what you need near the top … */

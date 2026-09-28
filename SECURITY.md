@@ -76,6 +76,53 @@ The pool, router, and factory contracts expose privileged surfaces that must be 
 - **Testnet vs mainnet / address drift.** Role bindings and contract addresses are environment-scoped; a role valid on testnet is not assumed valid on mainnet, and address drift is rejected rather than silently accepted.
 - **Kill-switch.** Any money-path or mainnet-affecting change to these surfaces lands behind a feature flag / kill-switch so it can be disabled without a redeploy.
 
+## Turbo Remote Cache Policy
+
+The monorepo uses [Turborepo](https://turbo.build/repo) for task orchestration and remote caching. [`turbo.json`](turbo.json) is the **source of truth** for the cache policy; this section records the security controls that enforce it. Any change to caching behavior must be made in `turbo.json` and reviewed against the invariants below.
+
+### What is cached
+
+- Only task **outputs** declared in `turbo.json` (`outputs`) are uploaded to the remote cache. Build artifacts, generated types, and test reports are cacheable; source files are not.
+- Tasks that touch money paths, secrets, or environment-specific state must not be cached across environments. Cacheable tasks are limited to deterministic, reproducible build/test/lint work.
+- Cache entries are content-addressed by the task's declared inputs; a task with no declared inputs is treated as non-cacheable.
+
+### Cache key inputs
+
+A cache key is derived from the task definition and its declared inputs. The following are part of the key and must be declared in `turbo.json`:
+
+- The task name and command.
+- The contents of all files matched by the task's `inputs` globs (including lockfiles and `turbo.json` itself).
+- Environment variables explicitly listed in the task's `env` / `globalEnv` allowlist.
+
+Environment variables **not** in the allowlist are excluded from the key and must never influence cached output. Adding a variable to the allowlist is a security-relevant change and requires review.
+
+### Remote cache auth expectations
+
+- The remote cache is a **privileged surface** and is deny-by-default. Access requires a scoped token supplied via environment (`TURBO_TOKEN`) and a team/remote (`TURBO_TEAM` / `remoteCache` in `turbo.json`).
+- Tokens are **never** committed to the repository, embedded in `turbo.json`, or written to logs. They are injected by CI secrets or the developer's local environment only.
+- Untrusted clients (forks, external PRs) must not be able to read or write the production remote cache. CI must not expose `TURBO_TOKEN` to untrusted workflows.
+- Cache reads and writes are scoped per team/environment; a token valid for one environment is not assumed valid for another.
+
+### Fail-closed behavior
+
+- If the remote cache is unavailable (network outage, auth failure, or misconfiguration), the build **fails closed**: tasks re-run locally rather than consuming unverified or stale artifacts. A cache miss is always safe; a cache hit is only trusted when the entry is authenticated and content-addressed.
+- A remote cache auth failure must not silently fall back to an unauthenticated cache. It is surfaced as an error and the task re-executes from source.
+- Writes to the remote cache fail closed: if the cache cannot be reached, the task result is still produced locally and the failure is logged without leaking the token.
+
+### Edge cases and failure modes
+
+- **Cache poisoning / adversarial input.** Cache entries are content-addressed and authenticated; a tampered or unverifiable entry is treated as a miss and the task re-runs. Untrusted contributors cannot inject entries into the production cache.
+- **Dependency outage.** If the remote cache is unreachable, builds proceed by re-running tasks locally (fail-closed on cache trust, not on the build). Money-path tasks are never satisfied from an unverified cache.
+- **Testnet vs mainnet separation.** Cache keys include environment-scoped inputs; testnet and mainnet artifacts are not shared. A cache entry produced for one environment is never assumed valid for another.
+- **Concurrent / replayed requests.** Cache writes are idempotent and content-addressed; concurrent writers producing the same key converge on the same entry without side effects.
+
+### Observability
+
+- Cache hits, misses, and auth failures are logged with the task name and a correlation id. Logs never include `TURBO_TOKEN` or other secrets.
+- Cache hit/miss metrics are actionable: a sustained miss rate or auth-failure spike indicates a misconfiguration or outage and should be investigated via the ops runbooks below.
+
+See [`docs/OPS_DEPLOYMENT.md`](docs/OPS_DEPLOYMENT.md) for fail-closed behavior on dependency outage and [`docs/DEPLOY_API.md`](docs/DEPLOY_API.md) for the CI/deploy preflight that injects cache credentials.
+
 ## Deploy and Ops Security
 
 Deployment and operational procedures are security-sensitive. The executable runbooks define the required controls:
@@ -85,51 +132,4 @@ Deployment and operational procedures are security-sensitive. The executable run
 - [`docs/INTERNAL_KEY_ROTATION.md`](docs/INTERNAL_KEY_ROTATION.md) — rotating and revoking `x-internal-key` secrets (`INTERNAL_API_KEY`, `FEE_COLLECTOR_AUTH`, `TESTNET_REDEPLOY_AUTH`) with a bounded, fail-closed rotation window.
 - [`docs/INDEXER_DLQ_REPLAY.md`](docs/INDEXER_DLQ_REPLAY.md) — dead-letter replay: `INTERNAL_API_KEY`-only authz, kill switch plus a separate mainnet opt-in, rate limit, idempotency, and fail-closed on DLQ store outage.
 - [`docs/WEBSOCKET_RECONNECT.md#pool-updates-authn-policy-price`](docs/WEBSOCKET_RECONNECT.md#pool-updates-authn-policy-price) — `/price` WebSocket authn policy: required by default, opt-in anonymous read-only mode, and invalid tokens never downgraded.
-- [`docs/COMPRESSION.md`](docs/COMPRESSION.md) — response compression safe defaults, including BREACH exclusions for auth responses.
-- [`docs/APP_SMOKE.md`](docs/APP_SMOKE.md) — required `API smoke` CI check: the app boots and privileged routes stay deny-by-default.
-- [`apps/api/src/auth/AUTH_FLOW.md#current-wallet-decorator`](apps/api/src/auth/AUTH_FLOW.md#current-wallet-decorator) — trust boundary for the authenticated wallet injected into REST handlers.
-
-Operators must follow these runbooks exactly. Deploy entrypoints are privileged surfaces and are deny-by-default: they require an authenticated operator role and are gated behind a feature flag / kill-switch so a money-path or mainnet-affecting change can be disabled without a redeploy.
-
-### Authorization
-
-- Deploy and ops endpoints require a valid operator credential with the appropriate role. Requests with an expired token, missing token, or wrong role are rejected.
-- Authorization failures return stable error codes and a correlation id so incidents can be traced without leaking internal detail.
-- Untrusted clients cannot reach privileged surfaces; there is no unauthenticated path to deploy or ops actions.
-
-### Idempotency and Replay
-
-- Deploy and ops mutations accept an idempotency key. Concurrent or replayed requests with the same key are deduplicated and do not re-execute side effects.
-- Correlation ids are attached to every deploy/ops request and propagated to logs and metrics for auditability.
-
-### Fail-Closed Behavior
-
-- If RPC, database, or Redis is unavailable, write operations fail closed. The system does not proceed with a partial or unverified state.
-- Health checks distinguish liveness from readiness; a dependency outage marks the service not-ready so traffic is not routed to an unhealthy instance.
-
-### Observability
-
-- Deploy and ops paths emit actionable metrics and structured logs (success/failure counts, latency, dependency health) without including secrets or sensitive payloads.
-- Money-path operations are instrumented so regressions are detectable.
-
-## API Changelog Discipline
-
-Security-relevant API changes must be recorded in the canonical changelog at [`docs/API_CHANGELOG.md`](docs/API_CHANGELOG.md). This is required so that authz, error-code, and money-path changes are auditable and so contributors can see the security impact of a change before it ships.
-
-- Every entry records the affected endpoints/entrypoints, error codes, and the authz/scope impact of the change.
-- Breaking changes and any money-path or mainnet-affecting change must be flagged and include migration and rollback notes.
-- Changes that alter authentication, authorization, secret handling, or error-code semantics must be cross-referenced here and in the changelog entry.
-- The changelog is the source of truth for what changed and when; contradictory copy elsewhere must be removed when a change lands.
-
-## Rollback and Kill-Switch
-
-Every money-path or mainnet-affecting change lands behind a feature flag or kill-switch. Rollback steps are documented in the corresponding runbook and in the PR description. Operators can disable a risky change without a redeploy.
-
-## Test Fixtures and Shared Config
-
-- **Fixtures are testnet-only and secret-free.** `pnpm fixtures:check` rejects any fixture that isn't `"network": "testnet"`, contains a string shaped like a Stellar secret seed (`FIXTURE_SECRET_DETECTED`), or uses an address that isn't a checksum-valid `G…` StrKey. The demo seed (`prisma/seed.ts`) refuses to run when `NODE_ENV=production` or `STELLAR_NETWORK` is mainnet (`SEED_REFUSED`). See [`fixtures/README.md`](fixtures/README.md).
-- **Shared lint security rules can't be weakened per app.** `no-eval`, `no-implied-eval`, `no-new-func`, `no-script-url` and `no-debugger` are enforced at `error` through [`packages/config/eslint.js`](packages/config/eslint.js). `pnpm config:check` computes each app's effective ESLint config and fails CI if any of them is downgraded. See [`packages/config/README.md`](packages/config/README.md).
-
-## Scope
-
-This policy covers the Swyft API, web client, and deployment tooling in this repository. On-chain contract security is governed by the contract audit process; report contract issues through the same private channel.
+- [`docs/COMPRESSION.md`](docs/COMPRESSION.md) — response compression safe default
