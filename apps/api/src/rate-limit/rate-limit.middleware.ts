@@ -53,6 +53,8 @@ interface RateLimitHit extends RateLimitRule {
  * | `INTERNAL_CANDLE_RATE_LIMIT_PER_MINUTE` | `240` | Per-minute limit for candle endpoints (internal) |
  * | `AUTH_RATE_LIMIT_PER_MINUTE` | `10` | Per-minute limit for auth endpoints (public) |
  * | `INTERNAL_AUTH_RATE_LIMIT_PER_MINUTE` | `60` | Per-minute limit for auth endpoints (internal) |
+ * | `NONCE_RATE_LIMIT_PER_MINUTE` | `5` | Per-minute limit for nonce issuance (public) |
+ * | `INTERNAL_NONCE_RATE_LIMIT_PER_MINUTE` | `30` | Per-minute limit for nonce issuance (internal) |
  * | `TRANSACTION_RATE_LIMIT_PER_MINUTE` | `20` | Per-minute limit for POST /transactions (public) |
  * | `INTERNAL_TRANSACTION_RATE_LIMIT_PER_MINUTE` | `120` | Per-minute limit for POST /transactions (internal) |
  * | `TICKS_RATE_LIMIT_PER_MINUTE` | `30` | Per-minute limit for GET /pools/:id/ticks (public) |
@@ -237,7 +239,9 @@ export class RateLimitMiddleware
     req: Request,
     internal: boolean,
   ): RateLimitRule | null {
-    if (/^\/prices\/[^/]+\/[^/]+\/candles\/?$/.test(req.path)) {
+    const path = this.unversionedPath(req);
+
+    if (/^\/prices\/[^/]+\/[^/]+\/candles\/?$/.test(path)) {
       return {
         name: internal ? 'internal-candles' : 'candles',
         limit: internal
@@ -247,7 +251,17 @@ export class RateLimitMiddleware
       };
     }
 
-    if (req.path.startsWith('/auth')) {
+    if (req.method === 'POST' && path === '/auth/nonce') {
+      return {
+        name: internal ? 'internal-auth-nonce' : 'auth-nonce',
+        limit: internal
+          ? this.envInt('INTERNAL_NONCE_RATE_LIMIT_PER_MINUTE', 30)
+          : this.envInt('NONCE_RATE_LIMIT_PER_MINUTE', 5),
+        windowSeconds: 60,
+      };
+    }
+
+    if (path.startsWith('/auth')) {
       return {
         name: internal ? 'internal-auth' : 'auth',
         limit: internal
@@ -257,7 +271,7 @@ export class RateLimitMiddleware
       };
     }
 
-    if (req.path === '/transactions' && req.method === 'POST') {
+    if (path === '/transactions' && req.method === 'POST') {
       return {
         name: internal ? 'internal-transactions' : 'transactions',
         limit: internal
@@ -267,7 +281,7 @@ export class RateLimitMiddleware
       };
     }
 
-    if (/^\/pools\/[^/]+\/ticks\/?$/.test(req.path)) {
+    if (/^\/pools\/[^/]+\/ticks\/?$/.test(path)) {
       return {
         name: internal ? 'internal-ticks' : 'ticks',
         limit: internal
@@ -377,13 +391,19 @@ export class RateLimitMiddleware
    * @returns A short bucket label such as `"prices-candles"`, `"auth"`, or `"global"`
    */
   private routeBucketFor(req: Request): string {
-    if (/^\/prices\/[^/]+\/[^/]+\/candles\/?$/.test(req.path)) {
+    const path = this.unversionedPath(req);
+    if (/^\/prices\/[^/]+\/[^/]+\/candles\/?$/.test(path)) {
       return 'prices-candles';
     }
-    if (req.path.startsWith('/auth')) return 'auth';
-    if (req.path === '/transactions') return 'transactions';
-    if (/^\/pools\/[^/]+\/ticks\/?$/.test(req.path)) return 'pools-ticks';
+    if (req.method === 'POST' && path === '/auth/nonce') return 'auth-nonce';
+    if (path.startsWith('/auth')) return 'auth';
+    if (path === '/transactions') return 'transactions';
+    if (/^\/pools\/[^/]+\/ticks\/?$/.test(path)) return 'pools-ticks';
     return 'global';
+  }
+
+  private unversionedPath(req: Request): string {
+    return req.path.replace(/^\/v\d+(?=\/|$)/, '') || '/';
   }
 
   /**

@@ -51,10 +51,13 @@ export interface PoolId {
 
 /**
  * Default swap deadline window, in seconds, applied when {@link SwapTxParams.deadline}
- * is not provided. Chosen to give a wallet enough time to prompt/sign while still
- * bounding how stale a swap can execute.
+ * is not provided. It gives the wallet time to prompt/sign while expiring stale
+ * transactions promptly.
  */
-export const DEFAULT_SWAP_DEADLINE_SECONDS = 600;
+export const DEFAULT_SWAP_DEADLINE_SECONDS = 120;
+
+/** Hard upper bound on how long a swap transaction may remain executable. */
+export const MAX_SWAP_DEADLINE_SECONDS = 300;
 
 /**
  * Parameters for building an exact-input single-hop swap transaction.
@@ -90,6 +93,7 @@ export interface SwapTxParams {
   /**
    * Unix timestamp (seconds) after which the swap must no longer execute.
    * Defaults to `now + {@link DEFAULT_SWAP_DEADLINE_SECONDS}`.
+   * Must be no more than {@link MAX_SWAP_DEADLINE_SECONDS} seconds in the future.
    *
    * The deadline is enforced two ways:
    * - It is passed as an explicit `deadline` argument to the router contract's
@@ -130,6 +134,23 @@ function isValidAmount(amount: string): boolean {
   }
 }
 
+function resolveSwapDeadline(requestedDeadline?: number): number {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const deadline = requestedDeadline ?? nowSeconds + DEFAULT_SWAP_DEADLINE_SECONDS;
+
+  if (
+    !Number.isSafeInteger(deadline) ||
+    deadline <= nowSeconds ||
+    deadline - nowSeconds > MAX_SWAP_DEADLINE_SECONDS
+  ) {
+    throw new SwapValidationError(
+      `Invalid deadline: must be a future unix timestamp no more than ${MAX_SWAP_DEADLINE_SECONDS} seconds away. Got: ${requestedDeadline}`,
+    );
+  }
+
+  return deadline;
+}
+
 export class SwapValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -161,6 +182,7 @@ export interface ExactOutputSwapTxParams {
   /**
    * Unix timestamp (seconds) after which the swap must no longer execute.
    * Defaults to `now + {@link DEFAULT_SWAP_DEADLINE_SECONDS}`.
+   * Must be no more than {@link MAX_SWAP_DEADLINE_SECONDS} seconds in the future.
    */
   readonly deadline?: number;
 }
@@ -184,7 +206,7 @@ export interface ExactOutputSwapTxParams {
  *
  * @param params - Swap parameters including router ID, token IDs, amounts, and owner.
  * @returns An unsigned swap transaction envelope in base-64 XDR format.
- * @throws {SwapValidationError} If parameters are invalid (invalid addresses, amounts, or an already-expired deadline).
+ * @throws {SwapValidationError} If parameters are invalid (invalid addresses, amounts, or a deadline outside the allowed TTL).
  */
 export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
   if (!isValidStellarAddress(params.poolId)) {
@@ -226,15 +248,9 @@ export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
     }
   }
 
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const deadline = params.deadline ?? nowSeconds + DEFAULT_SWAP_DEADLINE_SECONDS;
   const feeTier = params.feeTier ?? 3000; // Default to 0.3% fee tier
 
-  if (!Number.isInteger(deadline) || deadline <= nowSeconds) {
-    throw new SwapValidationError(
-      `Invalid deadline: must be a future unix timestamp (seconds). Got: ${params.deadline}`
-    );
-  }
+  const deadline = resolveSwapDeadline(params.deadline);
 
   try {
     const routerContract = new Contract(params.poolId);
@@ -297,7 +313,7 @@ export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
  *   IDs, fee tier, amounts, and owner.
  * @returns An unsigned swap transaction envelope in base-64 XDR format.
  * @throws {SwapValidationError} If parameters are invalid (invalid
- *   addresses, amounts, fee tier, or an already-expired deadline).
+ *   addresses, amounts, fee tier, or a deadline outside the allowed TTL).
  */
 export function buildExactOutputSwapTx(params: ExactOutputSwapTxParams): SwapUnsignedTx {
   if (!isValidStellarAddress(params.routerId)) {
@@ -334,14 +350,7 @@ export function buildExactOutputSwapTx(params: ExactOutputSwapTxParams): SwapUns
     throw new SwapValidationError(`Invalid fee: must be a non-negative integer. Got: ${params.fee}`);
   }
 
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const deadline = params.deadline ?? nowSeconds + DEFAULT_SWAP_DEADLINE_SECONDS;
-
-  if (!Number.isInteger(deadline) || deadline <= nowSeconds) {
-    throw new SwapValidationError(
-      `Invalid deadline: must be a future unix timestamp (seconds). Got: ${params.deadline}`
-    );
-  }
+  const deadline = resolveSwapDeadline(params.deadline);
 
   try {
     const contract = new Contract(params.routerId);

@@ -1,3 +1,25 @@
+# API-local compose stack.
+#
+# Scope: this file provisions ONLY the backing services the API needs to run
+# locally (Postgres + Redis). It does NOT build or run the API itself, and it
+# does NOT include the web app or any other workspace package.
+#
+# Use this file when you are developing the API in isolation and want just its
+# dependencies, e.g.:
+#   docker compose -f apps/api/docker-compose.yml up -d
+#   # then run the API on the host: pnpm --filter api dev
+#
+# Use the ROOT docker-compose.yml instead when you want the full stack
+# (API + web + shared infra) orchestrated together:
+#   docker compose up
+#
+# Invariants kept consistent with the root compose file:
+#   - service names: postgres, redis
+#   - host ports:    5432 (postgres), 6379 (redis)
+#   - env var names: POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+#   - volume name:   postgres_data
+# Intentional difference: this file omits the API/web services and any
+# app-level networks, since it only provides local dependencies.
 services:
   postgres:
     image: postgres:16

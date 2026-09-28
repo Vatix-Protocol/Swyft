@@ -21,22 +21,22 @@ done
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 ##
-# log() — Print an informational deploy message to stdout.
+# log() — Print an informational deploy message to stderr.
 # @param $* Message text.
 ##
-log()  { echo "[deploy] $*"; }
+log()  { echo "[deploy] $*" >&2; }
 
 ##
-# ok() — Print a success message to stdout.
+# ok() — Print a success message to stderr.
 # @param $* Message text.
 ##
-ok()   { echo "[  ok  ] $*"; }
+ok()   { echo "[  ok  ] $*" >&2; }
 
 ##
-# skip() — Print a skip message to stdout (contract already deployed).
+# skip() — Print a skip message to stderr (contract already deployed).
 # @param $* Message text.
 ##
-skip() { echo "[ skip ] $*"; }
+skip() { echo "[ skip ] $*" >&2; }
 
 ##
 # fail() — Print an error message to stderr and exit with status 1.
@@ -124,6 +124,28 @@ wasm_hash() {
 }
 
 ##
+# update_manifest() — Atomically update the deployment manifest with jq.
+# The temporary file is created alongside the manifest so the final rename
+# stays on the same filesystem.
+# @param $1 jq filter; remaining arguments are passed through to jq.
+##
+update_manifest() {
+  local filter="$1"
+  shift
+
+  local tmp
+  tmp=$(mktemp "${TESTNET_JSON}.tmp.XXXXXX") || fail "Could not create a manifest temp file."
+  if ! jq "$@" "$filter" "$TESTNET_JSON" > "$tmp"; then
+    rm -f "$tmp"
+    fail "Could not update deployment manifest: $TESTNET_JSON"
+  fi
+  if ! mv "$tmp" "$TESTNET_JSON"; then
+    rm -f "$tmp"
+    fail "Could not replace deployment manifest: $TESTNET_JSON"
+  fi
+}
+
+##
 # write_address() — Persist a deployed contract address to testnet.json.
 # Creates the file with an empty manifest if it does not exist.
 # Also records the UTC deployment timestamp under .deployedAt[$key] and the
@@ -136,14 +158,14 @@ write_address() {
   local key="$1" addr="$2" wasm="$3" ts hash
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   hash=$(wasm_hash "$wasm")
+  [[ "$hash" =~ ^[[:xdigit:]]{64}$ ]] || fail "Invalid SHA-256 hash for $key: $hash"
+
   if [[ ! -f "$TESTNET_JSON" ]]; then
-    echo '{"network":"testnet","contracts":{},"deployedAt":{},"wasmHashes":{}}' > "$TESTNET_JSON"
+    printf '%s\n' '{"network":"testnet","contracts":{},"deployedAt":{},"wasmHashes":{}}' > "$TESTNET_JSON"
   fi
-  local tmp
-  tmp=$(mktemp)
-  jq --arg k "$key" --arg v "$addr" --arg t "$ts" --arg h "$hash" \
+  update_manifest \
     '.contracts[$k] = $v | .deployedAt[$k] = $t | .wasmHashes[$k] = $h' \
-    "$TESTNET_JSON" > "$tmp" && mv "$tmp" "$TESTNET_JSON"
+    --arg k "$key" --arg v "$addr" --arg t "$ts" --arg h "$hash"
 }
 
 # ── Deploy + verify one contract ──────────────────────────────────────────────
@@ -248,9 +270,8 @@ ok "Oracle adapters wired to pool and cl-pool."
 
 # ── Write final manifest ──────────────────────────────────────────────────────
 
-# Stamp the deployer address into the manifest
-tmp=$(mktemp)
-jq --arg d "$DEPLOYER_ADDRESS" '.deployer = $d' "$TESTNET_JSON" > "$tmp" && mv "$tmp" "$TESTNET_JSON"
+# Stamp the deployer address into the manifest.
+update_manifest '.deployer = $d' --arg d "$DEPLOYER_ADDRESS"
 
 ok "All contracts deployed. Manifest written to: $TESTNET_JSON"
 echo ""

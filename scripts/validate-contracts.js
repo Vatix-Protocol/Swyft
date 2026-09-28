@@ -3,7 +3,11 @@
 const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const { computeWasmHash, detectDrift } = require('../packages/contract/scripts/check-address-drift.js');
+const {
+  computeWasmHash,
+  detectDrift,
+  manifestKeysByContract,
+} = require('../packages/contract/scripts/check-address-drift.js');
 
 const contracts = [
   'math-lib',
@@ -15,19 +19,6 @@ const contracts = [
   'oracle-adapter',
   'cl-pool',
 ];
-
-// Maps a contract's folder name to its key in deployments/testnet.json.
-// hello-world is not present here — deploy-testnet.sh never deploys it to testnet.
-const manifestKeyByContract = {
-  'math-lib': 'mathLib',
-  pool: 'pool',
-  'pool-factory': 'poolFactory',
-  router: 'router',
-  'position-nft': 'positionNft',
-  'fee-collector': 'feeCollector',
-  'oracle-adapter': 'oracleAdapter',
-  'cl-pool': 'clPool',
-};
 
 const checkDrift = process.argv.includes('--check-drift');
 
@@ -68,18 +59,22 @@ for (const contract of contracts) {
       stdio: 'pipe',
       timeout: 60000,
     });
-    log('✓', 'green');
-    passed++;
-
-    const manifestKey = manifestKeyByContract[contract];
-    if (checkDrift && manifestKey) {
+    const manifestKeys = manifestKeysByContract[contract];
+    if (checkDrift && manifestKeys) {
       const wasmPath = path.join(wasmDir, `${contract.replace(/-/g, '_')}.wasm`);
-      if (fs.existsSync(wasmPath)) {
-        freshHashes[manifestKey] = computeWasmHash(wasmPath);
+      if (!fs.existsSync(wasmPath)) {
+        throw new Error(`WASM artifact not found: ${wasmPath}`);
+      }
+      const freshHash = computeWasmHash(wasmPath);
+      for (const manifestKey of manifestKeys) {
+        freshHashes[manifestKey] = freshHash;
       }
     }
+
+    log('✓', 'green');
+    passed++;
   } catch (e) {
-    log('✗', 'red');
+    log(`✗${e instanceof Error ? ` (${e.message})` : ''}`, 'red');
     failed++;
   }
 }
@@ -100,10 +95,11 @@ if (checkDrift) {
   const drifted = detectDrift(manifest, freshHashes);
 
   if (drifted.length > 0) {
-    log(`\nAddress drift detected: ${drifted.join(', ')}`, 'red');
+    log(`\nAddress drift or missing WASM hash detected: ${drifted.join(', ')}`, 'red');
     log(
-      'These contracts are deployed at an address that no longer matches the current build. ' +
-        'Redeploy (scripts/deploy-testnet.sh) and commit the updated deployments/testnet.json.',
+      'These deployed contracts could not be verified against their current WASM hashes. ' +
+        'Check the artifacts, redeploy if needed (packages/contract/scripts/deploy-testnet.sh), ' +
+        'and commit the updated deployments/testnet.json.',
       'red'
     );
     process.exit(1);

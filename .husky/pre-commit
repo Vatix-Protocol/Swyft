@@ -1,4 +1,10 @@
 #!/usr/bin/env sh
-# Run ESLint on apps/api before every commit.
-# Fails the commit if lint errors are found.
+# Required pre-commit checks for apps.
+# Fail-closed: block the commit if lint or format checks fail.
+set -e
+
+# ESLint (apps/api) — source of truth: apps/api/eslint.config.mjs
 pnpm --filter api lint
+
+# Prettier format check — source of truth: root .prettierrc (+ .prettierignore)
+pnpm exec prettier --check .

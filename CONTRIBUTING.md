@@ -1,172 +1,166 @@
 # Contributing to Swyft
 
-Thanks for your interest in contributing. Swyft is built almost entirely by external contributors — the maintainer handles architecture decisions, PR reviews, and releases. Contributors handle features.
+Thanks for contributing to Swyft (Vatix-Protocol). This guide covers the
+required local checks and the conventions we expect in pull requests.
 
-**Pick up an issue and open a PR — that's it.**
+## Prerequisites
 
----
+- Node.js (see `.nvmrc` / `package.json` `engines` if present)
+- pnpm (workspace package manager)
+- Docker + Docker Compose (for local services)
 
-## Table of Contents
-
-- [Getting Started](#getting-started)
-- [Development Setup](#development-setup)
-- [Finding Work](#finding-work)
-- [Package Boundaries](#package-boundaries)
-- [Branch and Commit Conventions](#branch-and-commit-conventions)
-- [Pull Request Process](#pull-request-process)
-- [Code Standards](#code-standards)
-- [Testing](#testing)
-- [Issue Labels](#issue-labels)
-
----
-
-## Getting Started
-
-1. Fork the repository on GitHub.
-2. Clone your fork:
-   ```bash
-   git clone https://github.com/<your-username>/Swyft.git
-   cd Swyft
-   ```
-3. Add the upstream remote:
-   ```bash
-   git remote add upstream https://github.com/Vatix-Protocol/Swyft.git
-   ```
-4. Follow the [Development Setup](#development-setup) section below.
-
----
-
-## Development Setup
-
-### Prerequisites
-
-| Tool | Version | Notes |
-|---|---|---|
-| Node.js | ≥ 18 | Use [nvm](https://github.com/nvm-sh/nvm) or [fnm](https://github.com/Schniz/fnm) |
-| pnpm | ≥ 8 | `npm install -g pnpm` |
-| Rust | stable | `rustup toolchain install stable` |
-| stellar-cli | latest | See [Stellar docs](https://developers.stellar.org/docs/smart-contracts/getting-started/setup) |
-| Docker | any | For local Postgres + Redis |
-
-### Install dependencies
+## Getting started
 
 ```bash
 pnpm install
 ```
 
-### Configure environment
+## Required checks: Prettier and ESLint
+
+Formatting and linting are **required** for all apps. CI fails closed: a pull
+request with Prettier or ESLint violations will not pass required checks.
+
+Configs are the source of truth:
+
+- Root Prettier config: `.prettierrc` (with `.prettierignore`)
+- App ESLint config, e.g. `apps/api/eslint.config.mjs`
+
+### Commands
+
+Run these from the repository root unless noted:
 
 ```bash
-cp apps/api/.env.example apps/api/.env
-# Edit apps/api/.env — see Environment Variables section in README
+# Format all files
+pnpm format
+
+# Check formatting without writing (used by CI)
+pnpm format:check
+
+# Lint all apps
+pnpm lint
+
+# Lint a single app (example: api)
+pnpm --filter api lint
 ```
 
-### Start local services (Postgres + Redis)
+If a script is not defined at the root, run the equivalent inside the app
+directory (for example `apps/api`):
 
 ```bash
 cd apps/api
-docker compose up -d
+pnpm lint
+pnpm format:check
 ```
 
-### Run the full stack
+### Fixing violations
 
 ```bash
-pnpm dev
+# Auto-fix formatting
+pnpm format
+
+# Auto-fix lint issues where possible
+pnpm lint --fix
 ```
 
-This starts the NestJS API and Next.js dApp simultaneously via Turborepo.
+Commit the resulting changes. Do not disable rules inline to bypass CI; if a
+rule is genuinely wrong, open an issue to discuss changing the config.
 
-### Run contract tests
+## Git hooks
 
-```bash
-cd packages/contract
-cargo test --workspace
-```
+Husky hooks run automatically:
 
-### Build Soroban WASM contracts
+- `.husky/pre-commit` — formats/lints staged files
+- `.husky/pre-push` — runs the full lint/format check
 
-The contract workspace targets Soroban's WASM runtime. Soroban requires Rust
-1.84 or newer and its `wasm32v1-none` target. Install the target for the stable
-toolchain before building; installing Rust alone does not install the WASM
-standard library:
+Do not use `--no-verify` to skip hooks. CI enforces the same checks, so skipped
+hooks will still fail the pull request.
 
-```bash
-rustup update stable
-rustup target add wasm32v1-none --toolchain stable
-rustc +stable --version # Soroban requires Rust 1.84 or newer
-rustup show
-rustup target list --installed --toolchain stable
-```
+## Turbo remote cache policy
 
-Build deployable, optimized contract artifacts with the Soroban CLI from the
-repository root:
+Swyft uses Turborepo. `turbo.json` is the **source of truth** for the task graph
+and cache policy; this section documents the invariants contributors must
+respect. If this section and `turbo.json` ever disagree, `turbo.json` wins —
+update this doc in the same PR that changes the config.
 
-```bash
-stellar contract build
-# Equivalent workspace command:
-pnpm --filter contracts build
-```
+### What is cached
 
-The build writes `.wasm` files under `packages/contract/target/wasm32v1-none/release/`.
-Use `cargo test --workspace` for Rust unit tests; it does not replace the
-Soroban WASM build. For a focused test, run `cargo test -p <crate-name>` from
-`packages/contract` (for example, `cargo test -p cl-pool`).
+- Only task outputs declared in `turbo.json` (`outputs`) are cached. Tasks with
+  no declared outputs cache only their logs/exit status.
+- Tasks marked `"cache": false` (for example dev servers or anything with
+  side effects) are never cached and must stay that way.
+- Cache artifacts are build/test outputs only. Never place secrets, `.env`
+  files, credentials, or tokens in a task's `outputs`.
 
-If the build reports a missing `wasm32v1-none` target, install it for
-the same toolchain selected by `rustup show`. If a contract's WASM output is
-stale after changing toolchains or build settings, rebuild with
-`stellar contract build` before using or deploying that artifact. Do not
-deploy an unoptimized debug WASM produced by a plain `cargo build`.
-See [`packages/contract/README.md`](packages/contract/README.md) for contract
-build, testnet deployment, and artifact details.
+### Cache key inputs
 
-### Run API tests
+A cache hit requires an identical key. The key is derived from:
 
-```bash
-pnpm --filter api test
-```
+- The task name and the package's source files (per `inputs`, or all tracked
+  files when `inputs` is unset).
+- Resolved dependency task hashes (the `dependsOn` graph).
+- Relevant environment variables declared in `turbo.json` (`env` / `globalEnv`).
+- The lockfile and `turbo.json` itself.
 
-### Run web Vitest
+If a task's behavior depends on an environment variable, declare it in
+`turbo.json` so it participates in the key. Undeclared env vars cause stale
+cache hits — treat that as a bug, not a convenience.
 
-```bash
-pnpm --filter web test
-```
+### Remote cache auth
 
-The CI workflow includes a dedicated web Vitest job so frontend regressions are
-caught whenever changes land in `apps/web`.
+- The remote cache is an optimization, not a trust boundary. Access is
+  deny-by-default: only CI and authorized maintainers may read or write it.
+- Credentials (`TURBO_TOKEN`, `TURBO_TEAM`, registry tokens) are injected via
+  CI secrets or the local environment. **Never** commit them, echo them, or
+  print them in logs. Do not add them to `turbo.json`, `outputs`, or any
+  committed file.
+- Untrusted clients (forks, external PRs) must not be able to write to the
+  shared remote cache. Keep write access scoped to trusted CI contexts.
 
-### Git hooks
+### Fail-closed behavior
 
-- **pre-commit** — runs ESLint on `apps/api`.
-- **pre-push** — runs `turbo run lint` filtered to only the packages affected since `origin/main`, so the hook stays fast on a large monorepo instead of linting everything.
-  - Skip it for a single push with `SWYFT_SKIP_PRE_PUSH_LINT=1 git push`.
+- A remote cache outage must never change correctness. If the remote cache is
+  unreachable, tasks fall back to a local run; builds and tests still execute
+  and must pass on their own merits.
+- Never treat a cache miss or cache error as success. Do not add fallbacks that
+  skip tests, lint, or type checks when the cache is unavailable.
+- Money-path and mainnet-affecting tasks must remain reproducible from source
+  alone; the cache only speeds them up.
 
----
+### Edge cases
 
-## Finding Work
+- **Cache poisoning / adversarial input:** only trusted CI writes to the shared
+  cache. Treat cache contents as untrusted input — never execute cached
+  artifacts as privileged, and never source secrets from them.
+- **Dependency outage:** if the remote cache (or its backing store) is down,
+  fail closed on writes and fall back to local execution; do not silently skip
+  required checks.
+- **Testnet vs mainnet separation:** cache keys must not collide across
+  environments. Keep environment-specific values in declared env vars so
+  testnet and mainnet artifacts never share a cache entry.
 
-- Browse [open issues](https://github.com/Vatix-Protocol/Swyft/issues)
-- Issues labelled [`good first issue`](https://github.com/Vatix-Protocol/Swyft/issues?q=label%3A%22good+first+issue%22) are well-scoped and don't require deep protocol knowledge
-- Issues labelled [`bounty`](https://github.com/Vatix-Protocol/Swyft/issues?q=label%3Abounty) have a financial reward attached
-- Comment on an issue before starting work to avoid duplication
-- Stellar Wave issues follow the [labeling policy](docs/STELLAR_WAVE_LABELING_POLICY.md); confirm the area and risk labels before starting work
+### Security
 
----
+- No secrets in the repo, in `turbo.json`, or in logs.
+- Deny-by-default for any new privileged cache surface (new writers, new
+  tokens, new scopes).
+- The server/contract remains the source of truth for balances, swaps, and
+  admin. The cache never holds authoritative state for money paths.
 
-## Package Boundaries
+## Pull requests
 
-Before opening a PR, know which part of the monorepo your change belongs in. Reviewers will ask you to move code that lands in the wrong place.
+1. Branch from `main` and keep changes scoped to the issue.
+2. Ensure `pnpm lint` and `pnpm format:check` pass locally.
+3. Update docs/runbooks when behavior changes.
+4. Describe rollback/flag strategy for any money-path or mainnet-affecting change.
 
-| Location | Owns | Examples of what belongs here |
-|---|---|---|
-| `apps/web` | The Next.js dApp — UI, pages, client-side hooks, wallet connection | A new swap form component, a page route, `useWalletBalances` |
-| `apps/api` | The NestJS backend — REST/WebSocket endpoints, the Horizon indexer, database access | A new `/pools/:id/ticks` endpoint, a BullMQ worker, a Prisma query |
-| `packages/contract` | Soroban smart contracts (Rust) | Pool math, tick logic, admin functions |
-| `packages/sdk` | `@swyft/sdk` — the TypeScript client that wraps contract calls and API requests | A typed helper for building a swap transaction, RPC client code shared by web and other consumers |
-| `packages/ui` | `@swyft/ui` — shared, presentation-only React components | A `Button` or `Modal` used by more than one app |
-| `packages/config` | Shared tooling config | ESLint, TypeScript, Tailwind base configs |
+## Security
 
-Rules of thumb:
+- Never commit secrets or tokens.
+- Server/contract remains the source of truth for balances, swaps, and admin.
+- Authorize and rate-limit every external entrypoint; deny by default for new
+  privileged surfaces.
+
+See `SECURITY.md` for reporting vulnerabilities.
 
 - **If it renders something**, it goes in `apps/web` unless it's a generic, reusable component with no app-specific logic — then it belongs in `packages/ui`.
 - **If it talks to Postgres, Redis, or Horizon**, it belongs in `apps/api`, not the SDK or frontend.
@@ -248,7 +242,7 @@ docs: add CONTRIBUTING.md
 
 | Layer | How to run | Expectation |
 |---|---|---|
-| Soroban contracts | `cargo test --workspace` in `packages/contract` | All tests pass |
+| Soroban contracts | `cargo test --workspace` in `packages/contract`; `pnpm validate:contracts` from the repository root | Tests pass and every contract builds for WASM |
 | NestJS API unit | `pnpm --filter api test` | All tests pass |
 | NestJS API e2e | `pnpm --filter api test:e2e` | Requires running Postgres + Redis |
 | TypeScript SDK | `pnpm --filter @swyft/sdk test` | All tests pass |
