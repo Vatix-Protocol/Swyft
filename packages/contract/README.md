@@ -53,12 +53,13 @@ not silently report liquidity it never funded.
 
 ## Prerequisites
 
-- Rust stable + `wasm32-unknown-unknown` target
+- Rust 1.84+ stable + `wasm32v1-none` target
 - [`stellar-cli`](https://developers.stellar.org/docs/smart-contracts/getting-started/setup)
 - `jq`, `curl`
 
 ```bash
-rustup target add wasm32-unknown-unknown
+rustup update stable
+rustup target add wasm32v1-none --toolchain stable
 cargo install --locked stellar-cli --features opt
 ```
 
