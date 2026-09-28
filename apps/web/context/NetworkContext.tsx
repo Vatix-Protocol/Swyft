@@ -13,6 +13,8 @@ import {
 export interface NetworkContextValue {
   /** Currently selected network. Falls back to the build-time default until the persisted choice loads. */
   network: StellarNetwork;
+  /** Whether the persisted network selection has been restored. */
+  ready: boolean;
   /** API base URL for the currently selected network. */
   apiBase: string;
   /** Switch the active network and persist the choice for future sessions. */
@@ -21,6 +23,7 @@ export interface NetworkContextValue {
 
 const defaultValue: NetworkContextValue = {
   network: SWYFT_NETWORK,
+  ready: false,
   apiBase: getApiBase(SWYFT_NETWORK),
   setNetwork: () => {},
 };
@@ -29,6 +32,7 @@ const NetworkContext = createContext<NetworkContextValue>(defaultValue);
 
 export function NetworkProvider({ children }: { children: ReactNode }) {
   const [network, setNetworkState] = useState<StellarNetwork>(SWYFT_NETWORK);
+  const [ready, setReady] = useState(false);
   const queryClient = useQueryClient();
 
   // Restore a persisted selection on mount. An unset or corrupted value
@@ -41,11 +45,13 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
     } else if (stored !== null) {
       localStorage.removeItem(NETWORK_STORAGE_KEY);
     }
+    setReady(true);
   }, []);
 
   const setNetwork = useCallback(
     (next: StellarNetwork) => {
       setNetworkState(next);
+      setReady(true);
       localStorage.setItem(NETWORK_STORAGE_KEY, next);
       // Invalidate all cached queries so hooks refetch against the new API.
       queryClient.invalidateQueries();
@@ -56,7 +62,7 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
   const apiBase = getApiBase(network);
 
   return (
-    <NetworkContext.Provider value={{ network, apiBase, setNetwork }}>
+    <NetworkContext.Provider value={{ network, ready, apiBase, setNetwork }}>
       {children}
     </NetworkContext.Provider>
   );

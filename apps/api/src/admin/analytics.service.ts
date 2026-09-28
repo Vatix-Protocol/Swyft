@@ -1,193 +1,334 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { TimeInterval } from './dto/analytics-query.dto';
+import { PrismaService } from '../prisma/prisma.service';
+import { CacheService } from '../cache/cache.service';
+import { USD_PRICE_CACHE_KEY } from '../stats/usd-price-feed.service';
+import { calculateSwapVolumeUsd } from '../stats/volume-metrics';
 
-/**
- * Stable error codes for TWAP window configuration validation.
- * Fail-closed: any invalid or missing configuration is rejected.
- */
-export const TWAP_WINDOW_ERRORS = {
-  INVALID_WINDOW: 'TWAP_WINDOW_INVALID',
-  WINDOW_OUT_OF_BOUNDS: 'TWAP_WINDOW_OUT_OF_BOUNDS',
-  INVALID_INTERVAL: 'TWAP_WINDOW_INVALID_INTERVAL',
-  INTERVAL_EXCEEDS_WINDOW: 'TWAP_WINDOW_INTERVAL_EXCEEDS_WINDOW',
-  UNAUTHORIZED: 'TWAP_WINDOW_UNAUTHORIZED',
-  REPLAY_DETECTED: 'TWAP_WINDOW_REPLAY_DETECTED',
-  DEPENDENCY_UNAVAILABLE: 'TWAP_WINDOW_DEPENDENCY_UNAVAILABLE',
+const INTERVAL_MS: Record<TimeInterval, number> = {
+  [TimeInterval.ONE_DAY]: 24 * 60 * 60 * 1000,
+  [TimeInterval.SEVEN_DAYS]: 7 * 24 * 60 * 60 * 1000,
+  [TimeInterval.THIRTY_DAYS]: 30 * 24 * 60 * 60 * 1000,
+};
+
+const CACHE_TTL_SECONDS = 5 * 60;
+
+export const ANALYTICS_CACHE_KEYS = {
+  overview: 'admin:analytics:v1:overview',
+  tvl: (interval: TimeInterval) => `admin:analytics:v1:tvl:${interval}`,
+  volume: (interval: TimeInterval) => `admin:analytics:v1:volume:${interval}`,
+  fees: 'admin:analytics:v1:fees',
+  feeApr: 'admin:analytics:v1:fee-apr',
+  snapshot: 'admin:analytics:v1:snapshot',
 } as const;
 
-export type TwapWindowErrorCode =
-  (typeof TWAP_WINDOW_ERRORS)[keyof typeof TWAP_WINDOW_ERRORS];
+export type AnalyticsErrorCode =
+  'ANALYTICS_INVALID_INTERVAL' | 'ANALYTICS_UNAVAILABLE';
 
-/**
- * Hard bounds for TWAP window configuration.
- * These are the source of truth for the money path and must not be bypassed
- * by untrusted clients.
- */
-export const TWAP_WINDOW_BOUNDS = {
-  MIN_WINDOW_SECONDS: 60,
-  MAX_WINDOW_SECONDS: 86_400,
-  MIN_INTERVAL_SECONDS: 1,
-  MAX_INTERVAL_SECONDS: 3_600,
-} as const;
-
-export interface TwapWindowConfig {
-  windowSeconds: number;
-  intervalSeconds: number;
+export class AnalyticsError extends Error {
+  constructor(
+    readonly code: AnalyticsErrorCode,
+    message: string,
+    readonly correlationId: string,
+  ) {
+    super(message);
+    this.name = 'AnalyticsError';
+  }
 }
-
-export interface TwapWindowConfigRequest extends TwapWindowConfig {
-  /** Idempotency key supplied by the caller to guard against replays. */
-  idempotencyKey: string;
-  /** Role of the caller; only privileged roles may mutate config. */
-  role?: string;
-}
-
-export interface TwapWindowConfigResult {
-  ok: boolean;
-  config?: TwapWindowConfig;
-  errorCode?: TwapWindowErrorCode;
-  correlationId: string;
-}
-
-const PRIVILEGED_ROLES = new Set(['admin', 'operator']);
 
 @Injectable()
 export class AnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
 
-  /** In-memory idempotency ledger keyed by idempotency key. */
-  private readonly processedKeys = new Map<string, TwapWindowConfigResult>();
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: CacheService,
+  ) {}
 
-  /** Last accepted configuration; undefined until a valid config is set. */
-  private twapWindowConfig?: TwapWindowConfig;
-
-  /**
-   * Validate and apply a TWAP window configuration.
-   *
-   * Fail-closed: rejects on missing/invalid input, out-of-bounds values,
-   * unauthorized roles, replayed idempotency keys, and dependency outages.
-   */
-  configureTwapWindow(
-    request: TwapWindowConfigRequest,
-    correlationId: string = this.newCorrelationId(),
-  ): TwapWindowConfigResult {
-    // Deny-by-default: only privileged roles may mutate TWAP window config.
-    if (!request.role || !PRIVILEGED_ROLES.has(request.role)) {
-      this.logReject(correlationId, TWAP_WINDOW_ERRORS.UNAUTHORIZED);
-      return this.fail(TWAP_WINDOW_ERRORS.UNAUTHORIZED, correlationId);
-    }
-
-    // Idempotency: reject replayed requests with the same key.
-    if (!request.idempotencyKey || typeof request.idempotencyKey !== 'string') {
-      this.logReject(correlationId, TWAP_WINDOW_ERRORS.INVALID_WINDOW);
-      return this.fail(TWAP_WINDOW_ERRORS.INVALID_WINDOW, correlationId);
-    }
-    const prior = this.processedKeys.get(request.idempotencyKey);
-    if (prior) {
-      this.logReject(correlationId, TWAP_WINDOW_ERRORS.REPLAY_DETECTED);
-      return this.fail(TWAP_WINDOW_ERRORS.REPLAY_DETECTED, correlationId);
-    }
-
-    const validation = this.validateBounds(request);
-    if (!validation.ok) {
-      this.logReject(correlationId, validation.errorCode!);
-      return this.fail(validation.errorCode!, correlationId);
-    }
-
-    const config: TwapWindowConfig = {
-      windowSeconds: request.windowSeconds,
-      intervalSeconds: request.intervalSeconds,
-    };
-
-    // Persist only after validation succeeds (fail-closed on writes).
+  async getOverview() {
+    const correlationId = this.newCorrelationId();
     try {
-      this.twapWindowConfig = config;
-    } catch (err) {
-      this.logger.error(
-        `twap_window.persist_failed correlationId=${correlationId}`,
+      const [pools, activePositions, totalSwaps] = await Promise.all([
+        this.prisma.pool.findMany({
+          select: { tvl: true, volume24h: true },
+        }),
+        this.prisma.position.count({ where: { closedAt: null } }),
+        this.prisma.swap.count(),
+      ]);
+      const totalTvl = pools.reduce(
+        (sum, pool) => sum + this.readNonNegative(pool.tvl),
+        0,
       );
-      return this.fail(TWAP_WINDOW_ERRORS.DEPENDENCY_UNAVAILABLE, correlationId);
-    }
-
-    const result: TwapWindowConfigResult = {
-      ok: true,
-      config,
-      correlationId,
-    };
-    this.processedKeys.set(request.idempotencyKey, result);
-
-    // Ops-safe metrics/logs: no secrets, only bounded numeric values.
-    this.logger.log(
-      `twap_window.configured correlationId=${correlationId} ` +
-        `windowSeconds=${config.windowSeconds} intervalSeconds=${config.intervalSeconds}`,
-    );
-    return result;
-  }
-
-  /** Returns the active TWAP window config, if any. */
-  getTwapWindowConfig(): TwapWindowConfig | undefined {
-    return this.twapWindowConfig;
-  }
-
-  /**
-   * Enforce TWAP window bounds. Returns a stable error code on failure.
-   */
-  private validateBounds(
-    request: TwapWindowConfig,
-  ): { ok: boolean; errorCode?: TwapWindowErrorCode } {
-    const { windowSeconds, intervalSeconds } = request;
-
-    if (
-      !Number.isFinite(windowSeconds) ||
-      !Number.isInteger(windowSeconds) ||
-      windowSeconds <= 0
-    ) {
-      return { ok: false, errorCode: TWAP_WINDOW_ERRORS.INVALID_WINDOW };
-    }
-    if (
-      windowSeconds < TWAP_WINDOW_BOUNDS.MIN_WINDOW_SECONDS ||
-      windowSeconds > TWAP_WINDOW_BOUNDS.MAX_WINDOW_SECONDS
-    ) {
-      return { ok: false, errorCode: TWAP_WINDOW_ERRORS.WINDOW_OUT_OF_BOUNDS };
-    }
-
-    if (
-      !Number.isFinite(intervalSeconds) ||
-      !Number.isInteger(intervalSeconds) ||
-      intervalSeconds <= 0
-    ) {
-      return { ok: false, errorCode: TWAP_WINDOW_ERRORS.INVALID_INTERVAL };
-    }
-    if (
-      intervalSeconds < TWAP_WINDOW_BOUNDS.MIN_INTERVAL_SECONDS ||
-      intervalSeconds > TWAP_WINDOW_BOUNDS.MAX_INTERVAL_SECONDS
-    ) {
-      return { ok: false, errorCode: TWAP_WINDOW_ERRORS.INVALID_INTERVAL };
-    }
-    if (intervalSeconds > windowSeconds) {
+      const totalVolume24h = pools.reduce(
+        (sum, pool) => sum + this.readNonNegative(pool.volume24h),
+        0,
+      );
       return {
-        ok: false,
-        errorCode: TWAP_WINDOW_ERRORS.INTERVAL_EXCEEDS_WINDOW,
+        totalTvl: String(totalTvl),
+        totalVolume24h: String(totalVolume24h),
+        poolCount: pools.length,
+        activePositions,
+        totalSwaps,
       };
+    } catch (error) {
+      throw this.unavailable('overview', correlationId, error);
     }
-
-    return { ok: true };
   }
 
-  private fail(
-    errorCode: TwapWindowErrorCode,
+  async getTvl(interval: TimeInterval) {
+    const { start, end } = this.resolveWindow(interval);
+    const correlationId = this.newCorrelationId();
+    try {
+      const snapshots = await this.prisma.tvlSnapshot.findMany({
+        where: { date: { gte: start, lt: end } },
+        orderBy: [{ date: 'asc' }, { poolId: 'asc' }],
+        select: { date: true, tvlUsd: true },
+      });
+      const byDay = new Map<string, number>();
+      for (const snapshot of snapshots) {
+        const day = snapshot.date.toISOString().slice(0, 10);
+        byDay.set(
+          day,
+          (byDay.get(day) ?? 0) + this.readNonNegative(snapshot.tvlUsd),
+        );
+      }
+      return {
+        interval,
+        from: start.toISOString(),
+        to: end.toISOString(),
+        series: [...byDay].map(([date, value]) => ({ date, value })),
+      };
+    } catch (error) {
+      throw this.unavailable('tvl', correlationId, error);
+    }
+  }
+
+  async getVolume(interval: TimeInterval) {
+    const { start, end } = this.resolveWindow(interval);
+    const correlationId = this.newCorrelationId();
+    try {
+      const tokenByAddress = new Map<
+        string,
+        { address: string; decimals: number }
+      >();
+      const prices = new Map<string, number>();
+      const byDay = new Map<string, number>();
+      const pageSize = 1000;
+      let cursorId: string | undefined;
+
+      while (true) {
+        const swaps = await this.prisma.swap.findMany({
+          where: { timestamp: { gte: start, lt: end } },
+          orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            amount0: true,
+            amount1: true,
+            timestamp: true,
+            pool: {
+              select: {
+                token0Address: true,
+                token1Address: true,
+              },
+            },
+          },
+          take: pageSize,
+          ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+        });
+        const addresses = [
+          ...new Set(
+            swaps.flatMap((swap) => [
+              swap.pool.token0Address,
+              swap.pool.token1Address,
+            ]),
+          ),
+        ];
+        const missingAddresses = addresses.filter(
+          (address) => !tokenByAddress.has(address),
+        );
+        if (missingAddresses.length > 0) {
+          const tokens = await this.prisma.token.findMany({
+            where: { address: { in: missingAddresses } },
+            select: { address: true, decimals: true },
+          });
+          for (const token of tokens) tokenByAddress.set(token.address, token);
+          for (const address of missingAddresses) {
+            if (!tokenByAddress.has(address)) {
+              throw new Error('Swap pool token metadata is unavailable');
+            }
+          }
+          await Promise.all(
+            missingAddresses.map(async (address) => {
+              const price = await this.cache.get<number>(
+                USD_PRICE_CACHE_KEY(address),
+              );
+              if (price === null || !Number.isFinite(price) || price <= 0) {
+                throw new Error(`USD price unavailable for token=${address}`);
+              }
+              prices.set(address, price);
+            }),
+          );
+        }
+
+        for (const swap of swaps) {
+          const token0 = tokenByAddress.get(swap.pool.token0Address);
+          const token1 = tokenByAddress.get(swap.pool.token1Address);
+          const price0 = prices.get(swap.pool.token0Address);
+          const price1 = prices.get(swap.pool.token1Address);
+          if (
+            !token0 ||
+            !token1 ||
+            price0 === undefined ||
+            price1 === undefined
+          ) {
+            throw new Error('Swap pool token metadata or price is unavailable');
+          }
+          const volume = calculateSwapVolumeUsd(
+            swap,
+            token0.decimals,
+            token1.decimals,
+            price0,
+            price1,
+          );
+          const day = swap.timestamp.toISOString().slice(0, 10);
+          const dailyVolume = (byDay.get(day) ?? 0) + volume;
+          if (!Number.isFinite(dailyVolume)) {
+            throw new Error('Computed daily volume is invalid');
+          }
+          byDay.set(day, dailyVolume);
+        }
+
+        if (swaps.length < pageSize) break;
+        const nextCursor = swaps[swaps.length - 1].id;
+        if (!nextCursor || nextCursor === cursorId) {
+          throw new Error('Swap volume pagination cursor did not advance');
+        }
+        cursorId = nextCursor;
+      }
+
+      return {
+        interval,
+        from: start.toISOString(),
+        to: end.toISOString(),
+        series: [...byDay].map(([date, volumeUsd]) => ({ date, volumeUsd })),
+      };
+    } catch (error) {
+      throw this.unavailable('volume', correlationId, error);
+    }
+  }
+
+  async getFees() {
+    const correlationId = this.newCorrelationId();
+    try {
+      const records = await this.prisma.feesCollected.findMany({
+        orderBy: [{ poolId: 'asc' }, { createdAt: 'asc' }],
+        select: { poolId: true, amount0: true, amount1: true },
+      });
+      const totals = new Map<string, { amount0: bigint; amount1: bigint }>();
+      for (const record of records) {
+        const total = totals.get(record.poolId) ?? { amount0: 0n, amount1: 0n };
+        total.amount0 += this.readInteger(record.amount0);
+        total.amount1 += this.readInteger(record.amount1);
+        totals.set(record.poolId, total);
+      }
+      return {
+        byPool: [...totals].map(([poolId, amounts]) => ({
+          poolId,
+          feesAmount0: amounts.amount0.toString(),
+          feesAmount1: amounts.amount1.toString(),
+        })),
+      };
+    } catch (error) {
+      throw this.unavailable('fees', correlationId, error);
+    }
+  }
+
+  async getFeeApr(poolId?: string) {
+    const correlationId = this.newCorrelationId();
+    try {
+      const pools = await this.prisma.pool.findMany({
+        ...(poolId ? { where: { id: poolId } } : {}),
+        orderBy: { id: 'asc' },
+        select: { id: true, feeApr: true },
+      });
+      return {
+        byPool: pools.map((pool) => ({
+          poolId: pool.id,
+          feeApr: String(this.readNonNegative(pool.feeApr)),
+        })),
+      };
+    } catch (error) {
+      throw this.unavailable('fee_apr', correlationId, error);
+    }
+  }
+
+  async recomputeAll(correlationId = this.newCorrelationId()): Promise<void> {
+    try {
+      const [overview, tvl, volume, fees, feeApr] = await Promise.all([
+        this.getOverview(),
+        this.getTvl(TimeInterval.THIRTY_DAYS),
+        this.getVolume(TimeInterval.ONE_DAY),
+        this.getFees(),
+        this.getFeeApr(),
+      ]);
+      await this.cache.set(
+        ANALYTICS_CACHE_KEYS.snapshot,
+        { overview, tvl, volume, fees, feeApr },
+        CACHE_TTL_SECONDS,
+      );
+    } catch (error) {
+      this.logger.error(
+        `analytics.recompute.failed correlationId=${correlationId} err=${error instanceof Error ? error.name : 'Error'}`,
+      );
+      throw error;
+    }
+  }
+
+  private resolveWindow(interval: TimeInterval): { start: Date; end: Date } {
+    const duration = INTERVAL_MS[interval];
+    if (!duration) {
+      throw new AnalyticsError(
+        'ANALYTICS_INVALID_INTERVAL',
+        'Unsupported analytics interval',
+        this.newCorrelationId(),
+      );
+    }
+    const end = new Date();
+    return { start: new Date(end.getTime() - duration), end };
+  }
+
+  private readNonNegative(value: string | number): number {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < 0) {
+      throw new Error('Stored analytics value is invalid');
+    }
+    return number;
+  }
+
+  private readInteger(value: string): bigint {
+    if (!/^-?\d+$/.test(value)) {
+      throw new Error('Stored fee amount is invalid');
+    }
+    return BigInt(value);
+  }
+
+  private unavailable(
+    operation: string,
     correlationId: string,
-  ): TwapWindowConfigResult {
-    return { ok: false, errorCode, correlationId };
-  }
-
-  private logReject(correlationId: string, errorCode: TwapWindowErrorCode): void {
-    this.logger.warn(
-      `twap_window.rejected correlationId=${correlationId} errorCode=${errorCode}`,
+    error: unknown,
+  ): AnalyticsError {
+    this.logger.error(
+      `analytics.${operation}.failed correlationId=${correlationId} err=${error instanceof Error ? error.name : 'Error'}`,
+    );
+    return new AnalyticsError(
+      'ANALYTICS_UNAVAILABLE',
+      `Analytics ${operation} is unavailable`,
+      correlationId,
     );
   }
 
   private newCorrelationId(): string {
-    return `twap-${Date.now().toString(36)}-${Math.random()
+    return `analytics-${Date.now().toString(36)}-${Math.random()
       .toString(36)
       .slice(2, 10)}`;
   }

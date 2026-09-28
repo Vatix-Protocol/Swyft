@@ -61,6 +61,10 @@ describe('resolveRpcUrl', () => {
     expect(resolveRpcUrl(true)).toBe(TESTNET);
   });
 
+  it('uses the public mainnet RPC when the selected network is mainnet', () => {
+    expect(resolveRpcUrl(false, 'PUBLIC')).toBe('https://soroban-mainnet.stellar.org');
+  });
+
   it('returns NEXT_PUBLIC_SOROBAN_RPC_URL when MEV is disabled', () => {
     vi.stubEnv('NEXT_PUBLIC_SOROBAN_RPC_URL', 'https://my-rpc.example.com');
     expect(resolveRpcUrl(false)).toBe('https://my-rpc.example.com');

@@ -11,7 +11,7 @@ const NETWORKS: { value: StellarNetwork; label: string }[] = [
 ];
 
 export function NetworkSwitcher() {
-  const { network, setNetwork } = useNetworkContext();
+  const { network, ready, setNetwork } = useNetworkContext();
   const { address, disconnect } = useWalletContext();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -41,6 +41,7 @@ export function NetworkSwitcher() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        disabled={!ready}
         aria-haspopup="listbox"
         aria-expanded={open}
         className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-600 transition-colors min-h-[36px]"
@@ -49,7 +50,7 @@ export function NetworkSwitcher() {
           className={`h-2 w-2 rounded-full ${isMainnet ? 'bg-emerald-500' : 'bg-amber-500'}`}
           aria-hidden="true"
         />
-        {isMainnet ? 'Mainnet' : 'Testnet'}
+        {ready ? (isMainnet ? 'Mainnet' : 'Testnet') : 'Loading network…'}
         <svg
           className="h-3.5 w-3.5 text-zinc-400"
           fill="none"
@@ -62,7 +63,7 @@ export function NetworkSwitcher() {
         </svg>
       </button>
 
-      {open && (
+      {ready && open && (
         <ul
           role="listbox"
           aria-label="Select network"

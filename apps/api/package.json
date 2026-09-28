@@ -99,7 +99,8 @@
     "moduleNameMapper": {
       "^@swyft/config$": "<rootDir>/../../../packages/config/src/index.ts",
       "^@swyft/config/(.*)$": "<rootDir>/../../../packages/config/src/$1",
-      "^@swyft/sdk$": "<rootDir>/../../../packages/sdk/src/index.ts"
+      "^@swyft/sdk$": "<rootDir>/../../../packages/sdk/src/index.ts",
+      "^@swyft/sdk/position-math$": "<rootDir>/../../../packages/sdk/src/position-math.ts"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"

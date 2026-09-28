@@ -10,13 +10,20 @@ import {
   NETWORK_PRESETS,
   isStellarNetwork,
   getNetworkPassphrase,
+  getNetworkRpcUrl,
   getExplorerTxUrl,
 } from '@swyft/config';
 import type { StellarNetwork } from '@swyft/config';
 
 // Re-export so existing web components keep working without touching their
 // import paths.
-export { NETWORK_PRESETS, isStellarNetwork, getNetworkPassphrase, getExplorerTxUrl };
+export {
+  NETWORK_PRESETS,
+  isStellarNetwork,
+  getNetworkPassphrase,
+  getNetworkRpcUrl,
+  getExplorerTxUrl,
+};
 export type { StellarNetwork };
 
 // ── Web-specific constants ────────────────────────────────────────────────────

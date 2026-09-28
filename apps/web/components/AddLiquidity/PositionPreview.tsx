@@ -220,7 +220,9 @@ export function PositionPreview({
           </svg>
           <div>
             <p className="text-xs font-semibold text-red-700 dark:text-red-400">
-              {txError === 'rejected'
+              {txError === 'failed'
+                ? 'Transaction failed on-ledger. The requested operation was not completed.'
+                : txError === 'rejected'
                 ? 'Transaction rejected in wallet.'
                 : 'Network error — please try again.'}
             </p>

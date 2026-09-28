@@ -37,6 +37,7 @@ vi.mock('next/link', () => ({
 }));
 
 const mockRefresh = vi.fn();
+const mockSignXdr = vi.fn();
 const mockUsePortfolio = vi.fn();
 
 vi.mock('@/hooks/usePortfolio', () => ({
@@ -46,7 +47,7 @@ vi.mock('@/hooks/usePortfolio', () => ({
 const mockUseWalletContext = vi.fn();
 
 vi.mock('@/context/WalletContext', () => ({
-  useWalletContext: () => mockUseWalletContext(),
+  useWalletContext: () => ({ ...mockUseWalletContext(), signTransaction: mockSignXdr }),
 }));
 
 vi.mock('@/context/NetworkContext', () => ({
@@ -126,6 +127,7 @@ async function importPage() {
 describe('PortfolioPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSignXdr.mockReset();
     // Default: wallet connected, not loading, no positions
     mockUseWalletContext.mockReturnValue({ address: 'GTEST123', signTransaction: vi.fn() });
     mockUsePortfolio.mockReturnValue({
@@ -418,8 +420,7 @@ describe('PortfolioPage', () => {
     const { buildCollectTx } = await import('@swyft/sdk');
     (buildCollectTx as ReturnType<typeof vi.fn>).mockReturnValue({ xdr: 'mock-xdr' });
 
-    const { signTransaction } = await import('@stellar/freighter-api');
-    (signTransaction as ReturnType<typeof vi.fn>).mockImplementation(
+    mockSignXdr.mockImplementation(
       () => new Promise(() => {}) // never resolves
     );
 

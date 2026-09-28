@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NetworkProvider, useNetworkContext } from '@/context/NetworkContext';
@@ -56,8 +56,23 @@ describe('NetworkSwitcher updates API base URL', () => {
 
   it('exposes apiBase matching the default network', () => {
     renderWithProviders();
+    expect(screen.getByRole('button', { name: /testnet/i })).toBeEnabled();
     const apiBase = screen.getByTestId('apiBase').textContent;
     expect(apiBase).toBe(getApiBase('TESTNET'));
+  });
+
+  it('restores the persisted network without briefly labeling it as Testnet', async () => {
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn().mockReturnValue('PUBLIC'),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+
+    renderWithProviders();
+
+    expect(await screen.findByRole('button', { name: /mainnet/i })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /testnet/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('network')).toHaveTextContent('PUBLIC');
   });
 
   it('updates apiBase when network is switched', () => {

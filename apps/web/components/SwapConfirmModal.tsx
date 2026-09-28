@@ -82,7 +82,7 @@ export function SwapConfirmModal(props: Props) {
     if (status === 'success') onSuccess();
   }, [status, onSuccess]);
 
-  const isBusy = status === 'signing' || status === 'submitting';
+  const isBusy = status === 'signing' || status === 'submitting' || status === 'pending';
 
   function handleOverlayClick(e: React.MouseEvent) {
     if (e.target === overlayRef.current && !isBusy) onClose();
@@ -228,7 +228,7 @@ export function SwapConfirmModal(props: Props) {
           {status === 'success' && txHash && (
             <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 dark:border-green-800 dark:bg-green-950">
               <p className="text-xs font-medium text-green-700 dark:text-green-400 mb-1">
-                Transaction submitted successfully
+                Transaction confirmed on-ledger
               </p>
               <a
                 href={getExplorerTxUrl(txHash, network)}
@@ -256,6 +256,24 @@ export function SwapConfirmModal(props: Props) {
           )}
 
           {/* Error states */}
+          {status === 'error' && error === 'rejected' && (
+            <div
+              role="alert"
+              className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800"
+            >
+              <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Signature rejected. Nothing was submitted. Review the transaction and try again.
+              </p>
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="mt-2 text-xs font-semibold text-indigo-600 underline hover:text-indigo-800 dark:text-indigo-400"
+              >
+                Review and try again
+              </button>
+            </div>
+          )}
+
           {status === 'error' && error === 'slippage' && (
             <div
               role="alert"
@@ -290,6 +308,17 @@ export function SwapConfirmModal(props: Props) {
               >
                 Retry
               </button>
+            </div>
+          )}
+
+          {status === 'error' && error === 'failed' && (
+            <div
+              role="alert"
+              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950"
+            >
+              <p className="text-xs font-medium text-red-700 dark:text-red-400">
+                Transaction failed on-ledger. The requested operation was not completed.
+              </p>
             </div>
           )}
 
@@ -338,6 +367,15 @@ export function SwapConfirmModal(props: Props) {
                     aria-hidden="true"
                   />
                   Submitting…
+                </>
+              )}
+              {status === 'pending' && (
+                <>
+                  <span
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                    aria-hidden="true"
+                  />
+                  Waiting for ledger confirmation…
                 </>
               )}
               {status === 'idle' && 'Confirm swap'}

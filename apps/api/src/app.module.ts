@@ -33,7 +33,6 @@ import { resolveCorsConfig } from './config/cors.config';
 import { resolveRateLimitConfig, RateLimitConfig } from './config/rate-limit.config';
 import { resolveApiStrategyConfig, apiStrategySummary } from './config/api-strategy.config';
 import { resolveRouterConfig, routerConfigSummary } from './config/router.config';
-import { applySentryRedactionPolicy } from './observability/sentry-redaction';
 
 @Module({
   imports: [
@@ -84,12 +83,6 @@ import { applySentryRedactionPolicy } from './observability/sentry-redaction';
 })
 export class AppModule implements NestModule {
   constructor(private readonly config: ConfigService) {
-    // Apply the SENTRY_REDACTION_POLICY (issue #987) at bootstrap so every
-    // Sentry event/transaction/breadcrumb is scrubbed before it leaves the
-    // process. Deny-by-default: unknown fields are dropped, and the policy is
-    // server-controlled — untrusted clients cannot opt out or widen it.
-    applySentryRedactionPolicy(this.config);
-
     // Validate the Stellar network selection at bootstrap (issue #988).
     // Fail-closed: an unset/invalid STELLAR_NETWORK, a mainnet selection
     // without the STELLAR_MAINNET_ENABLED kill-switch, or a passphrase that

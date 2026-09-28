@@ -13,26 +13,13 @@ fn setup() -> (Env, Address, Address, Address, Address) {
     env.mock_all_auths();
 
     let contract_id = env.register_contract(None, PositionNft);
+    let admin = Address::generate(&env);
     let minter = Address::generate(&env);
     let pool = Address::generate(&env);
     let user = Address::generate(&env);
 
     let client = PositionNftClient::new(&env, &contract_id);
-    client.initialize(&minter);
-
-    (env, contract_id, minter, pool, user)
-}
-
-fn setup_without_mock_auths() -> (Env, Address, Address, Address, Address) {
-    let env = Env::default();
-
-    let contract_id = env.register_contract(None, PositionNft);
-    let minter = Address::generate(&env);
-    let pool = Address::generate(&env);
-    let user = Address::generate(&env);
-
-    let client = PositionNftClient::new(&env, &contract_id);
-    client.initialize(&minter);
+    client.initialize(&admin, &minter);
 
     (env, contract_id, minter, pool, user)
 }
@@ -41,9 +28,34 @@ fn setup_without_mock_auths() -> (Env, Address, Address, Address, Address) {
 
 #[test]
 fn test_initialize_sets_minter_and_next_id() {
-    let (env, contract_id, _minter, _pool, _user) = setup();
+    let (env, contract_id, minter, _pool, _user) = setup();
     let client = PositionNftClient::new(&env, &contract_id);
     assert_eq!(client.next_id(), 0u64);
+    assert_eq!(client.get_minter(), minter);
+}
+
+#[test]
+fn test_initialize_requires_admin_authorization() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PositionNft);
+    let client = PositionNftClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let minter = Address::generate(&env);
+
+    assert!(client.try_initialize(&admin, &minter).is_err());
+    assert!(client.try_get_minter().is_err());
+}
+
+#[test]
+fn test_update_liquidity_preserves_existing_token_id() {
+    let (env, contract_id, _minter, pool, user) = setup();
+    let client = PositionNftClient::new(&env, &contract_id);
+    let id = client.mint(&user, &pool, &-60, &60, &1_000u128);
+
+    client.update_liquidity(&id, &750u128);
+
+    assert_eq!(client.next_id(), 1);
+    assert_eq!(client.get_position(&id).unwrap().liquidity, 750);
 }
 
 #[test]
@@ -51,7 +63,7 @@ fn test_initialize_sets_minter_and_next_id() {
 fn test_initialize_twice_panics() {
     let (env, contract_id, minter, _pool, _user) = setup();
     let client = PositionNftClient::new(&env, &contract_id);
-    client.initialize(&minter); // second call must panic
+    client.initialize(&minter, &minter); // second call must panic
 }
 
 // ── mint ──────────────────────────────────────────────────────────────────────
@@ -72,7 +84,8 @@ fn test_mint_returns_incrementing_ids() {
 #[test]
 #[should_panic]
 fn test_mint_panics_when_caller_is_not_authorized() {
-    let (env, contract_id, _minter, pool, user) = setup_without_mock_auths();
+    let (env, contract_id, _minter, pool, user) = setup();
+    env.mock_auths(&[]);
     let client = PositionNftClient::new(&env, &contract_id);
     client.mint(&user, &pool, &0i32, &60i32, &100u128);
 }

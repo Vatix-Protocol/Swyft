@@ -16,6 +16,11 @@ Soroban smart contracts for the Swyft concentrated-liquidity DEX on Stellar.
 | `fee-collector`  | `fee_collector`  | Aggregates and distributes protocol fees           |
 | `oracle-adapter` | `oracle_adapter` | Circular-buffer TWAP oracle (per-pool instance)    |
 
+Position ownership and the pool/NFT authorization boundary are documented in
+[`docs/POOL_POSITION_AUTH.md`](../../docs/POOL_POSITION_AUTH.md). Router
+factory trust and callback-target constraints are in
+[`docs/ROUTER_CALLBACK_AUTH.md`](../../docs/ROUTER_CALLBACK_AUTH.md).
+
 ## Oracle / TWAP
 
 Every swap on `pool` and `cl-pool` records a post-swap observation
@@ -53,12 +58,13 @@ not silently report liquidity it never funded.
 
 ## Prerequisites
 
-- Rust stable + `wasm32-unknown-unknown` target
+- Rust 1.84+ stable + `wasm32v1-none` target
 - [`stellar-cli`](https://developers.stellar.org/docs/smart-contracts/getting-started/setup)
 - `jq`, `curl`
 
 ```bash
-rustup target add wasm32-unknown-unknown
+rustup update stable
+rustup target add wasm32v1-none --toolchain stable
 cargo install --locked stellar-cli --features opt
 ```
 

@@ -18,16 +18,21 @@ export interface MevSubmissionParams {
   signedXdr: string;
   /** Standard API base URL for fallback submission. */
   apiBase: string;
+  /** Wallet-authentication JWT for the API submission path. */
+  authToken: string | null;
   /** Whether MEV protection is currently enabled by the user. */
   mevEnabled: boolean;
   /** Resolved MEV-protected RPC URL (validated). */
   mevRpcUrl: string | undefined;
+  /** Called once the RPC accepts the transaction but before ledger confirmation. */
+  onPending?: (hash: string) => void;
 }
 
 export interface SubmissionResult {
   hash: string;
   /** Indicates which path was used for submission. */
   submittedVia: 'mev-rpc' | 'api';
+  confirmation: 'pending' | 'confirmed';
 }
 
 export class MevSubmissionError extends Error {
@@ -106,16 +111,93 @@ async function submitViaMevRpc(
   return result.hash;
 }
 
+const CONFIRMATION_POLL_MS = 2_000;
+
+export async function waitForRpcConfirmation(
+  hash: string,
+  rpcUrl: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  let retryDelay = CONFIRMATION_POLL_MS;
+  for (;;) {
+    try {
+      const res = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal,
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getTransaction',
+          params: { hash },
+        }),
+      });
+      if (!res.ok) throw new Error(`Soroban RPC responded with HTTP ${res.status}`);
+
+      const body = (await res.json()) as {
+        error?: { code?: number; message?: string };
+        result?: { status?: string; errorResultXdr?: string };
+      };
+      if (body.error) throw new Error(body.error.message ?? 'Soroban RPC returned an error');
+      if (body.result?.status === 'SUCCESS') return;
+      if (body.result?.status === 'FAILED') {
+        throw new MevSubmissionError(
+          'Transaction failed on-ledger',
+          'TX_FAILED',
+          body.result.errorResultXdr ?? null,
+        );
+      }
+      if (body.result?.status !== 'NOT_FOUND') {
+        throw new MevSubmissionError('Soroban RPC returned an invalid transaction status', 'RPC_ERROR');
+      }
+    } catch (cause) {
+      if (cause instanceof MevSubmissionError) throw cause;
+      if (signal?.aborted) throw cause;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        reject(signal?.reason);
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, retryDelay);
+      if (signal?.aborted) {
+        onAbort();
+      } else {
+        signal?.addEventListener('abort', onAbort, { once: true });
+      }
+    });
+    retryDelay = Math.min(retryDelay * 2, 10_000);
+  }
+}
+
 /**
  * Submits a signed XDR through the standard Swyft API backend.
  */
 async function submitViaApi(
   signedXdr: string,
   apiBase: string,
-): Promise<{ hash: string; code?: string; message?: string; extras?: { result_codes?: unknown } }> {
+  authToken: string | null,
+): Promise<{
+  hash: string;
+  successful: true;
+  code?: string;
+  message?: string;
+  extras?: { result_codes?: unknown };
+}> {
+  if (!authToken) {
+    throw new MevSubmissionError('Wallet authentication is required to submit a transaction', 'UNAUTHORIZED');
+  }
+
   const res = await fetch(`${apiBase}/transactions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
     body: JSON.stringify({ xdr: signedXdr }),
   });
 
@@ -126,6 +208,18 @@ async function submitViaApi(
       body.message ?? `API responded with HTTP ${res.status}`,
       body.code ?? 'API_ERROR',
       body.extras?.result_codes ? JSON.stringify(body.extras.result_codes) : null,
+    );
+  }
+
+  if (typeof body.hash !== 'string' || !body.hash) {
+    throw new MevSubmissionError('API returned no transaction hash', 'API_INVALID_RESPONSE');
+  }
+  if (body.successful !== true) {
+    throw new MevSubmissionError(
+      body.successful === false
+        ? 'Transaction failed on-ledger'
+        : 'API did not confirm the transaction result',
+      body.successful === false ? 'TX_FAILED' : 'API_INVALID_RESPONSE',
     );
   }
 
@@ -152,12 +246,13 @@ async function submitViaApi(
 export async function submitTransaction(
   params: MevSubmissionParams,
 ): Promise<SubmissionResult> {
-  const { signedXdr, apiBase, mevEnabled, mevRpcUrl } = params;
+  const { signedXdr, apiBase, authToken, mevEnabled, mevRpcUrl, onPending } = params;
 
   if (mevEnabled && isValidRpcUrl(mevRpcUrl)) {
     // MEV-protected path: submit directly to the private RPC
     const hash = await submitViaMevRpc(signedXdr, mevRpcUrl);
-    return { hash, submittedVia: 'mev-rpc' };
+    onPending?.(hash);
+    return { hash, submittedVia: 'mev-rpc', confirmation: 'pending' };
   }
 
   if (mevEnabled && !isValidRpcUrl(mevRpcUrl)) {
@@ -171,6 +266,6 @@ export async function submitTransaction(
   }
 
   // Standard path: submit through the API backend
-  const data = await submitViaApi(signedXdr, apiBase);
-  return { hash: data.hash, submittedVia: 'api' };
+  const data = await submitViaApi(signedXdr, apiBase, authToken);
+  return { hash: data.hash, submittedVia: 'api', confirmation: 'confirmed' };
 }

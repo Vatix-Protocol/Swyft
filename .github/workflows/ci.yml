@@ -254,6 +254,9 @@ jobs:
       - name: Build
         run: pnpm --filter @swyft/sdk build
 
+      - name: Check bundle size budget
+        run: pnpm --filter @swyft/sdk size:check
+
   ui:
     name: UI
     runs-on: ubuntu-latest

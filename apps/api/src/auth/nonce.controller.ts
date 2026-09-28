@@ -117,64 +117,6 @@ export class NonceController {
     };
   }
 
-  @Post('verify')
-  @HttpCode(HttpStatus.OK)
-  async verifyNonce(
-    @Body()
-    body:
-      | { walletAddress?: string; nonce?: string; signature?: string }
-      | undefined,
-  ) {
-    const walletAddress = this.normalizeWalletAddress(body?.walletAddress);
-    const nonce = body?.nonce;
-
-    if (!walletAddress || !nonce) {
-      throw this.error(
-        HttpStatus.BAD_REQUEST,
-        NonceErrorCode.INVALID_WALLET,
-        'walletAddress and nonce are required.',
-      );
-    }
-
-    const key = this.nonceKey(walletAddress);
-
-    let consumed: unknown;
-    try {
-      // Atomic single-use consumption: match-and-delete in one step.
-      consumed = await this.redis.eval(CONSUME_NONCE_LUA, 1, key, nonce);
-    } catch (err) {
-      // Fail closed: if the store is down we cannot prove single-use, so we
-      // reject rather than granting auth.
-      this.logger.error(
-        `nonce store unavailable during verify (code=${NonceErrorCode.STORE_UNAVAILABLE})`,
-      );
-      throw this.error(
-        HttpStatus.SERVICE_UNAVAILABLE,
-        NonceErrorCode.STORE_UNAVAILABLE,
-        'Nonce store is unavailable; please retry.',
-      );
-    }
-
-    if (Number(consumed) !== 1) {
-      // The nonce was absent (expired/unknown) or already consumed (replay).
-      // We cannot distinguish these without leaking state, so report a
-      // terminal, non-retryable error.
-      throw this.error(
-        HttpStatus.UNAUTHORIZED,
-        NonceErrorCode.ALREADY_USED,
-        'Nonce is invalid, expired, or already used.',
-      );
-    }
-
-    // Signature verification is performed by the downstream auth service; the
-    // nonce has now been consumed exactly once regardless of that outcome.
-    return {
-      walletAddress,
-      verified: true,
-      message: 'Nonce consumed. Continue with signature verification.',
-    };
-  }
-
   private nonceKey(walletAddress: string): string {
     return `auth:nonce:${walletAddress}`;
   }

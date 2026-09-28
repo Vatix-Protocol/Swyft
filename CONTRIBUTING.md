@@ -83,16 +83,42 @@ cd packages/contract
 cargo test --workspace
 ```
 
-From the repository root, validate that every Soroban contract builds for the
-WASM target before opening a PR:
+### Build Soroban WASM contracts
+
+The contract workspace targets Soroban's WASM runtime. Soroban requires Rust
+1.84 or newer and its `wasm32v1-none` target. Install the target for the stable
+toolchain before building; installing Rust alone does not install the WASM
+standard library:
 
 ```bash
-pnpm validate:contracts
+rustup update stable
+rustup target add wasm32v1-none --toolchain stable
+rustc +stable --version # Soroban requires Rust 1.84 or newer
+rustup show
+rustup target list --installed --toolchain stable
 ```
 
-To also compare deployed testnet contract hashes against the current builds,
-run `pnpm validate:contracts:drift`. This drift check requires the deployed
-hashes to be recorded in `packages/contract/deployments/testnet.json`.
+Build deployable, optimized contract artifacts with the Soroban CLI from the
+repository root:
+
+```bash
+stellar contract build
+# Equivalent workspace command:
+pnpm --filter contracts build
+```
+
+The build writes `.wasm` files under `packages/contract/target/wasm32v1-none/release/`.
+Use `cargo test --workspace` for Rust unit tests; it does not replace the
+Soroban WASM build. For a focused test, run `cargo test -p <crate-name>` from
+`packages/contract` (for example, `cargo test -p cl-pool`).
+
+If the build reports a missing `wasm32v1-none` target, install it for
+the same toolchain selected by `rustup show`. If a contract's WASM output is
+stale after changing toolchains or build settings, rebuild with
+`stellar contract build` before using or deploying that artifact. Do not
+deploy an unoptimized debug WASM produced by a plain `cargo build`.
+See [`packages/contract/README.md`](packages/contract/README.md) for contract
+build, testnet deployment, and artifact details.
 
 ### Run API tests
 
@@ -123,6 +149,7 @@ caught whenever changes land in `apps/web`.
 - Issues labelled [`good first issue`](https://github.com/Vatix-Protocol/Swyft/issues?q=label%3A%22good+first+issue%22) are well-scoped and don't require deep protocol knowledge
 - Issues labelled [`bounty`](https://github.com/Vatix-Protocol/Swyft/issues?q=label%3Abounty) have a financial reward attached
 - Comment on an issue before starting work to avoid duplication
+- Stellar Wave issues follow the [labeling policy](docs/STELLAR_WAVE_LABELING_POLICY.md); confirm the area and risk labels before starting work
 
 ---
 

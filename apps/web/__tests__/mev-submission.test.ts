@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   submitTransaction,
   MevSubmissionError,
+  waitForRpcConfirmation,
 } from '../lib/mev-submission';
 
 const mockFetch = vi.fn();
@@ -9,6 +10,7 @@ vi.stubGlobal('fetch', mockFetch);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockFetch.mockReset();
   delete process.env.NEXT_PUBLIC_SOROBAN_RPC_URL;
   delete process.env.NEXT_PUBLIC_MEV_PROTECTED_RPC_URL;
 });
@@ -22,24 +24,47 @@ describe('submitTransaction', () => {
     it('submits through the API backend when MEV is disabled', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ hash: 'abc123' }),
+        json: () => Promise.resolve({ hash: 'abc123', successful: true }),
       });
 
       const result = await submitTransaction({
         signedXdr: SIGNED_XDR,
         apiBase: API_BASE,
+        authToken: 'test-token',
         mevEnabled: false,
         mevRpcUrl: undefined,
       });
 
-      expect(result).toEqual({ hash: 'abc123', submittedVia: 'api' });
+      expect(result).toEqual({
+        hash: 'abc123',
+        submittedVia: 'api',
+        confirmation: 'confirmed',
+      });
       expect(mockFetch).toHaveBeenCalledWith(
         `${API_BASE}/transactions`,
         expect.objectContaining({
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer test-token',
+          },
           body: JSON.stringify({ xdr: SIGNED_XDR }),
         }),
       );
+    });
+
+    it('does not submit through the authenticated API without a wallet token', async () => {
+      await expect(
+        submitTransaction({
+          signedXdr: SIGNED_XDR,
+          apiBase: API_BASE,
+          authToken: null,
+          mevEnabled: false,
+          mevRpcUrl: undefined,
+        }),
+      ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('throws MevSubmissionError on API failure', async () => {
@@ -53,10 +78,28 @@ describe('submitTransaction', () => {
         submitTransaction({
           signedXdr: SIGNED_XDR,
           apiBase: API_BASE,
+          authToken: 'test-token',
           mevEnabled: false,
           mevRpcUrl: undefined,
         }),
       ).rejects.toThrow(MevSubmissionError);
+    });
+
+    it('does not mark an unsuccessful Horizon result as confirmed', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ hash: 'failed-hash', successful: false }),
+      });
+
+      await expect(
+        submitTransaction({
+          signedXdr: SIGNED_XDR,
+          apiBase: API_BASE,
+          authToken: 'test-token',
+          mevEnabled: false,
+          mevRpcUrl: undefined,
+        }),
+      ).rejects.toMatchObject({ code: 'TX_FAILED' });
     });
   });
 
@@ -71,15 +114,19 @@ describe('submitTransaction', () => {
             result: { hash: 'mev-hash-456', status: 'PENDING' },
           }),
       });
-
       const result = await submitTransaction({
         signedXdr: SIGNED_XDR,
         apiBase: API_BASE,
+        authToken: 'test-token',
         mevEnabled: true,
         mevRpcUrl: MEV_RPC,
       });
 
-      expect(result).toEqual({ hash: 'mev-hash-456', submittedVia: 'mev-rpc' });
+      expect(result).toEqual({
+        hash: 'mev-hash-456',
+        submittedVia: 'mev-rpc',
+        confirmation: 'pending',
+      });
       expect(mockFetch).toHaveBeenCalledWith(
         MEV_RPC,
         expect.objectContaining({
@@ -99,10 +146,10 @@ describe('submitTransaction', () => {
             result: { hash: 'h', status: 'PENDING' },
           }),
       });
-
-      await submitTransaction({
+      const result = await submitTransaction({
         signedXdr: SIGNED_XDR,
         apiBase: API_BASE,
+        authToken: 'test-token',
         mevEnabled: true,
         mevRpcUrl: MEV_RPC,
       });
@@ -110,6 +157,7 @@ describe('submitTransaction', () => {
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.method).toBe('sendTransaction');
       expect(body.params.transaction).toBe(SIGNED_XDR);
+      expect(result.confirmation).toBe('pending');
     });
 
     it('throws MevSubmissionError on MEV RPC HTTP failure', async () => {
@@ -122,6 +170,7 @@ describe('submitTransaction', () => {
         submitTransaction({
           signedXdr: SIGNED_XDR,
           apiBase: API_BASE,
+          authToken: 'test-token',
           mevEnabled: true,
           mevRpcUrl: MEV_RPC,
         }),
@@ -143,6 +192,7 @@ describe('submitTransaction', () => {
         submitTransaction({
           signedXdr: SIGNED_XDR,
           apiBase: API_BASE,
+          authToken: 'test-token',
           mevEnabled: true,
           mevRpcUrl: MEV_RPC,
         }),
@@ -164,10 +214,58 @@ describe('submitTransaction', () => {
         submitTransaction({
           signedXdr: SIGNED_XDR,
           apiBase: API_BASE,
+          authToken: 'test-token',
           mevEnabled: true,
           mevRpcUrl: MEV_RPC,
         }),
       ).rejects.toThrow('Transaction rejected');
+    });
+
+    it('reports an accepted transaction as pending until the RPC confirms it', async () => {
+      const onPending = vi.fn();
+      mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              jsonrpc: '2.0',
+              result: { hash: 'pending-hash', status: 'PENDING' },
+            }),
+        });
+
+      const result = await submitTransaction({
+        signedXdr: SIGNED_XDR,
+        apiBase: API_BASE,
+        authToken: 'test-token',
+        mevEnabled: true,
+        mevRpcUrl: MEV_RPC,
+        onPending,
+      });
+
+      expect(onPending).toHaveBeenCalledWith('pending-hash');
+      expect(result.confirmation).toBe('pending');
+    });
+
+    describe('waitForRpcConfirmation', () => {
+      it('resolves only after the RPC reports SUCCESS', async () => {
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ result: { status: 'SUCCESS' } }),
+        });
+
+        await expect(waitForRpcConfirmation('hash', MEV_RPC)).resolves.toBeUndefined();
+      });
+
+      it('rejects when the ledger reports FAILED', async () => {
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({ result: { status: 'FAILED', errorResultXdr: 'AAAA' } }),
+        });
+
+        await expect(waitForRpcConfirmation('hash', MEV_RPC)).rejects.toThrow(
+          'Transaction failed on-ledger',
+        );
+      });
     });
   });
 
@@ -177,6 +275,7 @@ describe('submitTransaction', () => {
         submitTransaction({
           signedXdr: SIGNED_XDR,
           apiBase: API_BASE,
+          authToken: 'test-token',
           mevEnabled: true,
           mevRpcUrl: undefined,
         }),
@@ -188,6 +287,7 @@ describe('submitTransaction', () => {
         submitTransaction({
           signedXdr: SIGNED_XDR,
           apiBase: API_BASE,
+          authToken: 'test-token',
           mevEnabled: true,
           mevRpcUrl: 'not-a-url',
         }),
@@ -200,6 +300,7 @@ describe('submitTransaction', () => {
       const promise = submitTransaction({
         signedXdr: SIGNED_XDR,
         apiBase: API_BASE,
+        authToken: 'test-token',
         mevEnabled: true,
         mevRpcUrl: undefined,
       });

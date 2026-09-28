@@ -3,8 +3,11 @@
 import { useState, useCallback, useMemo } from 'react';
 import { buildAddLiquidityTx } from '@swyft/sdk';
 import type { PoolDetail } from './usePoolTicks';
-import { API_BASE } from '@/lib/constants';
+import { getAuthToken } from '@/lib/auth';
+import { useTransactionStatus } from '@/context/TransactionStatusContext';
+import { MevSubmissionError, submitTransaction } from '@/lib/mev-submission';
 import { useNetworkContext } from '@/context/NetworkContext';
+import { isWalletRejection } from '@/lib/wallet-errors';
 
 const TICK_BASE = 1.0001;
 const MIN_TICK = -887272;
@@ -101,7 +104,8 @@ const defaultState: AddLiquidityState = {
 
 export function useAddLiquidity() {
   const [state, setState] = useState<AddLiquidityState>(defaultState);
-  const { network } = useNetworkContext();
+  const { apiBase, network } = useNetworkContext();
+  const { reportTx } = useTransactionStatus();
 
   const tickSpacing = state.pool ? feeToTickSpacing(state.pool.feeTier) : 60;
 
@@ -275,6 +279,7 @@ export function useAddLiquidity() {
      */
     async (walletAddress: string, signXdr: (xdr: string) => Promise<string>) => {
       setState((s) => ({ ...s, txStatus: 'signing', txError: null }));
+      reportTx({ label: 'Add liquidity', status: 'signing', txHash: null, network });
       try {
         const { pool, lowerTick, upperTick, amount0, amount1 } = state;
         if (!pool) throw new Error('No pool selected');
@@ -299,39 +304,38 @@ export function useAddLiquidity() {
         // Route through the wallet-context signer so Freighter and xBull
         // both work without this hook knowing which wallet is active.
         const signedXdr = await signXdr(xdr).catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : '';
-          if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
-            return null; // user rejected
+          if (isWalletRejection(err)) {
+            return null;
           }
           throw err;
         });
 
         if (!signedXdr) {
           setState((s) => ({ ...s, txStatus: 'error', txError: 'rejected' }));
+          reportTx({
+            label: 'Add liquidity',
+            status: 'error',
+            txHash: null,
+            errorMessage: 'Transaction signature was rejected',
+            network,
+          });
           return;
         }
 
         setState((s) => ({ ...s, txStatus: 'submitting' }));
-
-        const res = await fetch(`${API_BASE}/transactions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('swyft_auth_token') || ''}`,
-          },
-          body: JSON.stringify({ xdr: signedXdr }),
+        reportTx({ label: 'Add liquidity', status: 'submitting', txHash: null, network });
+        const { hash } = await submitTransaction({
+          signedXdr,
+          apiBase,
+          authToken: getAuthToken(),
+          mevEnabled: false,
+          mevRpcUrl: undefined,
         });
-
-        if (!res.ok) {
-          throw new Error('network');
-        }
-
-        const data = (await res.json()) as { hash: string };
         setState((s) => ({
           ...s,
           txStatus: 'success',
           // Real Horizon-confirmed transaction hash — never fabricated.
-          txHash: data.hash,
+          txHash: hash,
           // The `/transactions` endpoint only echoes back `{ hash }`; it does
           // not (yet) surface the Soroban contract's return value or events,
           // so there is no genuine position NFT id available here. This used
@@ -341,16 +345,28 @@ export function useAddLiquidity() {
           // or looking the new position up once indexed).
           positionNftId: null,
         }));
+        reportTx({ label: 'Add liquidity', status: 'success', txHash: hash, network });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'unknown';
+        reportTx({
+          label: 'Add liquidity',
+          status: 'error',
+          txHash: null,
+          errorMessage: msg,
+          network,
+        });
         setState((s) => ({
           ...s,
           txStatus: 'error',
-          txError: msg.toLowerCase().includes('reject') ? 'rejected' : 'network',
+          txError: isWalletRejection(e)
+            ? 'rejected'
+            : e instanceof MevSubmissionError && e.code === 'TX_FAILED'
+              ? 'failed'
+              : 'network',
         }));
       }
     },
-    [state]
+    [apiBase, network, reportTx, state]
   );
 
   const reset = useCallback(() => setState(defaultState), []);
@@ -374,7 +390,9 @@ export function useAddLiquidity() {
     const hasVolumeData =
       typeof state.pool.volume24h === 'number' && !Number.isNaN(state.pool.volume24h);
     const hasFeeAprData =
-      typeof state.pool.feeApr === 'number' && !Number.isNaN(state.pool.feeApr);
+      typeof state.pool.feeApr === 'number' &&
+      Number.isFinite(state.pool.feeApr) &&
+      state.pool.feeApr >= 0;
 
     let estimatedApr: string;
     if (!hasVolumeData || !hasFeeAprData) {

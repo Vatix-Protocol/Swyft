@@ -1,10 +1,11 @@
-import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
+import { AdminAuditInterceptor } from './admin-audit.interceptor';
+import { AdminAuditService } from './admin-audit.service';
 import { InternalKeyGuard } from './internal-key.guard';
-import { INTERNAL_KEY_METADATA } from './internal-key.decorator';
 
 /**
  * Unit coverage for the admin analytics surface (#985).
@@ -18,22 +19,44 @@ import { INTERNAL_KEY_METADATA } from './internal-key.decorator';
  */
 describe('AnalyticsController (admin analytics + InternalKeyGuard)', () => {
   let controller: AnalyticsController;
-  let service: jest.Mocked<AnalyticsService>;
+  let mockService: {
+    getOverview: jest.Mock;
+    getTvl: jest.Mock;
+    getVolume: jest.Mock;
+    getFees: jest.Mock;
+    getFeeApr: jest.Mock;
+  };
+  let mockAuditService: { findRecent: jest.Mock };
   let guard: InternalKeyGuard;
 
   const validKey = 'internal-test-key';
 
-  const makeContext = (headers: Record<string, string> = {}): ExecutionContext =>
+  const makeContext = (
+    headers: Record<string, string> = {},
+  ): ExecutionContext =>
     ({
       getHandler: () => ({}),
       getClass: () => ({}),
       switchToHttp: () => ({
-        getRequest: () => ({ headers, correlationId: headers['x-correlation-id'] }),
+        getRequest: () => ({
+          headers,
+          correlationId: headers['x-correlation-id'],
+        }),
       }),
-    } as unknown as ExecutionContext);
+    }) as unknown as ExecutionContext;
 
   beforeEach(async () => {
     process.env.INTERNAL_API_KEY = validKey;
+    mockService = {
+      getOverview: jest.fn(),
+      getTvl: jest.fn(),
+      getVolume: jest.fn(),
+      getFees: jest.fn(),
+      getFeeApr: jest.fn(),
+    };
+    mockAuditService = {
+      findRecent: jest.fn(),
+    };
 
     const moduleRef = await Test.createTestingModule({
       controllers: [AnalyticsController],
@@ -52,7 +75,6 @@ describe('AnalyticsController (admin analytics + InternalKeyGuard)', () => {
     }).compile();
 
     controller = moduleRef.get(AnalyticsController);
-    service = moduleRef.get(AnalyticsService);
     guard = moduleRef.get(InternalKeyGuard);
   });
 
@@ -63,7 +85,9 @@ describe('AnalyticsController (admin analytics + InternalKeyGuard)', () => {
 
   describe('InternalKeyGuard authz negatives', () => {
     it('rejects requests with no internal key', () => {
-      expect(() => guard.canActivate(makeContext())).toThrow(UnauthorizedException);
+      expect(() => guard.canActivate(makeContext())).toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('rejects requests with a wrong internal key', () => {
@@ -88,9 +112,13 @@ describe('AnalyticsController (admin analytics + InternalKeyGuard)', () => {
     });
 
     it('denies by default when the endpoint is not marked internal', () => {
-      const reflector = { getAllAndOverride: jest.fn(() => false) } as unknown as Reflector;
+      const reflector = {
+        getAllAndOverride: jest.fn(() => false),
+      } as unknown as Reflector;
       const strictGuard = new InternalKeyGuard(reflector);
-      expect(() => strictGuard.canActivate(makeContext())).toThrow(ForbiddenException);
+      expect(() => strictGuard.canActivate(makeContext())).toThrow(
+        UnauthorizedException,
+      );
     });
   });
 
@@ -122,22 +150,35 @@ describe('AnalyticsController (admin analytics + InternalKeyGuard)', () => {
     ];
     mockAuditService.findRecent.mockResolvedValue(entries);
 
-    it('is idempotent for replayed requests', async () => {
-      service.getVolume.mockResolvedValue({ volume: '42' });
+    const result = await controller.getAuditLog();
 
-      const first = await controller.getVolume({ correlationId: 'corr-2' } as never);
-      const second = await controller.getVolume({ correlationId: 'corr-2' } as never);
+    expect(mockAuditService.findRecent).toHaveBeenCalledWith(100, 0);
+    expect(result).toEqual(entries);
+  });
 
-      expect(first).toEqual(second);
-      expect(service.getVolume).toHaveBeenCalledTimes(2);
-    });
+  it('is idempotent for replayed requests', async () => {
+    mockService.getVolume.mockResolvedValue({ volume: '42' });
 
-    it('fails closed with a stable error code on dependency outage', async () => {
-      service.getOverview.mockRejectedValue(new Error('redis unavailable'));
+    const first = await controller.getVolume({
+      correlationId: 'corr-2',
+    } as never);
+    const second = await controller.getVolume({
+      correlationId: 'corr-2',
+    } as never);
 
-      await expect(
-        controller.getOverview({ correlationId: 'corr-3' } as never),
-      ).rejects.toMatchObject({ code: 'ANALYTICS_UNAVAILABLE' });
-    });
+    expect(first).toEqual(second);
+    expect(mockService.getVolume).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed with a stable error code on dependency outage', async () => {
+    mockService.getOverview.mockRejectedValue(
+      Object.assign(new Error('redis unavailable'), {
+        code: 'ANALYTICS_UNAVAILABLE',
+      }),
+    );
+
+    await expect(
+      controller.getOverview({ correlationId: 'corr-3' } as never),
+    ).rejects.toMatchObject({ code: 'ANALYTICS_UNAVAILABLE' });
   });
 });

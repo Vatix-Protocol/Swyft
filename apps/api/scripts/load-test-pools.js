@@ -78,15 +78,19 @@ function resolveConfig(env = process.env) {
     });
   }
 
-  const allowWrites = String(env.SWYFT_LOADTEST_ALLOW_WRITES || '').toLowerCase() === 'true';
-  if (allowWrites && network === NETWORKS.MAINNET) {
+  if (
+    network === NETWORKS.MAINNET ||
+    String(env.NODE_ENV || '').toLowerCase() === 'production'
+  ) {
     throw new LoadTestError(
       ERROR_CODES.MAINNET_BLOCKED,
-      'Refusing to run write load tests against mainnet',
-      { network },
+      'Refusing to run pool load tests against a production target',
+      { network, nodeEnv: env.NODE_ENV || undefined },
     );
   }
 
+  const allowWrites =
+    String(env.SWYFT_LOADTEST_ALLOW_WRITES || '').toLowerCase() === 'true';
   const token = env.SWYFT_LOADTEST_TOKEN;
   if (!token) {
     throw new LoadTestError(

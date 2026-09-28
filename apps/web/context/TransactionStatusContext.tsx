@@ -1,8 +1,18 @@
 'use client';
 
-import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  ReactNode,
+} from 'react';
+import type { StellarNetwork } from '@/lib/constants';
+import { MevSubmissionError, waitForRpcConfirmation } from '@/lib/mev-submission';
 
-export type PendingTxStatus = 'signing' | 'submitting' | 'success' | 'error';
+export type PendingTxStatus = 'signing' | 'submitting' | 'pending' | 'success' | 'error';
 
 export interface PendingTx {
   /** Short label describing the transaction, e.g. "Swap USDC → XLM". */
@@ -10,6 +20,9 @@ export interface PendingTx {
   status: PendingTxStatus;
   txHash: string | null;
   errorMessage?: string;
+  errorCode?: string;
+  rpcUrl?: string;
+  network?: StellarNetwork;
 }
 
 export interface TransactionStatusContextValue {
@@ -43,7 +56,11 @@ export function TransactionStatusProvider({ children }: { children: ReactNode })
       const raw = sessionStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw) as PendingTx;
-      if (parsed.status === 'success' || parsed.status === 'error') {
+      if (
+        parsed.status === 'success' ||
+        parsed.status === 'error' ||
+        (parsed.status === 'pending' && parsed.txHash && parsed.rpcUrl)
+      ) {
         setPendingTx(parsed);
       } else {
         sessionStorage.removeItem(STORAGE_KEY);
@@ -53,18 +70,51 @@ export function TransactionStatusProvider({ children }: { children: ReactNode })
     }
   }, []);
 
-  function reportTx(tx: PendingTx | null) {
+  const reportTx = useCallback((tx: PendingTx | null) => {
     setPendingTx(tx);
     if (tx) {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(tx));
     } else {
       sessionStorage.removeItem(STORAGE_KEY);
     }
-  }
+  }, []);
 
-  function dismiss() {
+  const dismiss = useCallback(() => {
     reportTx(null);
-  }
+  }, [reportTx]);
+
+  useEffect(() => {
+    if (
+      pendingTx?.status !== 'pending' ||
+      !pendingTx.txHash ||
+      !pendingTx.rpcUrl
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    void waitForRpcConfirmation(pendingTx.txHash, pendingTx.rpcUrl, controller.signal)
+      .then(() => {
+        if (!controller.signal.aborted) reportTx({ ...pendingTx, status: 'success' });
+      })
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted) return;
+        const errorMessage =
+          cause instanceof MevSubmissionError
+            ? cause.message
+            : cause instanceof Error
+              ? cause.message
+              : 'Transaction confirmation failed';
+        reportTx({
+          ...pendingTx,
+          status: 'error',
+          errorMessage,
+          errorCode: cause instanceof MevSubmissionError ? cause.code ?? undefined : undefined,
+        });
+      });
+
+    return () => controller.abort();
+  }, [pendingTx, reportTx]);
 
   return (
     <TransactionStatusContext.Provider value={{ pendingTx, reportTx, dismiss }}>

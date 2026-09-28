@@ -19,11 +19,6 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { useAddLiquidity } from '@/hooks/useAddLiquidity';
 import type { PoolDetail } from '@/hooks/usePoolTicks';
 
-const mockSignTransaction = vi.fn();
-vi.mock('@stellar/freighter-api', () => ({
-  signTransaction: (...args: unknown[]) => mockSignTransaction(...args),
-}));
-
 const mockBuildAddLiquidityTx = vi.fn();
 vi.mock('@swyft/sdk', async () => {
   const actual = await vi.importActual<typeof import('@swyft/sdk')>('@swyft/sdk');
@@ -34,7 +29,7 @@ vi.mock('@swyft/sdk', async () => {
 });
 
 vi.mock('@/context/NetworkContext', () => ({
-  useNetworkContext: () => ({ network: 'TESTNET' }),
+  useNetworkContext: () => ({ network: 'TESTNET', apiBase: 'http://localhost:3001/v1' }),
 }));
 
 vi.mock('@/lib/constants', () => ({
@@ -56,13 +51,12 @@ const mockPool: PoolDetail = {
   volume24h: 500_000,
 };
 
-/** Unused by the hook today, but part of `submit`'s public signature. */
-const noopSignXdr = async (xdr: string) => xdr;
+const mockSignXdr = vi.fn(async (xdr: string) => xdr);
 
 function mockOkFetch(hash: string) {
   global.fetch = vi.fn().mockResolvedValue({
     ok: true,
-    json: async () => ({ hash }),
+    json: async () => ({ hash, successful: true }),
   }) as unknown as typeof fetch;
 }
 
@@ -70,7 +64,7 @@ async function setUpAndSubmit(result: { current: ReturnType<typeof useAddLiquidi
   act(() => result.current.setPool(mockPool));
   act(() => result.current.setAmount0('100'));
   await act(async () => {
-    await result.current.submit('GOWNERADDRESSGOWNERADDRESSGOWNERADDRESSGOWNERADD', noopSignXdr);
+    await result.current.submit('GOWNERADDRESSGOWNERADDRESSGOWNERADDRESSGOWNERADD', mockSignXdr);
   });
 }
 
@@ -78,6 +72,8 @@ describe('useAddLiquidity — submit (real XDR build, sign, and submission)', ()
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    localStorage.setItem('swyft_auth_token', 'test-token');
+    mockSignXdr.mockResolvedValue('signed-add-liquidity-xdr');
     mockBuildAddLiquidityTx.mockReturnValue({ xdr: 'unsigned-add-liquidity-xdr', type: 'add_liquidity' });
   });
 
@@ -86,7 +82,7 @@ describe('useAddLiquidity — submit (real XDR build, sign, and submission)', ()
   });
 
   it('builds XDR via the real SDK builder, signs via Freighter, and posts to the real /transactions endpoint', async () => {
-    mockSignTransaction.mockResolvedValue('signed-add-liquidity-xdr');
+    mockSignXdr.mockResolvedValue('signed-add-liquidity-xdr');
     mockOkFetch('f00dreal-tx-hash-from-horizon');
 
     const { result } = renderHook(() => useAddLiquidity());
@@ -98,11 +94,8 @@ describe('useAddLiquidity — submit (real XDR build, sign, and submission)', ()
     expect(mockBuildAddLiquidityTx).toHaveBeenCalledWith(
       expect.objectContaining({ poolId: mockPool.id, ownerAddress: expect.stringMatching(/^G/) })
     );
-    // Real Freighter signing of the XDR the SDK produced.
-    expect(mockSignTransaction).toHaveBeenCalledWith(
-      'unsigned-add-liquidity-xdr',
-      expect.objectContaining({ networkPassphrase: expect.any(String) })
-    );
+    // Signs through the wallet-context function passed into the hook.
+    expect(mockSignXdr).toHaveBeenCalledWith('unsigned-add-liquidity-xdr');
     // Real submission to the shared transactions API used by every other
     // transaction hook (swap, remove-liquidity, reranging).
     expect(global.fetch).toHaveBeenCalledWith(
@@ -115,7 +108,7 @@ describe('useAddLiquidity — submit (real XDR build, sign, and submission)', ()
   });
 
   it('reports exactly the hash returned by the API — never a fabricated 0x-random hash', async () => {
-    mockSignTransaction.mockResolvedValue('signed-xdr');
+    mockSignXdr.mockResolvedValue('signed-xdr');
     mockOkFetch('f00dreal-tx-hash-from-horizon');
 
     const { result } = renderHook(() => useAddLiquidity());
@@ -129,7 +122,7 @@ describe('useAddLiquidity — submit (real XDR build, sign, and submission)', ()
   });
 
   it('never fabricates a synthetic position NFT id when the API does not provide one', async () => {
-    mockSignTransaction.mockResolvedValue('signed-xdr');
+    mockSignXdr.mockResolvedValue('signed-xdr');
     mockOkFetch('real-hash-2');
 
     const { result } = renderHook(() => useAddLiquidity());
@@ -138,12 +131,11 @@ describe('useAddLiquidity — submit (real XDR build, sign, and submission)', ()
     await waitFor(() => expect(result.current.txStatus).toBe('success'));
 
     // The old bug set this to `pos-${Date.now().toString(36)}`.
-    expect(result.current.positionNftId).not.toMatch(/^pos-[0-9a-z]+$/);
     expect(result.current.positionNftId).toBeNull();
   });
 
   it('does not resolve to a fake success when the API submission fails', async () => {
-    mockSignTransaction.mockResolvedValue('signed-xdr');
+    mockSignXdr.mockResolvedValue('signed-xdr');
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       json: async () => ({}),
@@ -159,7 +151,7 @@ describe('useAddLiquidity — submit (real XDR build, sign, and submission)', ()
   });
 
   it('does not resolve to a fake success when the wallet rejects signing', async () => {
-    mockSignTransaction.mockResolvedValue({ signedTxXdr: null } as unknown as string);
+    mockSignXdr.mockResolvedValue(null as unknown as string);
 
     const { result } = renderHook(() => useAddLiquidity());
     await setUpAndSubmit(result);

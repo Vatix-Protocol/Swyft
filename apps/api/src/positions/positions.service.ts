@@ -31,6 +31,7 @@ interface PositionResponse {
   upperTick: number;
   liquidity: string;
   currentValueUsd: number;
+  poolCurrentPrice: number;
   uncollectedFeesToken0: string;
   uncollectedFeesToken1: string;
   createdAt: number;
@@ -175,6 +176,7 @@ export class PositionsService {
       upperTick: position.upperTick,
       liquidity: position.liquidity,
       currentValueUsd: position.currentValueUsd,
+      poolCurrentPrice: currentPrice,
       uncollectedFeesToken0: position.uncollectedFeesToken0,
       uncollectedFeesToken1: position.uncollectedFeesToken1,
       createdAt: position.createdAt,

@@ -45,6 +45,7 @@ Swyft is a non-custodial interface to the Stellar network. The following invaria
 For the monorepo layout, package responsibilities, and the trust boundaries between the web client, API, and on-chain contracts, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). That document is the canonical overview; this policy describes the security controls that enforce its boundaries.
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components, packages, and data flows across the monorepo.
+- [`docs/THREAT_MODEL_CL_DEX.md`](docs/THREAT_MODEL_CL_DEX.md) — assets, trust boundaries, threats, controls, and release checklist for the concentrated-liquidity DEX.
 - [`README.md`](README.md) — project overview and contributor entrypoint.
 - [`docs/CONTRACTS.md`](docs/CONTRACTS.md) — on-chain contract interfaces and the source-of-truth guarantees they provide.
 

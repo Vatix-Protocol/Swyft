@@ -6,6 +6,7 @@ import { TokenLogo } from '@swyft/ui';
 import { usePools, PoolOrderBy, PoolListItem } from '@/hooks/usePools';
 import { useSearchDebounce } from '@/hooks/useSearchDebounce';
 import type { Token } from '@swyft/ui';
+import { formatFeeApr } from '@/lib/fee-apr';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -13,10 +14,6 @@ function fmt(n: number, prefix = '$') {
   if (n >= 1_000_000) return `${prefix}${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `${prefix}${(n / 1_000).toFixed(2)}K`;
   return `${prefix}${n.toFixed(2)}`;
-}
-
-function fmtApr(n: number) {
-  return `${(n * 100).toFixed(2)}%`;
 }
 
 function fmtFee(feeTier: string) {
@@ -146,7 +143,7 @@ function PoolRow({ pool, onNavigate }: { pool: PoolListItem; onNavigate: (path: 
         {fmt(pool.volume7d)}
       </td>
       <td className="px-4 py-3 text-right font-medium text-emerald-600 dark:text-emerald-400">
-        {fmtApr(pool.feeApr)}
+        {formatFeeApr(pool.feeApr)}
       </td>
       <td className="px-4 py-3 text-right">
         <button
