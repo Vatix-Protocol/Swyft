@@ -25,6 +25,8 @@ Swyft is released under the [MIT License](./LICENSE). By submitting a pull reque
 
 Use the issue templates when available and include reproduction steps, expected behavior, and the affected package.
 
+Our issue templates are intentionally lightweight: describe the problem, the expected behavior, and the affected package. You do not need to fill out a formal acceptance-criteria checklist to open an issue — a clear, concise report is enough. If you are reporting a security concern, follow [SECURITY.md](./SECURITY.md) instead of opening a public issue.
+
 ## Code of conduct
 
 Be respectful and constructive. Harassment or abusive behavior will not be tolerated.
