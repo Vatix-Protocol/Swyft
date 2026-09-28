@@ -36,7 +36,7 @@ fn setup_with_oracle() -> (Env, Address, Address, Address, Address, Address) {
     token_1_admin.mint(&trader, &1_000_000_000_000_000i128);
 
     // position-nft: cl-pool is the authorised minter.
-    PositionNftClient::new(&env, &nft_id).initialize(&cl_pool_id);
+    PositionNftClient::new(&env, &nft_id).initialize(&admin, &cl_pool_id);
 
     // oracle-adapter: cl-pool is the registered pool allowed to write.
     OracleAdapterClient::new(&env, &oracle_id).initialize(&cl_pool_id);
@@ -106,7 +106,7 @@ fn test_swap_without_oracle_wiring_still_succeeds() {
     token_0_admin.mint(&trader, &1_000_000_000_000_000i128);
     token_1_admin.mint(&trader, &1_000_000_000_000_000i128);
 
-    PositionNftClient::new(&env, &nft_id).initialize(&cl_pool_id);
+    PositionNftClient::new(&env, &nft_id).initialize(&admin, &cl_pool_id);
 
     let client = ClPoolClient::new(&env, &cl_pool_id);
     client.initialize(&token_0, &token_1, &3_000u32, &Q96, &nft_id);

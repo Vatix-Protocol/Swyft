@@ -16,6 +16,11 @@ Soroban smart contracts for the Swyft concentrated-liquidity DEX on Stellar.
 | `fee-collector`  | `fee_collector`  | Aggregates and distributes protocol fees           |
 | `oracle-adapter` | `oracle_adapter` | Circular-buffer TWAP oracle (per-pool instance)    |
 
+Position ownership and the pool/NFT authorization boundary are documented in
+[`docs/POOL_POSITION_AUTH.md`](../../docs/POOL_POSITION_AUTH.md). Router
+factory trust and callback-target constraints are in
+[`docs/ROUTER_CALLBACK_AUTH.md`](../../docs/ROUTER_CALLBACK_AUTH.md).
+
 ## Oracle / TWAP
 
 Every swap on `pool` and `cl-pool` records a post-swap observation

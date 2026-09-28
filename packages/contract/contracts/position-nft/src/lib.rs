@@ -10,6 +10,7 @@ pub enum PositionNftError {
     NotMinter = 1,
     Overflow = 2,
     NotFound = 3,
+    ZeroLiquidity = 4,
 }
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
@@ -42,22 +43,32 @@ pub struct PositionNft;
 
 #[contractimpl]
 impl PositionNft {
-    /// One-time initialisation. Must be called before any other function.
+    /// One-time initialization. The admin authorizes the pool minter link.
     ///
     /// # Parameters
     /// - `env`: Soroban execution environment.
+    /// - `admin`: Account authorizing the NFT-to-pool configuration.
     /// - `minter`: Address of the pool contract that is authorised to mint and
     ///   burn position NFTs.  All subsequent `mint` and `burn` calls must be
     ///   authorised by this address.
     ///
     /// # Panics
     /// Panics with `"already initialized"` if called more than once.
-    pub fn initialize(env: Env, minter: Address) {
+    pub fn initialize(env: Env, admin: Address, minter: Address) {
         if env.storage().instance().has(&DataKey::Minter) {
             panic!("already initialized");
         }
+        admin.require_auth();
         env.storage().instance().set(&DataKey::Minter, &minter);
         env.storage().instance().set(&DataKey::NextId, &0u64);
+    }
+
+    /// Returns the pool contract authorized to mint, update, and burn positions.
+    pub fn get_minter(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Minter)
+            .expect("not initialized")
     }
 
     /// Mint a new position NFT. Only callable by the minter (pool contract).
@@ -149,6 +160,27 @@ impl PositionNft {
 
         // Transfer event: owner → zero address
         emit_transfer(&env, Some(meta.owner), None, token_id);
+    }
+
+    /// Update liquidity metadata for an existing position. Only the minter
+    /// may update it, so a partial pool withdrawal preserves the same NFT.
+    pub fn update_liquidity(env: Env, token_id: u64, liquidity: u128) {
+        require_minter(&env);
+        if liquidity == 0 {
+            env.panic_with_error(soroban_sdk::Error::from_contract_error(
+                PositionNftError::ZeroLiquidity as u32,
+            ));
+        }
+
+        let mut meta: PositionMetadata = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Position(token_id))
+            .expect("token not found");
+        meta.liquidity = liquidity;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Position(token_id), &meta);
     }
 
     /// Transfer a position NFT between addresses. Callable by the current owner.

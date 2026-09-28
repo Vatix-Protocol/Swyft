@@ -26,6 +26,7 @@ pub enum PoolError {
     Overflow = 8,
     InsufficientLiquidity = 9,
     InvalidFeeTier = 10,
+    InvalidNftLink = 11,
 }
 
 #[contracttype]
@@ -52,6 +53,17 @@ pub struct TickInfo {
     pub liquidity_net: i128,
     pub fee_growth_outside_0: u128,
     pub fee_growth_outside_1: u128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+struct PositionNftMetadata {
+    pub owner: Address,
+    pub pool: Address,
+    pub tick_lower: i32,
+    pub tick_upper: i32,
+    pub liquidity: u128,
+    pub created_at: u64,
 }
 
 #[contracttype]
@@ -130,7 +142,15 @@ impl ClPool {
         {
             panic_pool_error(&env, PoolError::AlreadyInitialized);
         }
-        if fee_tier as u128 >= FEE_DENOMINATOR {
+        let linked_minter: Address = env.invoke_contract(
+            &nft_contract,
+            &Symbol::new(&env, "get_minter"),
+            soroban_sdk::vec![&env],
+        );
+        if linked_minter != env.current_contract_address() {
+            panic_pool_error(&env, PoolError::InvalidNftLink);
+        }
+        if !matches!(fee_tier, 500 | 3_000 | 10_000) {
             panic_pool_error(&env, PoolError::InvalidFeeTier);
         }
         env.storage().instance().set(&DataKey::Initialized, &true);
@@ -559,7 +579,7 @@ impl ClPool {
                 &Symbol::new(&env, "write_observation"),
                 soroban_sdk::vec![
                     &env,
-                    new_sqrt_price.into_val(&env),
+                    sqrt_price.into_val(&env),
                     liquidity.into_val(&env),
                 ],
             );
@@ -584,9 +604,8 @@ impl ClPool {
             .get(&DataKey::Position(position_id))
             .unwrap_or_else(|| panic_pool_error(&env, PoolError::PositionNotFound));
 
-        if position.owner != owner {
-            panic_pool_error(&env, PoolError::Unauthorized);
-        }
+        require_position_owner(&env, &position, &owner);
+        position.owner = owner.clone();
 
         let current_tick: i32 = env
             .storage()
@@ -659,9 +678,8 @@ impl ClPool {
             .get(&DataKey::Position(position_id))
             .unwrap_or_else(|| panic_pool_error(&env, PoolError::PositionNotFound));
 
-        if position.owner != owner {
-            panic_pool_error(&env, PoolError::Unauthorized);
-        }
+        require_position_owner(&env, &position, &owner);
+        position.owner = owner.clone();
         if liquidity_to_remove == 0 || liquidity_to_remove > position.liquidity {
             panic_pool_error(&env, PoolError::ZeroLiquidity);
         }
@@ -749,16 +767,12 @@ impl ClPool {
             env.storage()
                 .persistent()
                 .set(&DataKey::Position(position_id), &position);
-            // Update NFT metadata
-            env.invoke_contract::<u64>(
+            env.invoke_contract::<()>(
                 &nft_contract,
-                &Symbol::new(&env, "mint"),
+                &Symbol::new(&env, "update_liquidity"),
                 soroban_sdk::vec![
                     &env,
-                    owner.into_val(&env),
-                    env.current_contract_address().into_val(&env),
-                    position.tick_lower.into_val(&env),
-                    position.tick_upper.into_val(&env),
+                    position.nft_id.into_val(&env),
                     position.liquidity.into_val(&env),
                 ],
             );
@@ -1080,6 +1094,30 @@ fn accumulate_segment_fee(
     }
 }
 
+fn require_position_owner(env: &Env, position: &Position, owner: &Address) {
+    let nft_contract: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::NftContract)
+        .unwrap();
+    let metadata: Option<PositionNftMetadata> = env.invoke_contract(
+        &nft_contract,
+        &Symbol::new(env, "get_position"),
+        soroban_sdk::vec![env, position.nft_id.into_val(env)],
+    );
+    let current_pool = env.current_contract_address();
+
+    match metadata {
+        Some(metadata)
+            if metadata.owner == *owner
+                && metadata.pool == current_pool
+                && metadata.tick_lower == position.tick_lower
+                && metadata.tick_upper == position.tick_upper
+                && metadata.liquidity == position.liquidity => {}
+        _ => panic_pool_error(env, PoolError::Unauthorized),
+    }
+}
+
 fn checked_fee(env: &Env, amount: u128, fee_tier: u32) -> u128 {
     amount
         .checked_mul(fee_tier as u128)
@@ -1271,14 +1309,31 @@ mod fixture_tests {
 #[cfg(test)]
 mod tests {
     use super::{get_amount_0_delta, get_amount_1_delta, ClPool, ClPoolClient, Q96};
-    use soroban_sdk::{contract, contractimpl, testutils::Address as _, token, Address, Env};
+    use position_nft::{PositionNft, PositionNftClient};
+    use soroban_sdk::{
+        contract, contractimpl, contracttype, testutils::Address as _, token, Address, Env,
+    };
 
     /// Minimal mock NFT so add/remove liquidity can mint/burn position tokens.
     #[contract]
     pub struct MockNft;
 
+    #[contracttype]
+    #[derive(Clone)]
+    enum MockNftKey {
+        Minter,
+    }
+
     #[contractimpl]
     impl MockNft {
+        pub fn set_minter(env: Env, minter: Address) {
+            env.storage().instance().set(&MockNftKey::Minter, &minter);
+        }
+
+        pub fn get_minter(env: Env) -> Address {
+            env.storage().instance().get(&MockNftKey::Minter).unwrap()
+        }
+
         pub fn mint(
             _env: Env,
             _owner: Address,
@@ -1311,6 +1366,7 @@ mod tests {
         let nft = env.register(MockNft, ());
         let pool_id = env.register(ClPool, ());
         let pool = ClPoolClient::new(&env, &pool_id);
+        MockNftClient::new(&env, &nft).set_minter(&pool_id);
 
         let funding: u128 = 10u128.pow(24);
         mint(&env, &t0, &lp, funding);
@@ -1459,6 +1515,67 @@ mod tests {
                 "token1 pool balance change must equal the reported delta"
             );
         }
+    }
+
+    #[test]
+    fn initialize_rejects_nft_linked_to_another_pool() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool_id = env.register(ClPool, ());
+        let nft_id = env.register(PositionNft, ());
+        let other_pool = Address::generate(&env);
+        let admin = Address::generate(&env);
+        PositionNftClient::new(&env, &nft_id).initialize(&admin, &other_pool);
+
+        let result = ClPoolClient::new(&env, &pool_id).try_initialize(
+            &Address::generate(&env),
+            &Address::generate(&env),
+            &3000u32,
+            &Q96,
+            &nft_id,
+        );
+
+        assert!(result.is_err());
+        assert!(ClPoolClient::new(&env, &pool_id).try_get_token_0().is_err());
+    }
+
+    #[test]
+    fn transferred_position_nft_controls_pool_actions_and_keeps_same_id() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let owner = Address::generate(&env);
+        let new_owner = Address::generate(&env);
+        let token_0 = create_token(&env, &admin);
+        let token_1 = create_token(&env, &admin);
+        let pool_id = env.register(ClPool, ());
+        let nft_id = env.register(PositionNft, ());
+
+        PositionNftClient::new(&env, &nft_id).initialize(&admin, &pool_id);
+        let pool = ClPoolClient::new(&env, &pool_id);
+        pool.initialize(&token_0, &token_1, &3000u32, &Q96, &nft_id);
+        mint(&env, &token_0, &owner, 1_000_000_000);
+        mint(&env, &token_1, &owner, 1_000_000_000);
+
+        let (position_id, _, _) = pool.add_liquidity(&owner, &-60, &60, &1_000_000u128);
+        let nft = PositionNftClient::new(&env, &nft_id);
+
+        pool.remove_liquidity(&owner, &position_id, &1_000u128);
+        assert_eq!(nft.next_id(), 1, "partial withdrawal must not mint a duplicate NFT");
+        assert_eq!(nft.get_position(&0).unwrap().liquidity, 999_000);
+
+        nft.transfer(&owner, &new_owner, &0);
+        assert!(pool
+            .try_remove_liquidity(&owner, &position_id, &1u128)
+            .is_err());
+        assert!(pool
+            .try_collect(&owner, &position_id)
+            .is_err());
+
+        pool.remove_liquidity(&new_owner, &position_id, &1u128);
+        pool.collect(&new_owner, &position_id);
+        assert_eq!(nft.owner_of(&0), new_owner);
+        assert_eq!(nft.get_position(&0).unwrap().pool, pool_id);
     }
 
 }

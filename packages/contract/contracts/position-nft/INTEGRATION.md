@@ -8,7 +8,7 @@ The Position NFT contract is a separate contract that the Pool contract calls to
 
 - Clean separation of concerns
 - Independent upgrades of NFT and pool logic
-- Potential for multiple pools to share the same NFT contract
+- A pool-specific minter link that can be independently verified
 - Better testability
 
 ## Integration Steps
@@ -231,9 +231,10 @@ fn test_mint_and_burn_with_nft() {
     let token_0 = Address::generate(&env);
     let token_1 = Address::generate(&env);
     let lp = Address::generate(&env);
+    let admin = Address::generate(&env);
 
     // Initialize NFT first
-    nft_client.initialize(&pool_id);
+    nft_client.initialize(&admin, &pool_id);
 
     // Initialize pool with NFT address
     pool_client.initialize(&token_0, &token_1, &nft_id, &Q96, &3000u32);

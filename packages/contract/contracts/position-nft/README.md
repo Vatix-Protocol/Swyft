@@ -39,17 +39,29 @@ pub enum PositionNftError {
 
 ### Functions
 
-#### `initialize(minter: Address) -> Result<(), PositionNftError>`
+#### `initialize(admin: Address, minter: Address) -> Result<(), PositionNftError>`
 
-Initializes the contract with a minter address (typically the pool factory contract).
+Initializes the contract with an admin-authorized pool minter address.
 
-**Authorization**: Requires `minter` to authorize the call
+**Authorization**: `admin` must authorize the call; initialization can only
+occur once. The pool validates that its address is configured as the NFT
+minter before initializing.
 
 **Effects**:
 
 - Sets the minter address
 - Initializes the next token ID counter to 0
 - Can only be called once
+
+#### `get_minter() -> Address`
+
+Returns the configured pool minter for pool/NFT link validation.
+
+#### `update_liquidity(token_id: u64, liquidity: u128)`
+
+Updates an existing position's liquidity metadata. Only the configured minter
+may call this; pools use it for partial withdrawals without minting a
+duplicate NFT.
 
 **Returns**: `Ok(())` on success, or `PositionNftError` on failure
 
