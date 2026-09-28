@@ -261,8 +261,17 @@ per-network JSON registries under `packages/contract/deployments/`. The
 `validate:contracts` check is the single source of truth for detecting
 **address drift** between what is configured/deployed and what is documented.
 
+Run `pnpm validate:contracts` from the repository root to build every contract
+for WASM. Use `pnpm validate:contracts:drift` to require a recorded SHA-256
+hash for each deployed contract and compare it with the current build. Missing
+hashes or built artifacts fail closed. The shared `oracle-adapter` WASM is
+checked against both pool deployment entries.
+
 ### What it validates
 
+- **Deployed WASM hash.** Every deployed contract must have a recorded
+  `wasmHashes` entry matching the freshly built WASM; missing hashes or
+  artifacts fail validation instead of skipping the check.
 - **Missing entries.** A contract listed in the canonical registry but absent
   from a network's deployment JSON (or env config) fails the gate.
 - **Extra entries.** A contract present in a deployment JSON but not in the
@@ -346,4 +355,3 @@ above).
 | `owner`        | `Address` | contract        | Current owner; changes only via authorized transfer          |
 
 ### Metadata schema
-
