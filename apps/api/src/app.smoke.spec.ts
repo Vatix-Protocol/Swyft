@@ -1,10 +1,17 @@
 /**
- * #407 — AppModule smoke test: core routes return 200.
+ * #407 / #1029 — AppModule smoke test (required CI check: "API smoke").
  *
  * The entire module graph is bootstrapped but every external dependency
  * (Prisma, Redis, BullMQ, Horizon, JWT) is replaced with lightweight stubs so
- * the test runs without a live database or message broker. ApiKeyGuard is
- * overridden since this suite only asserts route wiring, not auth.
+ * the test runs without a live database or message broker.
+ *
+ * Invariants (docs/APP_SMOKE.md):
+ *  - AppModule boots: every import resolves and every provider wires up.
+ *    A missing file or provider fails this suite, and therefore the PR.
+ *  - Core public routes answer 200.
+ *  - Privileged routes stay deny-by-default. Only ApiKeyGuard (public API
+ *    keys) is overridden; internal-key guards run for real, so a privileged
+ *    route that loses its guard fails here.
  */
 
 import { INestApplication, ValidationPipe } from '@nestjs/common';
@@ -175,4 +182,42 @@ describe('AppModule — public routes smoke test', () => {
 
   it('POST /v1/auth/nonce returns 200 (no body)', () =>
     request(app.getHttpServer()).post('/v1/auth/nonce').expect(200));
+
+  it('unknown routes return 404', () =>
+    request(app.getHttpServer()).get('/v1/__smoke_missing__').expect(404));
+
+  // ── Deny-by-default: privileged routes reject callers without a key ───────
+
+  describe('privileged routes without credentials', () => {
+    const savedKey = process.env.INTERNAL_API_KEY;
+
+    beforeAll(() => {
+      // Configured key, so a 401 proves the guard ran rather than failing
+      // closed on missing config.
+      process.env.INTERNAL_API_KEY = 'smoke-internal-key-not-sent';
+    });
+
+    afterAll(() => {
+      if (savedKey === undefined) delete process.env.INTERNAL_API_KEY;
+      else process.env.INTERNAL_API_KEY = savedKey;
+    });
+
+    it('POST /v1/indexer/dead-letters/replay returns 401', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/v1/indexer/dead-letters/replay')
+        .send({});
+      expect(res.status).toBe(401);
+      expect(res.body.code).toBe('DLQ_REPLAY_AUTH_MISSING_KEY');
+      expect(typeof res.body.correlationId).toBe('string');
+    });
+
+    it('POST /v1/indexer/replay returns 401', () =>
+      request(app.getHttpServer())
+        .post('/v1/indexer/replay')
+        .send({ fromLedger: 0 })
+        .expect(401));
+
+    it('GET /v1/metrics/security returns 401', () =>
+      request(app.getHttpServer()).get('/v1/metrics/security').expect(401));
+  });
 });
