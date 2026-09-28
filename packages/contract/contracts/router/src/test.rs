@@ -106,7 +106,7 @@ fn setup_router_with_mock_pool(env: &Env) -> MockSwapSetup<'_> {
 
     MockFactoryClient::new(env, &factory_id).set_pool(&pool_id);
     let client = RouterClient::new(env, &router_id);
-    client.initialize(&factory_id);
+    client.initialize(&Address::generate(env), &factory_id);
     MockSwapSetup {
         client,
         token_in,
@@ -119,7 +119,26 @@ fn test_initialize_and_get_factory() {
     let (env, id) = setup();
     let client = RouterClient::new(&env, &id);
     let factory = Address::generate(&env);
-    client.initialize(&factory);
+    client.initialize(&Address::generate(&env), &factory);
+    assert_eq!(client.get_factory(), factory);
+}
+
+#[test]
+fn test_factory_configuration_requires_admin_and_cannot_be_replaced() {
+    let env = Env::default();
+    let router_id = env.register(Router, ());
+    let client = RouterClient::new(&env, &router_id);
+    let admin = Address::generate(&env);
+    let factory = Address::generate(&env);
+    let attacker_factory = Address::generate(&env);
+
+    assert!(client.try_initialize(&admin, &factory).is_err());
+    assert!(client.try_get_factory().is_err());
+
+    env.mock_all_auths();
+    client.initialize(&admin, &factory);
+    assert_eq!(client.get_admin(), admin);
+    assert!(client.try_initialize(&admin, &attacker_factory).is_err());
     assert_eq!(client.get_factory(), factory);
 }
 
@@ -129,7 +148,7 @@ fn test_exact_input_single_deadline_expired() {
     let (env, id) = setup();
     let client = RouterClient::new(&env, &id);
     let factory = Address::generate(&env);
-    client.initialize(&factory);
+    client.initialize(&Address::generate(&env), &factory);
 
     let token_in = Address::generate(&env);
     let token_out = Address::generate(&env);
@@ -155,7 +174,7 @@ fn test_exact_input_single_zero_amount() {
     let (env, id) = setup();
     let client = RouterClient::new(&env, &id);
     let factory = Address::generate(&env);
-    client.initialize(&factory);
+    client.initialize(&Address::generate(&env), &factory);
 
     let token_in = Address::generate(&env);
     let token_out = Address::generate(&env);
@@ -179,7 +198,7 @@ fn test_exact_output_single_deadline_expired() {
     let (env, id) = setup();
     let client = RouterClient::new(&env, &id);
     let factory = Address::generate(&env);
-    client.initialize(&factory);
+    client.initialize(&Address::generate(&env), &factory);
 
     env.ledger().with_mut(|l| l.timestamp = 200);
 
@@ -205,7 +224,7 @@ fn test_exact_output_single_zero_amount() {
     let (env, id) = setup();
     let client = RouterClient::new(&env, &id);
     let factory = Address::generate(&env);
-    client.initialize(&factory);
+    client.initialize(&Address::generate(&env), &factory);
 
     let token_in = Address::generate(&env);
     let token_out = Address::generate(&env);
@@ -345,7 +364,7 @@ fn setup_real_cl_pool(env: &Env) -> (RouterClient<'_>, Address, Address, Address
     MockFactoryClient::new(env, &factory).set_pool(&pool);
     let router = env.register(Router, ());
     let client = RouterClient::new(env, &router);
-    client.initialize(&factory);
+    client.initialize(&Address::generate(env), &factory);
 
     (client, token_0, token_1, lp)
 }
