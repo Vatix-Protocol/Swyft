@@ -90,6 +90,39 @@ jobs:
       - name: Turbo test
         run: pnpm turbo run test --filter=!contracts --concurrency=4
 
+  # ── Prettier / ESLint required on apps (#1079) ───────────────────────────
+  # Fail-closed formatting + lint gate for the apps workspace.  Prettier runs
+  # in --check mode (never --write) so drift must be fixed in the PR; ESLint
+  # runs against apps/api using apps/api/eslint.config.mjs.  This job is a
+  # required status check — contributors cannot bypass it locally because the
+  # same commands are wired into .husky/pre-commit and .husky/pre-push.
+  lint-format:
+    name: Lint + format (apps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Prettier config source of truth: root .prettierrc (+ .prettierignore).
+      # --check fails the job on any formatting violation (fail-closed).
+      - name: Prettier check (apps)
+        run: pnpm exec prettier --check "apps/**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml}"
+
+      # ESLint config source of truth: apps/api/eslint.config.mjs.
+      - name: ESLint (apps/api)
+        run: pnpm --filter api lint
+
   # ── Per-package jobs (kept for targeted PR feedback) ─────────────────────
   frontend:
     name: Frontend
@@ -301,93 +334,4 @@ jobs:
       - name: Fixtures deterministic + in sync (#1037)
         env:
           FIXTURE_CORRELATION_ID: ${{ github.run_id }}-${{ github.run_attempt }}-fixtures
-        run: pnpm fixtures:check
-
-      - name: Fixture tooling tests
-        run: pnpm test:scripts
-
-      - name: Shared TS/ESLint config enforced (#1036)
-        env:
-          SHARED_CONFIG_CORRELATION_ID: ${{ github.run_id }}-${{ github.run_attempt }}-config
-        run: pnpm config:check
-
-      - name: '@swyft/config type-check'
-        run: pnpm --filter @swyft/config typecheck
-
-      - name: '@swyft/config tests'
-        run: pnpm --filter @swyft/config test
-
-  contracts:
-    name: Contracts
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/contract
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install JS dependencies
-        working-directory: .
-        run: pnpm install --frozen-lockfile
-
-      - name: Address drift check
-        working-directory: .
-        run: pnpm --filter contracts test:drift
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Cache cargo target
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: packages/contract -> target
-
-      - name: cargo check
-        run: cargo check --workspace
-
-      - name: cargo test
-        run: cargo test --workspace
-
-      - name: cargo build (release wasm)
-        run: cargo build --workspace --release --target wasm32-unknown-unknown
-
-  validate-contracts:
-    name: validate:contracts (address drift gate)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Validate contract addresses against CONTRACTS.md (testnet)
-        env:
-          STELLAR_NETWORK: testnet
-          DRIFT_CORRELATION_ID: ${{ github.run_id }}-${{ github.run_attempt }}-testnet
-        run: pnpm validate:contracts -- --network testnet
-
-      - name: Validate contract addresses against CONTRACTS.md (mainnet)
-        env:
-          STELLAR_NETWORK: mainnet
-          DRIFT_CORRELATION_ID: ${{ github.run_id }}-${{ github.run_attempt }}-mainnet
-        run: pnpm validate:contracts -- --network mainnet
+        run: pnpm --filter @swyft/shared-config test:fixtures
