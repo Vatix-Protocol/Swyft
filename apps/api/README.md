@@ -17,13 +17,13 @@ All configuration is read from the environment at boot. Missing or malformed
 values fail closed: the process refuses to start rather than running with an
 unsafe default.
 
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | Postgres connection string. |
-| `REDIS_URL` | Redis connection string (rate limiting, idempotency). |
-| `STELLAR_NETWORK` | `testnet` or `mainnet`. Drives address/network drift checks. |
-| `SENTRY_DSN` | Sentry DSN. When unset, Sentry is disabled. |
-| `SENTRY_REDACTION_POLICY` | Redaction policy applied to every Sentry event. See below. |
+| Variable                  | Purpose                                                      |
+| ------------------------- | ------------------------------------------------------------ |
+| `DATABASE_URL`            | Postgres connection string.                                  |
+| `REDIS_URL`               | Redis connection string (rate limiting, idempotency).        |
+| `STELLAR_NETWORK`         | `testnet` or `mainnet`. Drives address/network drift checks. |
+| `SENTRY_DSN`              | Sentry DSN. When unset, Sentry is disabled.                  |
+| `SENTRY_REDACTION_POLICY` | Redaction policy applied to every Sentry event. See below.   |
 
 ## API changelog
 
@@ -214,12 +214,25 @@ BullMQ job scheduler (#1031).
   leaves the scheduler in state `unavailable` without blocking the API.
 - **No secrets in logs.** Errors are logged by name and stable code only.
 
+### Metric semantics
+
+- Volume windows use event timestamps and half-open UTC time ranges
+  `[now - interval, now)`, so future-dated events are excluded and boundary
+  behavior is deterministic.
+- Swap amounts and fees are converted from token base units using indexed
+  token decimals before applying USD prices. Missing prices or token metadata
+  fail the computation; the API does not substitute a `$1` price.
+- Historical swap amounts are valued using the latest cached USD price feed,
+  because execution-time USD prices are not stored with swap records.
+- `GET /admin/analytics/volume?interval=1d|7d|30d` returns per-UTC-day USD
+  buckets. `1d` is a rolling 24-hour window, not the current calendar day.
+
 ### Configuration / kill switch
 
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `ANALYTICS_SCHEDULER_ENABLED` | `true` | `false`/`0`/`off`/`no` starts no worker and removes the scheduler from Redis. Set it on **every** instance, since any enabled instance re-registers the scheduler on boot |
-| `ANALYTICS_REFRESH_INTERVAL_MS` | `900000` | Clamped to `[60000, 86400000]`; invalid values fall back to the default |
+| Variable                        | Default  | Notes                                                                                                                                                                     |
+| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ANALYTICS_SCHEDULER_ENABLED`   | `true`   | `false`/`0`/`off`/`no` starts no worker and removes the scheduler from Redis. Set it on **every** instance, since any enabled instance re-registers the scheduler on boot |
+| `ANALYTICS_REFRESH_INTERVAL_MS` | `900000` | Clamped to `[60000, 86400000]`; invalid values fall back to the default                                                                                                   |
 
 Rollback: set `ANALYTICS_SCHEDULER_ENABLED=false` and restart; admin
 analytics endpoints still serve from cache/DB on demand.

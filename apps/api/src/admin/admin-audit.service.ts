@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * Stable error codes for the admin audit surface. These are part of the
@@ -75,6 +76,16 @@ export interface AdminAuditRequest {
   metadata?: Record<string, unknown>;
 }
 
+export interface AdminAuditLogInput {
+  actor: string;
+  action: string;
+  resource?: string;
+  meta?: Record<string, unknown> | string;
+  ip?: string | null;
+  statusCode?: number;
+  createdAt?: Date;
+}
+
 /**
  * Minimal persistence contract. Implementations must fail-closed: a thrown
  * error from `persist` is surfaced to the caller and never swallowed.
@@ -95,7 +106,58 @@ export class AdminAuditService {
   private readonly seenKeys = new Set<string>();
   private readonly records: AdminAuditRecord[] = [];
 
-  constructor(private readonly config?: ConfigService) {}
+  constructor(
+    private readonly prisma?: PrismaService,
+    private readonly config?: ConfigService,
+  ) {}
+
+  async log(input: AdminAuditLogInput): Promise<void> {
+    if (!this.prisma?.adminAuditLog?.create) {
+      this.records.push({
+        correlationId: input.action,
+        actorId: input.actor,
+        actorRole: 'admin',
+        action: input.action,
+        target: input.resource,
+        network: this.resolveNetwork(),
+        idempotencyKey: input.action,
+        metadata:
+          typeof input.meta === 'string' ? JSON.parse(input.meta) : input.meta,
+        timestamp: (input.createdAt ?? new Date()).toISOString(),
+      });
+      return;
+    }
+
+    const payload = {
+      actor: input.actor,
+      action: input.action,
+      resource: input.resource ?? 'admin',
+      meta:
+        typeof input.meta === 'string'
+          ? input.meta
+          : JSON.stringify(input.meta ?? {}),
+      ip: input.ip ?? null,
+      statusCode: input.statusCode ?? null,
+    };
+
+    await this.prisma.adminAuditLog.create({ data: payload });
+  }
+
+  async findRecent(
+    limit = 100,
+    offset = 0,
+  ): Promise<Array<Record<string, unknown>>> {
+    if (!this.prisma?.adminAuditLog?.findMany) {
+      return [];
+    }
+
+    const safeLimit = Math.max(1, Math.min(limit || 100, 500));
+    return this.prisma.adminAuditLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      skip: Math.max(0, offset),
+      take: safeLimit,
+    });
+  }
 
   /**
    * Emit an admin audit record. Deny-by-default: authorization, input
@@ -167,7 +229,10 @@ export class AdminAuditService {
     return this.records;
   }
 
-  private assertAuthorized(actor: AdminAuditActor, correlationId: string): void {
+  private assertAuthorized(
+    actor: AdminAuditActor,
+    correlationId: string,
+  ): void {
     if (!actor || !actor.id) {
       throw new AdminAuditError(
         AdminAuditErrorCode.UNAUTHORIZED,
@@ -191,8 +256,15 @@ export class AdminAuditService {
     }
   }
 
-  private assertValidInput(request: AdminAuditRequest, correlationId: string): void {
-    if (!request.action || typeof request.action !== 'string' || request.action.length > 128) {
+  private assertValidInput(
+    request: AdminAuditRequest,
+    correlationId: string,
+  ): void {
+    if (
+      !request.action ||
+      typeof request.action !== 'string' ||
+      request.action.length > 128
+    ) {
       throw new AdminAuditError(
         AdminAuditErrorCode.INVALID_INPUT,
         'Invalid admin audit action',
@@ -222,7 +294,13 @@ export class AdminAuditService {
     if (!metadata) {
       return undefined;
     }
-    const redactedKeys = ['secret', 'token', 'password', 'key', 'authorization'];
+    const redactedKeys = [
+      'secret',
+      'token',
+      'password',
+      'key',
+      'authorization',
+    ];
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(metadata)) {
       if (redactedKeys.some((r) => k.toLowerCase().includes(r))) {

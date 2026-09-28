@@ -11,8 +11,11 @@ import { AdminAuditService } from './admin-audit.service';
 import { AdminAuditInterceptor } from './admin-audit.interceptor';
 import { InternalKeyGuard } from './internal-key.guard';
 import { TimeSeriesQueryDto } from './dto/analytics-query.dto';
-import { FeeAprQueryDto } from './dto/fee-apr-query.dto';
 import { SWAGGER_TAGS } from '../swagger.constants';
+
+class FeeAprQueryDto {
+  poolId?: string;
+}
 
 @ApiTags(SWAGGER_TAGS.ADMIN)
 @Controller('admin')
