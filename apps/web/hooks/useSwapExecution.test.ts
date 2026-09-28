@@ -31,8 +31,9 @@ vi.mock('@/context/NetworkContext', () => ({
 }));
 
 vi.mock('@/lib/constants', () => ({
-  API_BASE: 'http://localhost:3001/v1',
   ROUTER_ADDRESS: 'CROUTERADDRESSCROUTERADDRESSCROUTERADDRESSCROUTERAD',
+  getApiBase: (network: string) =>
+    network === 'TESTNET' ? 'https://testnet-api.example/v1' : 'https://public-api.example/v1',
   getNetworkPassphrase: () => 'Test SDF Network ; September 2015',
 }));
 
@@ -141,7 +142,7 @@ describe('useSwapExecution — exact-input signing and submission', () => {
       expect.objectContaining({ networkPassphrase: expect.any(String) })
     );
     expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining('/transactions'),
+      'https://testnet-api.example/v1/transactions',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ xdr: 'signed-xdr' }),
@@ -594,8 +595,8 @@ describe('useSwapExecution — exact-output without a configured router', () => 
   it('errors without attempting to build or sign a transaction', async () => {
     vi.resetModules();
     vi.doMock('@/lib/constants', () => ({
-      API_BASE: 'http://localhost:3001/v1',
       ROUTER_ADDRESS: '',
+      getApiBase: () => 'https://testnet-api.example/v1',
       getNetworkPassphrase: () => 'Test SDF Network ; September 2015',
     }));
     const { useSwapExecution: useSwapExecutionNoRouter } = await import('./useSwapExecution');
