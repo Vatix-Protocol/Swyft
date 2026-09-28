@@ -25,6 +25,7 @@ pub enum PoolError {
     InvalidTick = 7,
     Overflow = 8,
     InsufficientLiquidity = 9,
+    InvalidFeeTier = 10,
 }
 
 #[contracttype]
@@ -128,6 +129,9 @@ impl ClPool {
             .unwrap_or(false)
         {
             panic_pool_error(&env, PoolError::AlreadyInitialized);
+        }
+        if fee_tier as u128 >= FEE_DENOMINATOR {
+            panic_pool_error(&env, PoolError::InvalidFeeTier);
         }
         env.storage().instance().set(&DataKey::Initialized, &true);
         env.storage().instance().set(&DataKey::Token0, &token_0);
@@ -328,8 +332,13 @@ impl ClPool {
             .get(&DataKey::TickSpacing)
             .unwrap();
 
-        let fee_amount = amount_in * fee_tier as u128 / FEE_DENOMINATOR;
-        let mut amount_remaining = amount_in - fee_amount;
+        if amount_in > i128::MAX as u128 {
+            panic_pool_error(&env, PoolError::Overflow);
+        }
+        let fee_amount = checked_fee(&env, amount_in, fee_tier);
+        let mut amount_remaining = amount_in
+            .checked_sub(fee_amount)
+            .unwrap_or_else(|| panic_pool_error(&env, PoolError::Overflow));
 
         if amount_remaining == 0 {
             panic_pool_error(&env, PoolError::ZeroLiquidity);
@@ -407,9 +416,14 @@ impl ClPool {
 
             if amount_remaining >= amount_consumed {
                 // Move fully to the target (tick boundary or price limit).
-                amount_out += amount_to_cross;
-                amount_remaining -= amount_consumed;
+                amount_out = amount_out
+                    .checked_add(amount_to_cross)
+                    .unwrap_or_else(|| panic_pool_error(&env, PoolError::Overflow));
+                amount_remaining = amount_remaining
+                    .checked_sub(amount_consumed)
+                    .unwrap_or_else(|| panic_pool_error(&env, PoolError::Overflow));
                 accumulate_segment_fee(
+                    &env,
                     &mut fee_growth_delta_0,
                     &mut fee_growth_delta_1,
                     zero_for_one,
@@ -453,8 +467,11 @@ impl ClPool {
                 } else {
                     get_amount_0_delta(sqrt_price, next_sqrt, liquidity, false)
                 };
-                amount_out += partial_out;
+                amount_out = amount_out
+                    .checked_add(partial_out)
+                    .unwrap_or_else(|| panic_pool_error(&env, PoolError::Overflow));
                 accumulate_segment_fee(
+                    &env,
                     &mut fee_growth_delta_0,
                     &mut fee_growth_delta_1,
                     zero_for_one,
@@ -468,24 +485,30 @@ impl ClPool {
 
         // Charge only what was actually traded. If the swap stopped early at the
         // price limit, the unconsumed remainder must be refunded (not seized).
-        let traded_base = (amount_in - fee_amount) - amount_remaining;
-        let fee_on_traded = traded_base * fee_tier as u128 / FEE_DENOMINATOR;
-        let input_paid = traded_base + fee_on_traded;
+        let traded_base = amount_in
+            .checked_sub(fee_amount)
+            .and_then(|amount| amount.checked_sub(amount_remaining))
+            .unwrap_or_else(|| panic_pool_error(&env, PoolError::Overflow));
+        let fee_on_traded = checked_fee(&env, traded_base, fee_tier);
+        let input_paid = traded_base
+            .checked_add(fee_on_traded)
+            .filter(|amount| *amount <= i128::MAX as u128)
+            .unwrap_or_else(|| panic_pool_error(&env, PoolError::Overflow));
 
         // Transfer tokens (fee is retained in the pool).
         if zero_for_one {
             token::Client::new(&env, &token_0)
-                .transfer(&sender, &env.current_contract_address(), &(input_paid as i128));
+                .transfer(&sender, &env.current_contract_address(), &to_i128(&env, input_paid));
             if amount_out > 0 {
                 token::Client::new(&env, &token_1)
-                    .transfer(&env.current_contract_address(), &sender, &(amount_out as i128));
+                    .transfer(&env.current_contract_address(), &sender, &to_i128(&env, amount_out));
             }
         } else {
             token::Client::new(&env, &token_1)
-                .transfer(&sender, &env.current_contract_address(), &(input_paid as i128));
+                .transfer(&sender, &env.current_contract_address(), &to_i128(&env, input_paid));
             if amount_out > 0 {
                 token::Client::new(&env, &token_0)
-                    .transfer(&env.current_contract_address(), &sender, &(amount_out as i128));
+                    .transfer(&env.current_contract_address(), &sender, &to_i128(&env, amount_out));
             }
         }
 
@@ -520,9 +543,9 @@ impl ClPool {
         env.storage().instance().set(&DataKey::Liquidity, &liquidity);
 
         let (amount_0_delta, amount_1_delta) = if zero_for_one {
-            (input_paid as i128, -(amount_out as i128))
+            (to_i128(&env, input_paid), -to_i128(&env, amount_out))
         } else {
-            (-(amount_out as i128), input_paid as i128)
+            (-to_i128(&env, amount_out), to_i128(&env, input_paid))
         };
 
         // Record the post-swap observation with the oracle adapter (if wired).
@@ -1027,6 +1050,7 @@ fn cross_tick(env: &Env, tick: i32, zero_for_one: bool) {
 /// Accumulate the fee earned on the input consumed within one segment into the
 /// direction-appropriate fee-growth accumulator.
 fn accumulate_segment_fee(
+    env: &Env,
     fee_growth_delta_0: &mut u128,
     fee_growth_delta_1: &mut u128,
     zero_for_one: bool,
@@ -1037,16 +1061,34 @@ fn accumulate_segment_fee(
     if amount_in_segment == 0 || liquidity == 0 {
         return;
     }
-    let fee_amount = amount_in_segment * fee_tier as u128 / FEE_DENOMINATOR;
+    let fee_amount = checked_fee(env, amount_in_segment, fee_tier);
     if fee_amount == 0 {
         return;
     }
-    let growth = fee_amount * Q96 / liquidity;
+    let growth = fee_amount
+        .checked_mul(Q96)
+        .map(|value| value / liquidity)
+        .unwrap_or_else(|| panic_pool_error(env, PoolError::Overflow));
     if zero_for_one {
-        *fee_growth_delta_0 += growth;
+        *fee_growth_delta_0 = fee_growth_delta_0
+            .checked_add(growth)
+            .unwrap_or_else(|| panic_pool_error(env, PoolError::Overflow));
     } else {
-        *fee_growth_delta_1 += growth;
+        *fee_growth_delta_1 = fee_growth_delta_1
+            .checked_add(growth)
+            .unwrap_or_else(|| panic_pool_error(env, PoolError::Overflow));
     }
+}
+
+fn checked_fee(env: &Env, amount: u128, fee_tier: u32) -> u128 {
+    amount
+        .checked_mul(fee_tier as u128)
+        .map(|value| value / FEE_DENOMINATOR)
+        .unwrap_or_else(|| panic_pool_error(env, PoolError::Overflow))
+}
+
+fn to_i128(env: &Env, amount: u128) -> i128 {
+    i128::try_from(amount).unwrap_or_else(|_| panic_pool_error(env, PoolError::Overflow))
 }
 
 // ── Math helpers ─────────────────────────────────────────────────────────────
@@ -1376,6 +1418,47 @@ mod tests {
         assert_eq!(pool.get_sqrt_price(), limit, "price capped at the limit");
         // Liquidity should still be the active range (tick -60 not crossed).
         assert_eq!(pool.get_liquidity(), 1_000_000_000u128);
+    }
+
+    #[test]
+    fn swap_deltas_match_token_balance_changes_in_both_directions() {
+        for zero_for_one in [true, false] {
+            let (env, pool_id, token_0, token_1, lp, swapper) = setup();
+            let pool = ClPoolClient::new(&env, &pool_id);
+            pool.add_liquidity(&lp, &-60i32, &60i32, &1_000_000_000u128);
+
+            let token_0_client = token::Client::new(&env, &token_0);
+            let token_1_client = token::Client::new(&env, &token_1);
+            let swapper_0_before = token_0_client.balance(&swapper);
+            let swapper_1_before = token_1_client.balance(&swapper);
+            let pool_0_before = token_0_client.balance(&pool_id);
+            let pool_1_before = token_1_client.balance(&pool_id);
+            let limit = if zero_for_one { 1u128 } else { u128::MAX };
+
+            let (delta_0, delta_1) = pool.swap(&swapper, &zero_for_one, &1_000_000u128, &limit);
+
+            assert!(delta_0 != 0 && delta_1 != 0);
+            assert_eq!(
+                swapper_0_before - token_0_client.balance(&swapper),
+                delta_0,
+                "token0 user balance change must equal the reported delta"
+            );
+            assert_eq!(
+                swapper_1_before - token_1_client.balance(&swapper),
+                delta_1,
+                "token1 user balance change must equal the reported delta"
+            );
+            assert_eq!(
+                token_0_client.balance(&pool_id) - pool_0_before,
+                delta_0,
+                "token0 pool balance change must equal the reported delta"
+            );
+            assert_eq!(
+                token_1_client.balance(&pool_id) - pool_1_before,
+                delta_1,
+                "token1 pool balance change must equal the reported delta"
+            );
+        }
     }
 
 }
