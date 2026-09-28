@@ -8,54 +8,73 @@ JavaScript / TypeScript SDK for the [Swyft](https://github.com/Vatix-Protocol/Sw
 
 ```bash
 # npm
-npm install @swyft/sdk @stellar/stellar-sdk
+npm install @swyft/sdk @stellar/stellar-sdk @stellar/freighter-api
 
 # pnpm
-pnpm add @swyft/sdk @stellar/stellar-sdk
+pnpm add @swyft/sdk @stellar/stellar-sdk @stellar/freighter-api
 
 # yarn
-yarn add @swyft/sdk @stellar/stellar-sdk
+yarn add @swyft/sdk @stellar/stellar-sdk @stellar/freighter-api
 ```
 
-> `@stellar/stellar-sdk` is a **peer dependency**. Install it alongside `@swyft/sdk`.
+> `@stellar/stellar-sdk` is a **peer dependency**. Install it alongside
+> `@swyft/sdk`. `@stellar/freighter-api` is only needed by browser apps that
+> connect directly to the Freighter extension.
 
 ---
 
 ## Quick Start
 
 ```ts
-import {
-  buildSwapTx,
-  toStellarAddress,
-  toRawAmount,
-  calculateSwapQuote,
-  getPool,
-} from '@swyft/sdk';
+import { getNetwork, isConnected, requestAccess } from '@stellar/freighter-api';
+import { assertNetworkPassphrase } from '@swyft/sdk/config';
 
-// 1. Get a quick off-chain quote
-const quote = calculateSwapQuote({
-  poolId:      'CPOOL...address',
-  tokenInId:   'CUSDC...address',
-  tokenOutId:  'CXLM...address',
-  amountIn:    '1000000', // 1 USDC (6 decimals)
-  slippageBps: 50,        // 0.5 %
+const connection = await isConnected();
+const freighterInstalled = typeof connection === 'boolean' ? connection : connection.isConnected;
+if (!freighterInstalled) {
+  throw new Error('Install and enable the Freighter browser extension first.');
+}
+
+const access = await requestAccess();
+const walletAddress = typeof access === 'string' ? access : access.address;
+if (!walletAddress) {
+  throw new Error('Freighter did not grant account access.');
+}
+
+const networkResult = await getNetwork();
+const walletNetwork = typeof networkResult === 'string' ? networkResult : networkResult.network;
+if (walletNetwork.toUpperCase() !== 'TESTNET') {
+  throw new Error('Switch Freighter to Stellar Testnet before continuing.');
+}
+
+assertNetworkPassphrase({
+  networkPassphrase: 'Test SDF Network ; September 2015',
+  expected: 'testnet',
 });
 
-console.log(quote.amountOut, quote.minimumReceived);
-
-// 2. Build an unsigned swap transaction
-const tx = buildSwapTx({
-  poolId:           toStellarAddress('CPOOL...address'),
-  tokenInId:        toStellarAddress('CUSDC...address'),
-  tokenOutId:       toStellarAddress('CXLM...address'),
-  amountIn:         toRawAmount('1000000'),
-  minimumReceived:  toRawAmount(quote.minimumReceived),
-  ownerAddress:     toStellarAddress('GWALLET...address'),
-});
-
-// tx.xdr is a base-64 XDR string ready for wallet signing
-console.log(tx.xdr);
+console.log('Connected Testnet wallet:', walletAddress);
 ```
+
+This connects a wallet and applies the SDK's fail-closed Testnet passphrase
+guard. To read a deployed Swyft pool, use `getPool` from `@swyft/sdk` with the
+Testnet RPC URL and a real pool contract ID from
+`packages/contract/deployments/testnet.json`. The registry may not contain a
+pool yet; do not substitute a placeholder contract ID.
+
+### Transaction safety
+
+The quickstart intentionally stops before transaction signing or submission:
+Testnet deployments and pool addresses must exist first. Do not use
+`calculateSwapQuote` as an executable price or slippage bound; it is an
+illustrative local estimate and does not fetch live reserves. For a real trade,
+derive the minimum received from fresh on-chain state and use a transaction
+builder that sets the connected wallet as the transaction source and simulates
+the Soroban operation before signing. The SDK's current `buildSwapTx` creates
+an unsigned envelope with a generated placeholder source account, so it is not
+ready for direct Freighter signing. Do not pass its XDR or placeholder XDR from
+an example to Freighter. Have the wallet sign only after the user reviews the
+transaction details; never substitute placeholder contract IDs or allow a
+network mismatch.
 
 ---
 
