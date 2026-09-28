@@ -1,6 +1,9 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol};
 
+#[cfg(test)]
+mod test;
+
 // ── Storage keys ─────────────────────────────────────────────────────────────
 const KEY_ADMIN: Symbol = symbol_short!("ADMIN");
 const KEY_TREASURY: Symbol = symbol_short!("TREASURY");
@@ -25,6 +28,10 @@ impl FeeCollector {
 
     /// Initialises the fee collector with the admin and treasury addresses.
     pub fn initialize(env: Env, admin: Address, treasury: Address) {
+        if env.storage().instance().has(&KEY_ADMIN) {
+            panic!("fee collector already initialized");
+        }
+        admin.require_auth();
         env.storage().instance().set(&KEY_ADMIN, &admin);
         env.storage().instance().set(&KEY_TREASURY, &treasury);
         env.storage().instance().set(&KEY_FEE_ON, &false);

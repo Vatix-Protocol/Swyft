@@ -4,8 +4,12 @@
 
 | Role | Who | Powers |
 | ---- | --- | ------ |
-| **Admin** | Address set at `initialize` | Toggle fee switch, authorize/revoke pools, withdraw (`collect_protocol_fees`) |
+| **Admin** | Address set at `initialize`, and required to authorize that call | Toggle fee switch, authorize/revoke pools, withdraw (`collect_protocol_fees`) |
 | **Authorized pool** | Pool contract registered via `set_authorized_pool` | Deposit protocol fees (`deposit_protocol_fees`) |
+
+Initialization is one-time. A later caller cannot replace the admin or
+treasury, and an unauthenticated initialization leaves the collector
+uninitialized.
 
 ## Inbound collect path (pool → fee collector)
 
@@ -33,8 +37,7 @@ set_authorized_pool(pool, authorized)  // admin-only
 is_authorized_pool(pool) -> bool
 ```
 
-Implementation: `packages/contracts/fee-collector` (the legacy/orphaned
-contract tree — see [Contract Package Layout](ARCHITECTURE.md#contract-package-layout)).
-The canonical, deployed contract at `packages/contract/contracts/fee-collector`
-does not yet implement this authorization model; it is currently a stub. This
-model has not been ported to the canonical tree yet.
+Implementation: `packages/contract/contracts/fee-collector` (the canonical
+Soroban workspace). The older `packages/contracts/fee-collector` tree is
+orphaned and is not the deployment source; changes there do not affect the
+canonical contract.
