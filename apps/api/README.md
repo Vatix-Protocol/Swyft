@@ -237,10 +237,16 @@ Observability: `GET /metrics/security` → `analyticsScheduler` (see
 See `SECURITY.md` for the disclosure process and `apps/api/src/SENTRY_REDACTION_POLICY.md`
 for the full policy specification. Internal key rotation: `docs/INTERNAL_KEY_ROTATION.md`.
 Wallet trust boundary for REST handlers: `src/auth/AUTH_FLOW.md#current-wallet-decorator`.
+Dead-letter replay authz and runbook: `docs/INDEXER_DLQ_REPLAY.md`.
+`/price` WebSocket authn policy: `docs/WEBSOCKET_RECONNECT.md` ("Pool updates authn policy").
+Response compression defaults and kill switch: `docs/COMPRESSION.md`.
 
 ## Contributing (Stellar Wave)
 
 - Keep Horizon write paths and db backup/restore fail-closed; do not add best-effort writes.
 - Keep changes scoped; do not refactor unrelated code.
+- `API smoke` is a required check: it boots the full `AppModule`. Commit every file you
+  register in `app.module.ts`, and add a no-credentials assertion for any new privileged
+  route (`pnpm --filter api test:smoke`; see `docs/APP_SMOKE.md`).
 - Record every externally observable API change in `docs/API_CHANGELOG.md` before merging.
 - Flag breaking or money-path/mainnet-affecting changes and include rollback notes.
