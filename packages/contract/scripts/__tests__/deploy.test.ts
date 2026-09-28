@@ -6,7 +6,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { execFileSync } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 const SCRIPT = path.resolve(__dirname, '../deploy-testnet.sh');
@@ -90,5 +93,113 @@ describe('deploy-testnet.sh — manifest helpers', () => {
 
   it('stamps deployer address into final manifest', () => {
     expect(src).toContain('.deployer = $d');
+  });
+
+  it('stores a SHA-256 digest for each deployed contract key', () => {
+    expect(src).toContain("'.contracts[$k] = $v | .deployedAt[$k] = $t | .wasmHashes[$k] = $h'");
+    expect(src).toContain('hash=$(wasm_hash "$wasm")');
+  });
+});
+
+describe('deploy-testnet.sh — deployment manifest integration', () => {
+  it('records the deployed WASM hashes and passes clean contract IDs to oracle wiring', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'swyft-deploy-test-'));
+    try {
+      const contractsDir = path.join(tempRoot, 'packages', 'contract');
+      const scriptsDir = path.join(contractsDir, 'scripts');
+      const deploymentsDir = path.join(contractsDir, 'deployments');
+      const wasmDir = path.join(contractsDir, 'target', 'wasm32-unknown-unknown', 'release');
+      const binDir = path.join(tempRoot, 'bin');
+      fs.mkdirSync(scriptsDir, { recursive: true });
+      fs.mkdirSync(deploymentsDir, { recursive: true });
+      fs.mkdirSync(wasmDir, { recursive: true });
+      fs.mkdirSync(binDir);
+      fs.copyFileSync(SCRIPT, path.join(scriptsDir, 'deploy-testnet.sh'));
+      fs.writeFileSync(
+        path.join(deploymentsDir, 'testnet.json'),
+        JSON.stringify({ network: 'testnet', contracts: {}, deployedAt: {}, wasmHashes: {} })
+      );
+
+      const artifacts = [
+        ['mathLib', 'math_lib'],
+        ['poolFactory', 'pool_factory'],
+        ['pool', 'pool'],
+        ['clPool', 'cl_pool'],
+        ['router', 'router'],
+        ['positionNft', 'position_nft'],
+        ['feeCollector', 'fee_collector'],
+        ['oracleAdapter', 'oracle_adapter'],
+        ['clPoolOracleAdapter', 'oracle_adapter'],
+      ] as const;
+      for (const [, wasmName] of artifacts) {
+        const bytes = Buffer.from(`test artifact: ${wasmName}`);
+        fs.writeFileSync(path.join(wasmDir, `${wasmName}.wasm`), bytes);
+      }
+
+      fs.writeFileSync(
+        path.join(binDir, 'stellar'),
+        `#!/usr/bin/env bash
+set -euo pipefail
+case "$1:$2" in
+  "keys:show") exit 1 ;;
+  "keys:generate") exit 0 ;;
+  "keys:address") printf 'GTESTDEPLOYER\\n' ;;
+  "account:balance") printf '100 XLM\\n' ;;
+  "contract:build") exit 0 ;;
+  "contract:deploy")
+    count=$(cat "$TEST_DEPLOY_COUNT" 2>/dev/null || printf '0')
+    count=$((count + 1))
+    printf '%s' "$count" > "$TEST_DEPLOY_COUNT"
+    printf 'CDEPLOYED%s\\n' "$count"
+    ;;
+  "contract:invoke")
+    while (($#)); do
+      if [[ "$1" == "--id" ]]; then
+        shift
+        printf '%s\\n' "$1" >> "$TEST_INVOKED_IDS"
+      fi
+      shift
+    done
+    ;;
+  *) echo "Unexpected stellar command: $*" >&2; exit 1 ;;
+esac
+`
+      );
+      fs.writeFileSync(path.join(binDir, 'curl'), '#!/usr/bin/env bash\nexit 0\n');
+      fs.chmodSync(path.join(binDir, 'stellar'), 0o755);
+      fs.chmodSync(path.join(binDir, 'curl'), 0o755);
+
+      const invokedIdsPath = path.join(tempRoot, 'invoked-ids.txt');
+      execFileSync('bash', [path.join(scriptsDir, 'deploy-testnet.sh')], {
+        cwd: contractsDir,
+        env: {
+          ...process.env,
+          PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+          TEST_DEPLOY_COUNT: path.join(tempRoot, 'deploy-count'),
+          TEST_INVOKED_IDS: invokedIdsPath,
+        },
+        timeout: 30_000,
+      });
+
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(deploymentsDir, 'testnet.json'), 'utf8')
+      );
+      expect(manifest.deployer).toBe('GTESTDEPLOYER');
+      for (const [index, [key, wasmName]] of artifacts.entries()) {
+        expect(manifest.contracts[key]).toBe(`CDEPLOYED${index + 1}`);
+        expect(manifest.wasmHashes[key]).toBe(
+          crypto
+            .createHash('sha256')
+            .update(Buffer.from(`test artifact: ${wasmName}`))
+            .digest('hex')
+        );
+      }
+
+      const invokedIds = fs.readFileSync(invokedIdsPath, 'utf8').trim().split('\n');
+      expect(invokedIds).toHaveLength(13);
+      expect(invokedIds.every((id) => /^CDEPLOYED\d+$/.test(id))).toBe(true);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });
