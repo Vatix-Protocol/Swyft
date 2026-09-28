@@ -28,8 +28,18 @@ describe('apps/web/.env.example', () => {
     expect(envExample).toContain('NEXT_PUBLIC_API_URL_PUBLIC');
   });
 
-  it('documents NEXT_PUBLIC_SWYFT_API_KEY required by api-fetch.ts', () => {
+  it('documents the browser-visible API key without including a credential', () => {
     expect(envExample).toContain('NEXT_PUBLIC_SWYFT_API_KEY');
+    expect(envExample).toContain('visible to every visitor');
+    expect(envExample).toContain('Do not put a confidential/server-side API key here.');
+
+    const credentialAssignments = envExample
+      .split('\n')
+      .map((line) => line.match(/^\s*([A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD)[A-Z0-9_]*)=(.*)$/))
+      .filter((match): match is RegExpMatchArray => match !== null)
+      .filter((match) => match[2].trim() !== '');
+
+    expect(credentialAssignments).toEqual([]);
   });
 });
 
