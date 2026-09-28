@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId } from 'react';
 import { Token } from './types';
 import { TokenLogo } from './TokenLogo';
 
@@ -14,8 +14,6 @@ interface Props {
   onTokenClick?: () => void;
 }
 
-let swapInputIdCounter = 0;
-
 export function SwapInput({
   label,
   token,
@@ -25,7 +23,7 @@ export function SwapInput({
   onAmountChange,
   onTokenClick,
 }: Props) {
-  const [inputId] = useState(() => `swap-input-${++swapInputIdCounter}`);
+  const inputId = `swap-input-${useId()}`;
   const errorId = `${inputId}-error`;
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -95,6 +93,7 @@ export function SwapInput({
           <button
             type="button"
             onClick={() => onAmountChange?.(balance)}
+            disabled={readOnly || !onAmountChange}
             className="text-xs text-zinc-400 hover:text-indigo-500 transition-colors"
             aria-label={`Use max balance: ${balance} ${token?.symbol ?? ''}`}
           >

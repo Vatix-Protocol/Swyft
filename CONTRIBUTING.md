@@ -248,7 +248,7 @@ docs: add CONTRIBUTING.md
 
 | Layer | How to run | Expectation |
 |---|---|---|
-| Soroban contracts | `cargo test --workspace` in `packages/contract` | All tests pass |
+| Soroban contracts | `cargo test --workspace` in `packages/contract`; `pnpm validate:contracts` from the repository root | Tests pass and every contract builds for WASM |
 | NestJS API unit | `pnpm --filter api test` | All tests pass |
 | NestJS API e2e | `pnpm --filter api test:e2e` | Requires running Postgres + Redis |
 | TypeScript SDK | `pnpm --filter @swyft/sdk test` | All tests pass |

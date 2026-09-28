@@ -7,6 +7,17 @@
 const crypto = require('crypto');
 const fs = require('fs');
 
+const manifestKeysByContract = {
+  'math-lib': ['mathLib'],
+  pool: ['pool'],
+  'pool-factory': ['poolFactory'],
+  router: ['router'],
+  'position-nft': ['positionNft'],
+  'fee-collector': ['feeCollector'],
+  'oracle-adapter': ['oracleAdapter', 'clPoolOracleAdapter'],
+  'cl-pool': ['clPool'],
+};
+
 /**
  * computeWasmHash() — sha256 hex digest of a compiled .wasm file.
  * @param {string} wasmPath Absolute path to the .wasm file.
@@ -21,10 +32,8 @@ function computeWasmHash(wasmPath) {
  * detectDrift() — finds deployed contracts whose recorded wasm hash no
  * longer matches a freshly-computed hash for the same contract.
  *
- * A contract is only checked when it has BOTH a deployed address in
- * `manifest.contracts` AND a recorded hash in `manifest.wasmHashes` AND a
- * fresh hash was supplied for it — undeployed or unhashed contracts are
- * skipped rather than treated as drifted.
+ * A deployed contract is drifted when its recorded hash is missing, its fresh
+ * hash is missing, or the two hashes differ. Undeployed contracts are skipped.
  *
  * @param {{contracts?: Record<string,string>, wasmHashes?: Record<string,string>}} manifest
  * @param {Record<string,string>} freshHashesByKey Freshly computed wasm hash per manifest key.
@@ -41,9 +50,7 @@ function detectDrift(manifest, freshHashesByKey) {
 
     const recorded = recordedHashes[key];
     const fresh = freshHashesByKey[key];
-    if (!recorded || !fresh) continue;
-
-    if (recorded !== fresh) {
+    if (!recorded || !fresh || recorded !== fresh) {
       drifted.push(key);
     }
   }
@@ -51,4 +58,4 @@ function detectDrift(manifest, freshHashesByKey) {
   return drifted;
 }
 
-module.exports = { computeWasmHash, detectDrift };
+module.exports = { computeWasmHash, detectDrift, manifestKeysByContract };
