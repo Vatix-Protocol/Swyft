@@ -31,7 +31,12 @@ pub enum RouterError {
     ExcessiveInput = 6,
     /// An arithmetic overflow occurred during the swap calculation.
     Overflow = 7,
+    /// The swap deadline is farther away than the allowed maximum TTL.
+    DeadlineTooFar = 8,
 }
+
+/// Router-enforced maximum interval between ledger time and a swap deadline.
+const MAX_SWAP_DEADLINE_SECONDS: u64 = 300;
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
 
@@ -236,8 +241,12 @@ impl Router {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn ensure_deadline(env: &Env, deadline: u64) {
-    if env.ledger().timestamp() > deadline {
+    let now = env.ledger().timestamp();
+    if deadline <= now {
         panic_with_error!(env, RouterError::DeadlineExpired);
+    }
+    if deadline - now > MAX_SWAP_DEADLINE_SECONDS {
+        panic_with_error!(env, RouterError::DeadlineTooFar);
     }
 }
 

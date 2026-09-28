@@ -19,7 +19,8 @@ import type { StellarAddress, RawAmount } from './swap';
  *
  * @remarks
  * - `amount_in` must be > 0, else the router panics with ZeroAmount.
- * - `deadline` must be in the future, else the router panics with DeadlineExpired.
+ * - `deadline` must be in the future and no more than 300 seconds away, or
+ *   the router panics with DeadlineExpired or DeadlineTooFar.
  * - `amount_out` must be >= `amount_out_min`, else the router panics with SlippageExceeded.
  * - The swap is only published as an event if the slippage check passes.
  */
@@ -66,4 +67,7 @@ export enum RouterError {
   PoolNotFound = 5,
   EmptyData = 6,
   AlreadyInitialized = 7,
+  InvalidPair = 8,
+  ExactOutputUnsupported = 9,
+  DeadlineTooFar = 10,
 }

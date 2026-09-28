@@ -161,3 +161,114 @@ cache hits — treat that as a bug, not a convenience.
   privileged surfaces.
 
 See `SECURITY.md` for reporting vulnerabilities.
+
+- **If it renders something**, it goes in `apps/web` unless it's a generic, reusable component with no app-specific logic — then it belongs in `packages/ui`.
+- **If it talks to Postgres, Redis, or Horizon**, it belongs in `apps/api`, not the SDK or frontend.
+- **If both `apps/web` and an external consumer would need it** (e.g. transaction-building helpers, typed API responses), put it in `packages/sdk` rather than duplicating it.
+- Cross-cutting changes (e.g. a new field that touches a contract, the indexer, the SDK, and the UI) are fine — just split them across the relevant packages rather than reaching into another package's internals directly.
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how these pieces fit together end to end (Horizon → indexer → API → SDK → frontend).
+
+---
+
+## Branch and Commit Conventions
+
+Branch names follow the pattern:
+
+```
+<type>/<short-description>
+```
+
+Examples: `feat/multi-hop-router`, `fix/pool-tick-overflow`, `docs/update-readme`
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org):
+
+```
+<type>(<scope>): <short description>
+
+[optional body]
+
+[optional footer: closes #<issue>]
+```
+
+Valid types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`, `perf`
+
+Examples:
+```
+feat(contracts): add tick spacing to pool factory
+fix(api): prevent duplicate nonce consumption
+docs: add CONTRIBUTING.md
+```
+
+---
+
+## Pull Request Process
+
+1. Branch from `main`:
+   ```bash
+   git checkout main
+   git pull upstream main
+   git checkout -b feat/your-feature
+   ```
+2. Make your changes, including tests.
+3. Ensure CI passes locally:
+   ```bash
+   pnpm lint
+   pnpm test
+   pnpm build
+   ```
+   These scripts are Turborepo tasks — each one runs `turbo run <task>` across the
+   workspace, so a single command covers every app and package. To scope a task to
+   one package, use a pnpm filter, e.g. `pnpm --filter api test` or
+   `pnpm --filter web lint`.
+4. Push your branch and open a PR against `main`.
+5. Fill in the PR template — summary, testing steps, linked issue.
+6. One maintainer approval is required to merge.
+7. PRs are **squash-merged** — keep your commit history clean but it isn't strictly required.
+
+---
+
+## Code Standards
+
+- **TypeScript**: Strict mode enabled. Every workspace `tsconfig.json` extends [`packages/config/tsconfig.base.json`](packages/config/tsconfig.base.json) and may not turn strict flags off (`pnpm config:check`). No `any` without a comment explaining why.
+- **Rust**: `cargo clippy` must pass with no warnings. Follow standard Rust idioms.
+- **Formatting**: Run `pnpm format` before committing. Prettier config is at `.prettierrc`.
+- **Linting**: Run `pnpm lint` before committing. Each app keeps its framework preset in its own `eslint.config.mjs` and spreads the shared layer from [`packages/config/eslint.js`](packages/config/eslint.js) last. `pnpm config:check` fails CI if an app skips it or weakens a shared security rule. See [`packages/config/README.md`](packages/config/README.md).
+- **Accessibility**: Frontend components must meet WCAG 2.1 AA. Use semantic HTML and ARIA attributes where needed.
+
+---
+
+## Testing
+
+| Layer | How to run | Expectation |
+|---|---|---|
+| Soroban contracts | `cargo test --workspace` in `packages/contract`; `pnpm validate:contracts` from the repository root | Tests pass and every contract builds for WASM |
+| NestJS API unit | `pnpm --filter api test` | All tests pass |
+| NestJS API e2e | `pnpm --filter api test:e2e` | Requires running Postgres + Redis |
+| TypeScript SDK | `pnpm --filter @swyft/sdk test` | All tests pass |
+| Shared config | `pnpm config:check` and `pnpm --filter @swyft/config test` | Every workspace uses the shared TS/ESLint config |
+| Fixtures | `pnpm fixtures:check` and `pnpm test:scripts` | Fixtures are deterministic, registered and in sync. See [`fixtures/README.md`](fixtures/README.md) |
+
+New features **must** include tests. Bug fixes **should** include a regression test.
+
+---
+
+## Issue Labels
+
+| Label | Meaning |
+|---|---|
+| `good first issue` | No deep protocol knowledge needed |
+| `bounty` | Financial reward attached |
+| `contracts` | Soroban / Rust work |
+| `backend` | NestJS / API work |
+| `frontend` | Next.js / React work |
+| `sdk` | TypeScript SDK work |
+| `docs` | Documentation |
+| `bug` | Something is broken |
+| `enhancement` | New feature or improvement |
+
+---
+
+## Questions?
+
+Open a [GitHub Discussion](https://github.com/Vatix-Protocol/Swyft/discussions) — the maintainer and community are there to help.

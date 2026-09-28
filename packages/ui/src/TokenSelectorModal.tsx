@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { Token } from './types';
@@ -68,35 +68,37 @@ export function TokenSelectorModal({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      setQuery('');
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }, [open]);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const q = query.toLowerCase();
   const filtered = tokens.filter(
     (t) => t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q)
   );
 
-  const recent = recentIds
+  const recent = [...new Set(recentIds)]
     .map((id) => tokens.find((t) => t.id === id))
     .filter((t): t is Token => !!t && t.id !== selected?.id);
 
-  const list: Token[] =
-    q.length > 0 ? filtered : [...recent, ...filtered.filter((t) => !recentIds.includes(t.id))];
+  const recentIdsSet = new Set(recent.map((token) => token.id));
+  const allTokens =
+    q.length > 0 ? filtered : filtered.filter((token) => !recentIdsSet.has(token.id));
+  const list = q.length > 0 ? filtered : [...recent, ...allTokens];
 
   function handleSelect(token: Token) {
     onSelect(token);
     setOpen(false);
   }
 
+  function getTokenButtons() {
+    return contentRef.current?.querySelectorAll<HTMLButtonElement>(
+      'button[data-token]:not(:disabled)'
+    );
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLUListElement>) {
-    const items = e.currentTarget.querySelectorAll<HTMLButtonElement>('button[data-token]');
-    const focused = document.activeElement as HTMLElement;
-    const idx = Array.from(items).indexOf(focused as HTMLButtonElement);
+    const items = getTokenButtons();
+    if (!items?.length) return;
+    const idx = Array.from(items).indexOf(document.activeElement as HTMLButtonElement);
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       items[Math.min(idx + 1, items.length - 1)]?.focus();
@@ -104,25 +106,31 @@ export function TokenSelectorModal({
       e.preventDefault();
       if (idx <= 0) inputRef.current?.focus();
       else items[idx - 1]?.focus();
-    } else if (e.key === 'Escape') {
+    } else if (e.key === 'Home') {
       e.preventDefault();
-      setOpen(false);
+      items[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      items[items.length - 1]?.focus();
     }
   }
 
   function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      const items = document.querySelectorAll<HTMLButtonElement>('button[data-token]');
-      items[0]?.focus();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setOpen(false);
+      const items = getTokenButtons();
+      items?.[0]?.focus();
     }
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) setQuery('');
+      }}
+    >
       <Dialog.Trigger asChild>
         <button
           disabled={loading}
@@ -153,6 +161,11 @@ export function TokenSelectorModal({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content
+          ref={contentRef}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            inputRef.current?.focus();
+          }}
           className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-zinc-200 bg-white shadow-xl focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
           aria-describedby={undefined}
         >
@@ -176,58 +189,53 @@ export function TokenSelectorModal({
 
           <div className="max-h-80 overflow-y-auto">
             {loading ? (
-              <div className="flex items-center justify-center py-12">
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-center justify-center py-12"
+              >
                 <span
                   className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent"
-                  aria-label="Loading tokens"
+                  aria-hidden="true"
                 />
+                <span className="sr-only">Loading tokens</span>
               </div>
             ) : list.length === 0 ? (
-              <p className="py-10 text-center text-sm text-zinc-400">No tokens found</p>
+              <p role="status" className="py-10 text-center text-sm text-zinc-400">
+                No tokens found
+              </p>
             ) : (
-              <ul role="listbox" aria-label={label} onKeyDown={handleKeyDown} className="p-2">
+              <ul aria-label={label} onKeyDown={handleKeyDown} className="p-2">
                 {!q && recent.length > 0 && (
                   <li className="px-2 pb-1 pt-2 text-xs font-medium text-zinc-400 uppercase tracking-wide">
                     Recent
                   </li>
                 )}
-                {list.map((token, i) => {
-                  const isRecent = !q && i < recent.length;
-                  const isFirstNonRecent = !q && i === recent.length && recent.length > 0;
-                  return (
-                    <>
-                      {isFirstNonRecent && (
-                        <li
-                          key={`sep-${token.id}`}
-                          className="px-2 pb-1 pt-2 text-xs font-medium text-zinc-400 uppercase tracking-wide"
-                        >
-                          All tokens
-                        </li>
-                      )}
-                      <li key={token.id} role="option" aria-selected={token.id === selected?.id}>
-                        <button
-                          data-token
-                          onClick={() => handleSelect(token)}
-                          disabled={token.id === selected?.id}
-                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-zinc-100 focus:outline-none focus-visible:bg-zinc-100 disabled:opacity-40 dark:hover:bg-zinc-800 dark:focus-visible:bg-zinc-800 transition-colors"
-                        >
-                          <TokenLogo token={token} size={32} />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-zinc-900 dark:text-white">
-                              {token.symbol}
-                            </p>
-                            <p className="truncate text-xs text-zinc-400">{token.name}</p>
-                          </div>
-                          {balances[token.id] && (
-                            <span className="text-xs text-zinc-500 dark:text-zinc-400 tabular-nums">
-                              {balances[token.id]}
-                            </span>
-                          )}
-                        </button>
-                      </li>
-                    </>
-                  );
-                })}
+                {recent.map((token) => (
+                  <li key={token.id}>
+                    <TokenOption
+                      token={token}
+                      selected={selected}
+                      balances={balances}
+                      onSelect={handleSelect}
+                    />
+                  </li>
+                ))}
+                {!q && recent.length > 0 && allTokens.length > 0 && (
+                  <li className="px-2 pb-1 pt-2 text-xs font-medium text-zinc-400 uppercase tracking-wide">
+                    All tokens
+                  </li>
+                )}
+                {allTokens.map((token) => (
+                  <li key={token.id}>
+                    <TokenOption
+                      token={token}
+                      selected={selected}
+                      balances={balances}
+                      onSelect={handleSelect}
+                    />
+                  </li>
+                ))}
               </ul>
             )}
           </div>
@@ -252,5 +260,39 @@ export function TokenSelectorModal({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+function TokenOption({
+  token,
+  selected,
+  balances,
+  onSelect,
+}: {
+  token: Token;
+  selected: Token | null;
+  balances: Record<string, string>;
+  onSelect: (token: Token) => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-token
+      onClick={() => onSelect(token)}
+      disabled={token.id === selected?.id}
+      aria-pressed={token.id === selected?.id}
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-zinc-100 focus:outline-none focus-visible:bg-zinc-100 dark:hover:bg-zinc-800 dark:focus-visible:bg-zinc-800 transition-colors"
+    >
+      <TokenLogo token={token} size={32} />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-zinc-900 dark:text-white">{token.symbol}</p>
+        <p className="truncate text-xs text-zinc-400">{token.name}</p>
+      </div>
+      {balances[token.id] && (
+        <span className="text-xs text-zinc-500 dark:text-zinc-400 tabular-nums">
+          {balances[token.id]}
+        </span>
+      )}
+    </button>
   );
 }
