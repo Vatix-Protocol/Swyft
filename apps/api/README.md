@@ -1,265 +1,114 @@
 # Swyft API
 
-NestJS API for the Swyft liquidity/trading/settlement surface. This service is the
-source of truth for balances, swaps, and admin actions; clients are never trusted
-to enforce policy.
+The Swyft API is the HTTP entrypoint for the Swyft trading/liquidity surface. It exposes
+health and readiness probes used by orchestrators (Kubernetes, load balancers, CI smoke
+tests) and by Stellar Wave contributors running the stack locally.
 
-## Getting started
+## Health vs. readiness
 
-```bash
-pnpm install
-pnpm --filter @vatix/api start:dev
+Liveness and readiness are intentionally **separate** endpoints. They answer different
+questions and must not be conflated:
+
+| Endpoint        | Purpose   | Dependency checks | Failure semantics |
+| --------------- | --------- | ----------------- | ----------------- |
+| `GET /health`       | Liveness  | None              | Process is up and the event loop is responsive. Always `200` while the process is alive. |
+| `GET /health/ready` | Readiness | Critical dependencies (DB, Redis, RPC) | `200` only when **all** critical dependencies are reachable. Otherwise non-2xx (fail-closed). |
+
+### Why they are separate
+
+- **Liveness must stay dependency-free.** A transient DB/Redis/RPC outage must not cause
+  the orchestrator to kill and restart a healthy process. Restarting does not fix a
+  downstream outage and only amplifies it.
+- **Readiness must fail-closed.** If a critical dependency is unavailable, the instance
+  must be removed from rotation so it cannot serve writes against partial/degraded state.
+  Readiness never reports `ready` on a degraded dependency set for write paths.
+
+## `GET /health` (liveness)
+
+- No dependency checks, no I/O.
+- Returns `200` with a minimal, typed payload.
+- Safe to poll at high frequency.
+
+## `GET /health/ready` (readiness)
+
+- Checks each critical dependency (DB, Redis, RPC).
+- Returns `200` **only** when every critical dependency is reachable.
+- Returns a non-2xx status (e.g. `503`) when any critical dependency is unavailable.
+- The response body is a **typed DTO** with a stable error code and a correlation id —
+  never an ad-hoc stringly-typed payload.
+
+### Response shape
+
+Ready (all dependencies healthy):
+
+```json
+{
+  "status": "ready",
+  "correlationId": "<uuid>",
+  "checks": {
+    "db": "up",
+    "redis": "up",
+    "rpc": "up"
+  }
+}
 ```
 
-## Configuration
+Not ready (fail-closed, non-2xx):
 
-All configuration is read from the environment at boot. Missing or malformed
-values fail closed: the process refuses to start rather than running with an
-unsafe default.
-
-| Variable                  | Purpose                                                      |
-| ------------------------- | ------------------------------------------------------------ |
-| `DATABASE_URL`            | Postgres connection string.                                  |
-| `REDIS_URL`               | Redis connection string (rate limiting, idempotency).        |
-| `STELLAR_NETWORK`         | `testnet` or `mainnet`. Drives address/network drift checks. |
-| `SENTRY_DSN`              | Sentry DSN. When unset, Sentry is disabled.                  |
-| `SENTRY_REDACTION_POLICY` | Redaction policy applied to every Sentry event. See below.   |
-
-## API changelog
-
-The canonical API changelog lives at [`docs/API_CHANGELOG.md`](../../docs/API_CHANGELOG.md).
-It is the source of truth for the public API contract: stable error codes, entrypoint
-signatures, authz/scope changes, and migration notes.
-
-Discipline rules (see the changelog for the full policy):
-
-- Every externally observable API change gets an entry with the required fields
-  (date, version, change type, affected endpoints/entrypoints, error codes,
-  authz/scope impact, migration notes, rollback/flag status).
-- Breaking changes and money-path or mainnet-affecting changes must be flagged and
-  must include rollback notes before they land.
-- Error codes are part of the public contract and must not be renamed without a
-  migration entry.
-
-When a change touches authz or secret handling, cross-link the relevant entry to
-`SECURITY.md` so reviewers can trace the policy impact.
-
-## Horizon service
-
-The Horizon service lives in `apps/api/src/horizon/`. It exposes typed entrypoints for
-Horizon-backed operations and is the source of truth for balances, swaps, and admin actions.
-
-### Fail-closed write semantics
-
-All Horizon **write** operations are fail-closed. If a required dependency is unavailable,
-the write is rejected rather than partially applied:
-
-- **RPC / Horizon outage** — writes return `HORIZON_UNAVAILABLE` and are not retried blindly.
-  Retries are only attempted for idempotent, explicitly retryable operations.
-- **DB outage** — writes return `DB_UNAVAILABLE`; no in-memory state is treated as committed.
-- **Redis outage** — idempotency/lock state is unavailable, so writes return `REDIS_UNAVAILABLE`
-  instead of proceeding without dedupe guarantees.
-
-Reads may degrade gracefully; writes never do.
+```json
+{
+  "status": "not_ready",
+  "code": "DEPENDENCY_UNAVAILABLE",
+  "correlationId": "<uuid>",
+  "checks": {
+    "db": "up",
+    "redis": "down",
+    "rpc": "up"
+  }
+}
+```
 
 ### Stable error codes
 
-Horizon entrypoints return stable, machine-readable error codes so clients can react
-predictably. Every error response includes a `correlationId` for tracing across logs and
-metrics. Codes are part of the public contract and must not be renamed without a migration.
+Readiness failures use stable, machine-readable codes so callers and dashboards can
+react deterministically:
 
-### Idempotency
+| Code                       | Meaning                                                        |
+| -------------------------- | -------------------------------------------------------------- |
+| `DEPENDENCY_UNAVAILABLE`   | One or more critical dependencies are unreachable.             |
+| `DEPENDENCY_TIMEOUT`       | A dependency check exceeded its deadline.                      |
+| `READINESS_CHECK_FAILED`   | Readiness could not be determined (unexpected internal error). |
 
-Concurrent or replayed Horizon write requests must be idempotent. Clients supply an
-idempotency key; the service dedupes on that key and returns the original result for
-replays. If the dedupe store is unavailable, the write fails closed (see above).
-
-### Authorization
-
-Horizon entrypoints are deny-by-default. Untrusted clients cannot bypass policy:
-
-- Every external entrypoint is authenticated and authorized before any state change.
-- New privileged surfaces default to denied until explicitly granted.
-- Expired credentials or wrong roles are rejected with stable auth error codes.
-
-### Observability
-
-Horizon emits ops-safe metrics and structured logs on money paths (writes, retries,
-fail-closed rejections). Logs and metrics never include secrets, tokens, or raw
-credentials. Correlation ids tie client requests to server-side traces.
-
-### Feature flags / kill switch
-
-Money-path or mainnet-affecting Horizon changes must land behind a feature flag or kill
-switch. Document the rollback procedure in the PR description before enabling on mainnet.
-
-## Database backup & restore
-
-The API ships operational scripts for database backup and restore:
-
-- `apps/api/scripts/db-backup.sh` — creates a consistent, timestamped database backup.
-- `apps/api/scripts/db-restore.sh` — restores a database from a backup artifact.
-
-### Fail-closed semantics
-
-Backup and restore are privileged, money-path-adjacent operations and are **fail-closed**:
-
-- If the database or object storage dependency is unavailable, the operation aborts with a
-  non-zero exit code rather than producing a partial or unverified artifact.
-- Restore refuses to run against a target it cannot fully verify; a failed restore never
-  leaves the database in a half-applied state.
-- Writes are never treated as committed on dependency outage.
-
-### Stable error codes
-
-Both scripts emit stable, machine-readable error codes on failure so operators and CI can
-react predictably. Every invocation is tagged with a `correlationId` (echoed in logs) so a
-backup/restore can be traced end-to-end. Codes are part of the operational contract and must
-not be renamed without a migration.
-
-### Idempotency
-
-Backup and restore are safe to re-run:
-
-- Backups are content-addressed/timestamped; re-running produces a new artifact without
-  corrupting prior ones.
-- Restore is idempotent for a given backup artifact — replaying the same restore converges to
-  the same state and does not double-apply.
-- Concurrent invocations are serialized via a lock; if the lock store is unavailable the
-  operation fails closed instead of racing.
-
-### Authorization
-
-These scripts are deny-by-default privileged surfaces:
-
-- Credentials are read from the environment only — never hardcoded and never committed.
-- Untrusted callers cannot bypass policy; the scripts require the appropriate role/credentials
-  before touching the database.
-- Missing or expired credentials cause a fail-closed abort with a stable auth error code.
-
-### Observability
-
-Backup/restore emit ops-safe logs and metrics (start, success, failure, duration, artifact
-size). Logs and metrics never include secrets, tokens, connection strings, or raw credentials.
-The `correlationId` ties each run to its logs and metrics.
-
-### Feature flags / kill switch
-
-Any mainnet-affecting backup/restore change must land behind a feature flag or kill switch.
-Document the rollback procedure in the PR description before enabling on mainnet.
-
-## Sentry redaction policy
-
-`SENTRY_REDACTION_POLICY` controls how outbound Sentry events are scrubbed before
-they leave the process. The policy is **server-owned**: it is read from the
-environment at boot and cannot be overridden by request headers, query params,
-or any other client-controlled input. There is no client opt-out.
-
-Behavior is deny-by-default and fail-closed:
-
-- Every event passes through the redaction pipeline before transport.
-- Fields not explicitly allow-listed are redacted, not forwarded.
-- Unknown or malformed policy values cause the process to fail closed at boot
-  (stable error code `SENTRY_REDACTION_POLICY_INVALID`) rather than silently
-  degrading to an unredacted transport.
-- Redaction failures drop the event and emit an ops-safe counter; they never
-  fall back to sending the raw payload.
-
-### Invariants
-
-1. No secret, token, credential, or PII value is ever serialized into an event
-   that reaches the Sentry transport.
-2. The policy is resolved once at boot and is immutable for the process
-   lifetime; there is no runtime path that widens it.
-3. Untrusted clients cannot influence the policy, the allow-list, or the
-   redaction outcome.
-4. Redaction is applied to the full event envelope (message, exception values,
-   breadcrumbs, request data, tags, and extra), not just the top-level message.
-
-### Observability
-
-Redaction emits counters and structured logs that are safe to ship:
-
-- `sentry.redaction.applied` — events scrubbed.
-- `sentry.redaction.dropped` — events dropped because redaction failed.
-- `sentry.redaction.policy_invalid` — boot-time policy rejection.
-
-Logs include a correlation id and the redacted field paths only. They never
-include the redacted values themselves.
-
-### Rollback
-
-Redaction is always on and is not gated behind a feature flag, because disabling
-it would leak secrets. To roll back a bad policy change, revert the environment
-value and restart; the process fails closed on invalid input, so a bad value
-cannot silently disable redaction.
-
-## Analytics scheduler
-
-`src/admin/analytics.scheduler.ts` recomputes the admin analytics cache on a
-BullMQ job scheduler (#1031).
-
-### Invariants
-
-- **One scheduler for the fleet.** All replicas upsert the fixed id
-  `analytics-refresh-scheduler`, so N instances produce one recompute per
-  interval. Worker concurrency is 1, so runs never overlap within a process.
-- **Bounded Redis footprint.** Completed jobs are kept for at most 5 / 24h,
-  failed jobs for at most 50 / 7d (previously failed jobs were kept forever).
-- **Bounded metric cardinality.** Run outcomes and failure reasons are fixed
-  enums; job ids and correlation ids (`analytics-refresh:<jobId>`) appear only
-  in logs.
-- **Fail-closed.** A failed recompute marks the job failed and writes no
-  partial analytics; the next interval retries. A Redis outage at boot
-  leaves the scheduler in state `unavailable` without blocking the API.
-- **No secrets in logs.** Errors are logged by name and stable code only.
-
-### Metric semantics
-
-- Volume windows use event timestamps and half-open UTC time ranges
-  `[now - interval, now)`, so future-dated events are excluded and boundary
-  behavior is deterministic.
-- Swap amounts and fees are converted from token base units using indexed
-  token decimals before applying USD prices. Missing prices or token metadata
-  fail the computation; the API does not substitute a `$1` price.
-- Historical swap amounts are valued using the latest cached USD price feed,
-  because execution-time USD prices are not stored with swap records.
-- `GET /admin/analytics/volume?interval=1d|7d|30d` returns per-UTC-day USD
-  buckets. `1d` is a rolling 24-hour window, not the current calendar day.
-
-### Configuration / kill switch
-
-| Variable                        | Default  | Notes                                                                                                                                                                     |
-| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ANALYTICS_SCHEDULER_ENABLED`   | `true`   | `false`/`0`/`off`/`no` starts no worker and removes the scheduler from Redis. Set it on **every** instance, since any enabled instance re-registers the scheduler on boot |
-| `ANALYTICS_REFRESH_INTERVAL_MS` | `900000` | Clamped to `[60000, 86400000]`; invalid values fall back to the default                                                                                                   |
-
-Rollback: set `ANALYTICS_SCHEDULER_ENABLED=false` and restart; admin
-analytics endpoints still serve from cache/DB on demand.
-
-Observability: `GET /metrics/security` → `analyticsScheduler` (see
-`src/metrics/METRICS_ENDPOINTS.md`).
+Codes are part of the public contract; do not rename them without a versioned change.
 
 ## Security
 
-- Server/contract remains the source of truth for balances, swaps, and admin.
-- No secrets in the repo or in logs.
-- Every external entrypoint is rate-limited and authorized.
-- New privileged surfaces are deny-by-default.
+- Health responses **never** include secrets, connection strings, credentials, or
+  internal hostnames. Only coarse `up`/`down` states and stable codes are exposed.
+- Logs and metrics emitted by the health path follow the same rule: no secrets, no
+  connection strings, no internal hostnames.
+- Readiness is safe to expose to untrusted clients because it leaks no sensitive
+  topology; still, rate-limit and authorize external entrypoints per the API policy.
+- The server remains the source of truth for balances, swaps, and admin. Health
+  endpoints never mutate state.
 
-See `SECURITY.md` for the disclosure process and `apps/api/src/SENTRY_REDACTION_POLICY.md`
-for the full policy specification. Internal key rotation: `docs/INTERNAL_KEY_ROTATION.md`.
-Wallet trust boundary for REST handlers: `src/auth/AUTH_FLOW.md#current-wallet-decorator`.
-Dead-letter replay authz and runbook: `docs/INDEXER_DLQ_REPLAY.md`.
-`/price` WebSocket authn policy: `docs/WEBSOCKET_RECONNECT.md` ("Pool updates authn policy").
-Response compression defaults and kill switch: `docs/COMPRESSION.md`.
+## Observability
 
-## Contributing (Stellar Wave)
+- Readiness transitions are logged with the correlation id and the failing dependency
+  name (coarse state only).
+- Metrics track readiness state and per-dependency check outcomes so on-call can act on
+  money-path availability without inspecting payloads.
 
-- Keep Horizon write paths and db backup/restore fail-closed; do not add best-effort writes.
-- Keep changes scoped; do not refactor unrelated code.
-- `API smoke` is a required check: it boots the full `AppModule`. Commit every file you
-  register in `app.module.ts`, and add a no-credentials assertion for any new privileged
-  route (`pnpm --filter api test:smoke`; see `docs/APP_SMOKE.md`).
-- Record every externally observable API change in `docs/API_CHANGELOG.md` before merging.
-- Flag breaking or money-path/mainnet-affecting changes and include rollback notes.
+## Orchestrator wiring
+
+- `livenessProbe` → `GET /health`
+- `readinessProbe` → `GET /health/ready`
+
+Do not point the liveness probe at `/health/ready`; doing so reintroduces the
+restart-on-dependency-outage failure mode described above.
+
+## Rollback / kill-switch
+
+Readiness gating is safe to disable by pointing the readiness probe at `/health` if a
+false-negative dependency check is suspected. Document the change in the PR and restore
+fail-closed readiness once the dependency check is corrected.

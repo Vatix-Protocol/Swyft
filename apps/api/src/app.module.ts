@@ -27,6 +27,7 @@ import { FeeCollectorModule } from './fee-collector/fee-collector.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { BalancesModule } from './balances/balances.module';
 import { WebsocketModule } from './websocket/websocket.module';
+import { HealthModule } from './health/health.module';
 import { stellarConfig, resolveStellarConfig, stellarConfigSummary } from './config/stellar.config';
 import { infraConfig } from './config/infra.config';
 import { resolveCorsConfig } from './config/cors.config';
@@ -79,6 +80,12 @@ import { resolveRouterConfig, routerConfigSummary } from './config/router.config
     // AuthModule so the reconnect guard can resolve the auth service and
     // fail closed when dependencies are unavailable.
     WebsocketModule,
+    // Health/ready separation (issue #1081): liveness (/health) stays
+    // dependency-free while readiness (/health/ready) reflects critical
+    // dependency availability (DB/Redis/RPC) and fails closed with a stable
+    // typed error code when any critical dependency is unavailable. No
+    // secrets, connection strings, or internal hostnames are exposed.
+    HealthModule,
   ],
 })
 export class AppModule implements NestModule {
