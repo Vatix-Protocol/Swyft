@@ -256,6 +256,24 @@ export function SwapConfirmModal(props: Props) {
           )}
 
           {/* Error states */}
+          {status === 'error' && error === 'rejected' && (
+            <div
+              role="alert"
+              className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800"
+            >
+              <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Signature rejected. Nothing was submitted. Review the transaction and try again.
+              </p>
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="mt-2 text-xs font-semibold text-indigo-600 underline hover:text-indigo-800 dark:text-indigo-400"
+              >
+                Review and try again
+              </button>
+            </div>
+          )}
+
           {status === 'error' && error === 'slippage' && (
             <div
               role="alert"

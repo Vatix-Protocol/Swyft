@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { buildBurnTx, buildCollectTx } from '@swyft/sdk';
 import type { PositionSnapshot } from '@swyft/ui';
 import { API_BASE } from '@/lib/constants';
+import { isWalletRejection } from '@/lib/wallet-errors';
 
 /** Lifecycle status of a remove-liquidity or collect-fees transaction. */
 export type TxStatus = 'idle' | 'signing' | 'submitting' | 'success' | 'error';
@@ -92,8 +93,7 @@ export function useRemoveLiquidity(
       // Route through the wallet-context signer so Freighter and xBull
       // both work without this hook knowing which wallet is active.
       const signedXdr = await signXdr(xdr).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : '';
-        if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
+        if (isWalletRejection(err)) {
           return null;
         }
         throw err;
@@ -112,7 +112,7 @@ export function useRemoveLiquidity(
       const txError: TxError =
         msg === 'already_closed'
           ? 'already_closed'
-          : msg.includes('reject') || msg.includes('cancel')
+          : isWalletRejection(e)
             ? 'rejected'
             : 'network';
       setState({ status: 'error', txError, txHash: null });
@@ -141,8 +141,7 @@ export function useRemoveLiquidity(
       });
 
       const signedXdr = await signXdr(xdr).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : '';
-        if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
+        if (isWalletRejection(err)) {
           return null;
         }
         throw err;
@@ -161,7 +160,7 @@ export function useRemoveLiquidity(
       const txError: TxError =
         msg === 'already_closed'
           ? 'already_closed'
-          : msg.includes('reject') || msg.includes('cancel')
+          : isWalletRejection(e)
             ? 'rejected'
             : 'network';
       setState({ status: 'error', txError, txHash: null });

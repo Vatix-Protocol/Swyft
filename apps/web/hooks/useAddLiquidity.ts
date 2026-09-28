@@ -5,6 +5,7 @@ import { buildAddLiquidityTx } from '@swyft/sdk';
 import type { PoolDetail } from './usePoolTicks';
 import { API_BASE } from '@/lib/constants';
 import { useNetworkContext } from '@/context/NetworkContext';
+import { isWalletRejection } from '@/lib/wallet-errors';
 
 const TICK_BASE = 1.0001;
 const MIN_TICK = -887272;
@@ -299,9 +300,8 @@ export function useAddLiquidity() {
         // Route through the wallet-context signer so Freighter and xBull
         // both work without this hook knowing which wallet is active.
         const signedXdr = await signXdr(xdr).catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : '';
-          if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
-            return null; // user rejected
+          if (isWalletRejection(err)) {
+            return null;
           }
           throw err;
         });
@@ -342,11 +342,10 @@ export function useAddLiquidity() {
           positionNftId: null,
         }));
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'unknown';
         setState((s) => ({
           ...s,
           txStatus: 'error',
-          txError: msg.toLowerCase().includes('reject') ? 'rejected' : 'network',
+          txError: isWalletRejection(e) ? 'rejected' : 'network',
         }));
       }
     },

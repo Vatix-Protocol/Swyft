@@ -8,6 +8,7 @@ use soroban_sdk::{contract, contractimpl, contracttype, contracterror, symbol_sh
 enum DataKey {
     Initialized,
     Factory,
+    Admin,
 }
 
 #[contracttype]
@@ -93,15 +94,17 @@ impl Router {
         Symbol::new(&_env, "router")
     }
 
-    /// Initialize the router with the address of the pool factory contract.
+    /// Initialize the router once with an administrator-controlled factory.
     ///
     /// # Arguments
     /// * `env` — Soroban environment context.
+    /// * `admin` — Account authorized to choose the trusted pool factory.
     /// * `factory` — Address of the pool factory contract used to resolve pools.
     ///
     /// # Panics
-    /// Panics if the router has already been initialized.
-    pub fn initialize(env: Env, factory: Address) {
+    /// Panics if the router has already been initialized or `admin` does not
+    /// authorize the configuration.
+    pub fn initialize(env: Env, admin: Address, factory: Address) {
         if env
             .storage()
             .instance()
@@ -110,12 +113,14 @@ impl Router {
         {
             panic_router(&env, RouterError::AlreadyInitialized);
         }
+        admin.require_auth();
         env.storage()
             .instance()
             .set(&DataKey::Initialized, &true);
         env.storage()
             .instance()
             .set(&DataKey::Factory, &factory);
+        env.storage().instance().set(&DataKey::Admin, &admin);
     }
 
     /// Return the current factory contract address stored by the router.
@@ -135,6 +140,14 @@ impl Router {
             .unwrap_or_else(|| panic_router(&env, RouterError::NotInitialized))
     }
 
+    /// Return the administrator that selected the router's trusted factory.
+    pub fn get_admin(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_router(&env, RouterError::NotInitialized))
+    }
+
     /// Swap an exact amount of `token_in` for at least `amount_out_min` of `token_out`.
     ///
     /// Slippage boundary: the swap succeeds when `amount_out >= amount_out_min`
@@ -148,7 +161,7 @@ impl Router {
     ///   * `token_in` — Address of the token to sell.
     ///   * `token_out` — Address of the token to buy.
     ///   * `fee` — Pool fee tier to route through.
-    ///   * `recipient` — Address receiving the output tokens.
+    ///   * `recipient` — Authenticated swap funder/receiver; never a callback target.
     ///   * `deadline` — Unix timestamp after which the swap reverts.
     ///   * `amount_in` — Exact amount of input tokens to swap.
     ///   * `amount_out_min` — Minimum acceptable output amount (inclusive boundary).
@@ -207,7 +220,7 @@ impl Router {
     ///   * `token_in` — Address of the token to sell.
     ///   * `token_out` — Address of the token to buy.
     ///   * `fee` — Pool fee tier to route through.
-    ///   * `recipient` — Address receiving the output tokens.
+    ///   * `recipient` — Authenticated swap funder/receiver; never a callback target.
     ///   * `deadline` — Unix timestamp after which the swap reverts.
     ///   * `amount_out` — Exact amount of output tokens desired.
     ///   * `amount_in_max` — Maximum acceptable input amount.

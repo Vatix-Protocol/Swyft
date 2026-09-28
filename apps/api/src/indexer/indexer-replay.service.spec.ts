@@ -125,6 +125,7 @@ describe('IndexerReplayService — dead-letter replay', () => {
       undefined,
       500,
       true,
+      { failClosed: true },
     );
     expect(poolCreatedQueue.add).toHaveBeenCalled();
     expect(summary.total).toBe(1);

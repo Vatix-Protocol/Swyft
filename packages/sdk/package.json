@@ -72,6 +72,12 @@
       "import": "./dist/esm/position-math.mjs",
       "require": "./dist/cjs/position-math.js"
     },
+    "./errors": {
+      "types": "./dist/types/errors.d.mts",
+      "browser": "./dist/esm/errors.mjs",
+      "import": "./dist/esm/errors.mjs",
+      "require": "./dist/cjs/errors.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -87,6 +93,7 @@
   "scripts": {
     "build": "tsup",
     "build:check": "tsc --noEmit",
+    "size:check": "node scripts/check-bundle-budget.mjs",
     "clean": "rimraf dist",
     "test": "jest",
     "test:cov": "jest --coverage",

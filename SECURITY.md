@@ -45,6 +45,7 @@ Swyft is a non-custodial interface to the Stellar network. The following invaria
 For the monorepo layout, package responsibilities, and the trust boundaries between the web client, API, and on-chain contracts, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). That document is the canonical overview; this policy describes the security controls that enforce its boundaries.
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components, packages, and data flows across the monorepo.
+- [`docs/THREAT_MODEL_CL_DEX.md`](docs/THREAT_MODEL_CL_DEX.md) — assets, trust boundaries, threats, controls, and release checklist for the concentrated-liquidity DEX.
 - [`README.md`](README.md) — project overview and contributor entrypoint.
 - [`docs/CONTRACTS.md`](docs/CONTRACTS.md) — on-chain contract interfaces and the source-of-truth guarantees they provide.
 
@@ -82,6 +83,10 @@ Deployment and operational procedures are security-sensitive. The executable run
 - [`docs/DEPLOY_API.md`](docs/DEPLOY_API.md) — API deploy runbook: preflight checks, required environment variables, verification, and rollback.
 - [`docs/OPS_DEPLOYMENT.md`](docs/OPS_DEPLOYMENT.md) — ops deployment procedures: health checks, fail-closed behavior on RPC/DB/Redis outage, rollback, and kill-switch.
 - [`docs/INTERNAL_KEY_ROTATION.md`](docs/INTERNAL_KEY_ROTATION.md) — rotating and revoking `x-internal-key` secrets (`INTERNAL_API_KEY`, `FEE_COLLECTOR_AUTH`, `TESTNET_REDEPLOY_AUTH`) with a bounded, fail-closed rotation window.
+- [`docs/INDEXER_DLQ_REPLAY.md`](docs/INDEXER_DLQ_REPLAY.md) — dead-letter replay: `INTERNAL_API_KEY`-only authz, kill switch plus a separate mainnet opt-in, rate limit, idempotency, and fail-closed on DLQ store outage.
+- [`docs/WEBSOCKET_RECONNECT.md#pool-updates-authn-policy-price`](docs/WEBSOCKET_RECONNECT.md#pool-updates-authn-policy-price) — `/price` WebSocket authn policy: required by default, opt-in anonymous read-only mode, and invalid tokens never downgraded.
+- [`docs/COMPRESSION.md`](docs/COMPRESSION.md) — response compression safe defaults, including BREACH exclusions for auth responses.
+- [`docs/APP_SMOKE.md`](docs/APP_SMOKE.md) — required `API smoke` CI check: the app boots and privileged routes stay deny-by-default.
 - [`apps/api/src/auth/AUTH_FLOW.md#current-wallet-decorator`](apps/api/src/auth/AUTH_FLOW.md#current-wallet-decorator) — trust boundary for the authenticated wallet injected into REST handlers.
 
 Operators must follow these runbooks exactly. Deploy entrypoints are privileged surfaces and are deny-by-default: they require an authenticated operator role and are gated behind a feature flag / kill-switch so a money-path or mainnet-affecting change can be disabled without a redeploy.

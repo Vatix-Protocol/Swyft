@@ -4,12 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 import { buildSwapTx, buildExactOutputSwapTx, toRawAmount, toStellarAddress } from '@swyft/sdk';
 import type { SwapQuote, ExactOutputQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
-import { API_BASE, ROUTER_ADDRESS, getNetworkPassphrase } from '@/lib/constants';
+import { ROUTER_ADDRESS, getApiBase, getNetworkPassphrase } from '@/lib/constants';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { useWalletContext } from '@/context/WalletContext';
 import { useTransactionStatus } from '@/context/TransactionStatusContext';
 import { submitTransaction, MevSubmissionError } from '@/lib/mev-submission';
 import { useMevProtection } from './useMevProtection';
+import { isWalletRejection, WALLET_REJECTION_MESSAGE } from '@/lib/wallet-errors';
 
 export type SwapStatus = 'idle' | 'signing' | 'submitting' | 'success' | 'error';
 export type SwapError = 'rejected' | 'slippage' | 'network' | null;
@@ -49,7 +50,6 @@ const ERROR_MESSAGES: Record<Exclude<SwapError, null>, string> = {
 };
 
 export function useSwapExecution() {
-  const { network } = useNetworkContext();
   const { reportTx } = useTransactionStatus();
   const { enabled: mevEnabled, mevRpcUrl } = useMevProtection();
   // Route all signing through the wallet context so xBull and Freighter both work.
@@ -112,15 +112,14 @@ export function useSwapExecution() {
       // The network passphrase is passed for wallets that need it (Freighter);
       // xBull reads it from the XDR envelope directly.
       const signedXdr = await signTransaction(xdr).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : '';
-        if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
-          return null; // user rejected — handled below
+        if (isWalletRejection(err)) {
+          return null;
         }
         throw err;
       });
 
       if (!signedXdr) {
-        setResult({ status: 'idle', error: null, txHash: null, detail: null });
+        setResult({ status: 'error', error: 'rejected', txHash: null, detail: WALLET_REJECTION_MESSAGE });
         return;
       }
 
@@ -129,7 +128,7 @@ export function useSwapExecution() {
       try {
         const { hash } = await submitTransaction({
           signedXdr,
-          apiBase: API_BASE,
+          apiBase: getApiBase(network),
           mevEnabled,
           mevRpcUrl,
         });
@@ -151,8 +150,8 @@ export function useSwapExecution() {
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
-        setResult({ status: 'idle', error: null, txHash: null, detail: null });
+      if (isWalletRejection(e)) {
+        setResult({ status: 'error', error: 'rejected', txHash: null, detail: WALLET_REJECTION_MESSAGE });
         return;
       }
       setResult({ status: 'error', error: 'network', txHash: null, detail: msg || null });
@@ -192,15 +191,14 @@ export function useSwapExecution() {
       });
 
       const signedXdr = await signTransaction(xdr).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : '';
-        if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
+        if (isWalletRejection(err)) {
           return null;
         }
         throw err;
       });
 
       if (!signedXdr) {
-        setResult({ status: 'idle', error: null, txHash: null, detail: null });
+        setResult({ status: 'error', error: 'rejected', txHash: null, detail: WALLET_REJECTION_MESSAGE });
         return;
       }
 
@@ -209,7 +207,7 @@ export function useSwapExecution() {
       try {
         const { hash } = await submitTransaction({
           signedXdr,
-          apiBase: API_BASE,
+          apiBase: getApiBase(network),
           mevEnabled,
           mevRpcUrl,
         });
@@ -231,8 +229,8 @@ export function useSwapExecution() {
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied')) {
-        setResult({ status: 'idle', error: null, txHash: null, detail: null });
+      if (isWalletRejection(e)) {
+        setResult({ status: 'error', error: 'rejected', txHash: null, detail: WALLET_REJECTION_MESSAGE });
         return;
       }
       setResult({ status: 'error', error: 'network', txHash: null, detail: msg || null });

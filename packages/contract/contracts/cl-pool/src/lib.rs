@@ -25,6 +25,8 @@ pub enum PoolError {
     InvalidTick = 7,
     Overflow = 8,
     InsufficientLiquidity = 9,
+    InvalidFeeTier = 10,
+    InvalidNftLink = 11,
 }
 
 #[contracttype]
@@ -51,6 +53,17 @@ pub struct TickInfo {
     pub liquidity_net: i128,
     pub fee_growth_outside_0: u128,
     pub fee_growth_outside_1: u128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+struct PositionNftMetadata {
+    pub owner: Address,
+    pub pool: Address,
+    pub tick_lower: i32,
+    pub tick_upper: i32,
+    pub liquidity: u128,
+    pub created_at: u64,
 }
 
 #[contracttype]
@@ -128,6 +141,17 @@ impl ClPool {
             .unwrap_or(false)
         {
             panic_pool_error(&env, PoolError::AlreadyInitialized);
+        }
+        let linked_minter: Address = env.invoke_contract(
+            &nft_contract,
+            &Symbol::new(&env, "get_minter"),
+            soroban_sdk::vec![&env],
+        );
+        if linked_minter != env.current_contract_address() {
+            panic_pool_error(&env, PoolError::InvalidNftLink);
+        }
+        if !matches!(fee_tier, 500 | 3_000 | 10_000) {
+            panic_pool_error(&env, PoolError::InvalidFeeTier);
         }
         env.storage().instance().set(&DataKey::Initialized, &true);
         env.storage().instance().set(&DataKey::Token0, &token_0);
@@ -328,8 +352,13 @@ impl ClPool {
             .get(&DataKey::TickSpacing)
             .unwrap();
 
-        let fee_amount = amount_in * fee_tier as u128 / FEE_DENOMINATOR;
-        let mut amount_remaining = amount_in - fee_amount;
+        if amount_in > i128::MAX as u128 {
+            panic_pool_error(&env, PoolError::Overflow);
+        }
+        let fee_amount = checked_fee(&env, amount_in, fee_tier);
+        let mut amount_remaining = amount_in
+            .checked_sub(fee_amount)
+            .unwrap_or_else(|| panic_pool_error(&env, PoolError::Overflow));
 
         if amount_remaining == 0 {
             panic_pool_error(&env, PoolError::ZeroLiquidity);
@@ -407,9 +436,14 @@ impl ClPool {
 
             if amount_remaining >= amount_consumed {
                 // Move fully to the target (tick boundary or price limit).
-                amount_out += amount_to_cross;
-                amount_remaining -= amount_consumed;
+                amount_out = amount_out
+                    .checked_add(amount_to_cross)
+                    .unwrap_or_else(|| panic_pool_error(&env, PoolError::Overflow));
+                amount_remaining = amount_remaining
+                    .checked_sub(amount_consumed)
+                    .unwrap_or_else(|| panic_pool_error(&env, PoolError::Overflow));
                 accumulate_segment_fee(
+                    &env,
                     &mut fee_growth_delta_0,
                     &mut fee_growth_delta_1,
                     zero_for_one,
@@ -453,8 +487,11 @@ impl ClPool {
                 } else {
                     get_amount_0_delta(sqrt_price, next_sqrt, liquidity, false)
                 };
-                amount_out += partial_out;
+                amount_out = amount_out
+                    .checked_add(partial_out)
+                    .unwrap_or_else(|| panic_pool_error(&env, PoolError::Overflow));
                 accumulate_segment_fee(
+                    &env,
                     &mut fee_growth_delta_0,
                     &mut fee_growth_delta_1,
                     zero_for_one,
@@ -468,24 +505,30 @@ impl ClPool {
 
         // Charge only what was actually traded. If the swap stopped early at the
         // price limit, the unconsumed remainder must be refunded (not seized).
-        let traded_base = (amount_in - fee_amount) - amount_remaining;
-        let fee_on_traded = traded_base * fee_tier as u128 / FEE_DENOMINATOR;
-        let input_paid = traded_base + fee_on_traded;
+        let traded_base = amount_in
+            .checked_sub(fee_amount)
+            .and_then(|amount| amount.checked_sub(amount_remaining))
+            .unwrap_or_else(|| panic_pool_error(&env, PoolError::Overflow));
+        let fee_on_traded = checked_fee(&env, traded_base, fee_tier);
+        let input_paid = traded_base
+            .checked_add(fee_on_traded)
+            .filter(|amount| *amount <= i128::MAX as u128)
+            .unwrap_or_else(|| panic_pool_error(&env, PoolError::Overflow));
 
         // Transfer tokens (fee is retained in the pool).
         if zero_for_one {
             token::Client::new(&env, &token_0)
-                .transfer(&sender, &env.current_contract_address(), &(input_paid as i128));
+                .transfer(&sender, &env.current_contract_address(), &to_i128(&env, input_paid));
             if amount_out > 0 {
                 token::Client::new(&env, &token_1)
-                    .transfer(&env.current_contract_address(), &sender, &(amount_out as i128));
+                    .transfer(&env.current_contract_address(), &sender, &to_i128(&env, amount_out));
             }
         } else {
             token::Client::new(&env, &token_1)
-                .transfer(&sender, &env.current_contract_address(), &(input_paid as i128));
+                .transfer(&sender, &env.current_contract_address(), &to_i128(&env, input_paid));
             if amount_out > 0 {
                 token::Client::new(&env, &token_0)
-                    .transfer(&env.current_contract_address(), &sender, &(amount_out as i128));
+                    .transfer(&env.current_contract_address(), &sender, &to_i128(&env, amount_out));
             }
         }
 
@@ -520,9 +563,9 @@ impl ClPool {
         env.storage().instance().set(&DataKey::Liquidity, &liquidity);
 
         let (amount_0_delta, amount_1_delta) = if zero_for_one {
-            (input_paid as i128, -(amount_out as i128))
+            (to_i128(&env, input_paid), -to_i128(&env, amount_out))
         } else {
-            (-(amount_out as i128), input_paid as i128)
+            (-to_i128(&env, amount_out), to_i128(&env, input_paid))
         };
 
         // Record the post-swap observation with the oracle adapter (if wired).
@@ -536,7 +579,7 @@ impl ClPool {
                 &Symbol::new(&env, "write_observation"),
                 soroban_sdk::vec![
                     &env,
-                    new_sqrt_price.into_val(&env),
+                    sqrt_price.into_val(&env),
                     liquidity.into_val(&env),
                 ],
             );
@@ -561,9 +604,8 @@ impl ClPool {
             .get(&DataKey::Position(position_id))
             .unwrap_or_else(|| panic_pool_error(&env, PoolError::PositionNotFound));
 
-        if position.owner != owner {
-            panic_pool_error(&env, PoolError::Unauthorized);
-        }
+        require_position_owner(&env, &position, &owner);
+        position.owner = owner.clone();
 
         let current_tick: i32 = env
             .storage()
@@ -636,9 +678,8 @@ impl ClPool {
             .get(&DataKey::Position(position_id))
             .unwrap_or_else(|| panic_pool_error(&env, PoolError::PositionNotFound));
 
-        if position.owner != owner {
-            panic_pool_error(&env, PoolError::Unauthorized);
-        }
+        require_position_owner(&env, &position, &owner);
+        position.owner = owner.clone();
         if liquidity_to_remove == 0 || liquidity_to_remove > position.liquidity {
             panic_pool_error(&env, PoolError::ZeroLiquidity);
         }
@@ -726,16 +767,12 @@ impl ClPool {
             env.storage()
                 .persistent()
                 .set(&DataKey::Position(position_id), &position);
-            // Update NFT metadata
-            env.invoke_contract::<u64>(
+            env.invoke_contract::<()>(
                 &nft_contract,
-                &Symbol::new(&env, "mint"),
+                &Symbol::new(&env, "update_liquidity"),
                 soroban_sdk::vec![
                     &env,
-                    owner.into_val(&env),
-                    env.current_contract_address().into_val(&env),
-                    position.tick_lower.into_val(&env),
-                    position.tick_upper.into_val(&env),
+                    position.nft_id.into_val(&env),
                     position.liquidity.into_val(&env),
                 ],
             );
@@ -1027,6 +1064,7 @@ fn cross_tick(env: &Env, tick: i32, zero_for_one: bool) {
 /// Accumulate the fee earned on the input consumed within one segment into the
 /// direction-appropriate fee-growth accumulator.
 fn accumulate_segment_fee(
+    env: &Env,
     fee_growth_delta_0: &mut u128,
     fee_growth_delta_1: &mut u128,
     zero_for_one: bool,
@@ -1037,16 +1075,58 @@ fn accumulate_segment_fee(
     if amount_in_segment == 0 || liquidity == 0 {
         return;
     }
-    let fee_amount = amount_in_segment * fee_tier as u128 / FEE_DENOMINATOR;
+    let fee_amount = checked_fee(env, amount_in_segment, fee_tier);
     if fee_amount == 0 {
         return;
     }
-    let growth = fee_amount * Q96 / liquidity;
+    let growth = fee_amount
+        .checked_mul(Q96)
+        .map(|value| value / liquidity)
+        .unwrap_or_else(|| panic_pool_error(env, PoolError::Overflow));
     if zero_for_one {
-        *fee_growth_delta_0 += growth;
+        *fee_growth_delta_0 = fee_growth_delta_0
+            .checked_add(growth)
+            .unwrap_or_else(|| panic_pool_error(env, PoolError::Overflow));
     } else {
-        *fee_growth_delta_1 += growth;
+        *fee_growth_delta_1 = fee_growth_delta_1
+            .checked_add(growth)
+            .unwrap_or_else(|| panic_pool_error(env, PoolError::Overflow));
     }
+}
+
+fn require_position_owner(env: &Env, position: &Position, owner: &Address) {
+    let nft_contract: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::NftContract)
+        .unwrap();
+    let metadata: Option<PositionNftMetadata> = env.invoke_contract(
+        &nft_contract,
+        &Symbol::new(env, "get_position"),
+        soroban_sdk::vec![env, position.nft_id.into_val(env)],
+    );
+    let current_pool = env.current_contract_address();
+
+    match metadata {
+        Some(metadata)
+            if metadata.owner == *owner
+                && metadata.pool == current_pool
+                && metadata.tick_lower == position.tick_lower
+                && metadata.tick_upper == position.tick_upper
+                && metadata.liquidity == position.liquidity => {}
+        _ => panic_pool_error(env, PoolError::Unauthorized),
+    }
+}
+
+fn checked_fee(env: &Env, amount: u128, fee_tier: u32) -> u128 {
+    amount
+        .checked_mul(fee_tier as u128)
+        .map(|value| value / FEE_DENOMINATOR)
+        .unwrap_or_else(|| panic_pool_error(env, PoolError::Overflow))
+}
+
+fn to_i128(env: &Env, amount: u128) -> i128 {
+    i128::try_from(amount).unwrap_or_else(|_| panic_pool_error(env, PoolError::Overflow))
 }
 
 // ── Math helpers ─────────────────────────────────────────────────────────────
@@ -1229,14 +1309,31 @@ mod fixture_tests {
 #[cfg(test)]
 mod tests {
     use super::{get_amount_0_delta, get_amount_1_delta, ClPool, ClPoolClient, Q96};
-    use soroban_sdk::{contract, contractimpl, testutils::Address as _, token, Address, Env};
+    use position_nft::{PositionNft, PositionNftClient};
+    use soroban_sdk::{
+        contract, contractimpl, contracttype, testutils::Address as _, token, Address, Env,
+    };
 
     /// Minimal mock NFT so add/remove liquidity can mint/burn position tokens.
     #[contract]
     pub struct MockNft;
 
+    #[contracttype]
+    #[derive(Clone)]
+    enum MockNftKey {
+        Minter,
+    }
+
     #[contractimpl]
     impl MockNft {
+        pub fn set_minter(env: Env, minter: Address) {
+            env.storage().instance().set(&MockNftKey::Minter, &minter);
+        }
+
+        pub fn get_minter(env: Env) -> Address {
+            env.storage().instance().get(&MockNftKey::Minter).unwrap()
+        }
+
         pub fn mint(
             _env: Env,
             _owner: Address,
@@ -1269,6 +1366,7 @@ mod tests {
         let nft = env.register(MockNft, ());
         let pool_id = env.register(ClPool, ());
         let pool = ClPoolClient::new(&env, &pool_id);
+        MockNftClient::new(&env, &nft).set_minter(&pool_id);
 
         let funding: u128 = 10u128.pow(24);
         mint(&env, &t0, &lp, funding);
@@ -1308,6 +1406,86 @@ mod tests {
         // Zero liquidity → zero amounts.
         assert_eq!(get_amount_0_delta(p_high, p_low, 0, true), 0);
         assert_eq!(get_amount_1_delta(p_high, p_low, 0, true), 0);
+    }
+
+    #[test]
+    fn tick_bitmap_handles_signed_word_edges_and_round_trips() {
+        let env = Env::default();
+        let spacing = 60;
+        let edge_ticks = [-887_220, -7_680, -60, 0, 60, 7_680, 887_220];
+
+        for tick in edge_ticks {
+            let compressed = super::compressed_tick(tick, spacing);
+            let (_, bit) = super::tick_position(compressed);
+            assert!(bit < 128, "bitmap bit must stay within a u128 word");
+            super::flip_bitmap(&env, tick, spacing, true);
+        }
+
+        for window in edge_ticks.windows(2) {
+            let (next, found) =
+                super::next_initialized_tick(&env, window[0], spacing, false);
+            assert!(found, "bitmap must find the next initialized edge");
+            assert_eq!(next, window[1]);
+        }
+
+        super::flip_bitmap(&env, edge_ticks[0], spacing, true);
+        let (next, found) = super::next_initialized_tick(&env, edge_ticks[0], spacing, false);
+        assert!(found);
+        assert_eq!(next, edge_ticks[1]);
+
+        for tick in &edge_ticks[1..] {
+            super::flip_bitmap(&env, *tick, spacing, true);
+        }
+    }
+
+    #[test]
+    fn compressed_tick_uses_floor_division_for_negative_remainders() {
+        assert_eq!(super::compressed_tick(-1, 60), -1);
+        assert_eq!(super::compressed_tick(-59, 60), -1);
+        assert_eq!(super::compressed_tick(-60, 60), -1);
+        assert_eq!(super::compressed_tick(0, 60), 0);
+        assert_eq!(super::compressed_tick(59, 60), 0);
+        assert_eq!(super::compressed_tick(60, 60), 1);
+    }
+
+    #[test]
+    fn liquidity_add_remove_round_trip_stays_within_rounding_bounds() {
+        let (env, pool_id, token_0, token_1, lp, _swapper) = setup();
+        let pool = ClPoolClient::new(&env, &pool_id);
+        let token_0_client = token::Client::new(&env, &token_0);
+        let token_1_client = token::Client::new(&env, &token_1);
+        let cases = [
+            (-600, 600, 1u128),
+            (-600, 600, 10_000u128),
+            (-600, 600, 1_000_000u128),
+            (-600, 600, 1_000_000_000_000u128),
+            (-600, 0, 10_000u128),
+            (0, 600, 10_000u128),
+        ];
+
+        for (position_id, (lower, upper, liquidity)) in cases.into_iter().enumerate() {
+            let before_0 = token_0_client.balance(&lp) as u128;
+            let before_1 = token_1_client.balance(&lp) as u128;
+            pool.add_liquidity(&lp, &lower, &upper, &liquidity);
+            let deposited_0 = before_0 - token_0_client.balance(&lp) as u128;
+            let deposited_1 = before_1 - token_1_client.balance(&lp) as u128;
+
+            let (returned_0, returned_1) =
+                pool.remove_liquidity(&lp, &(position_id as u64), &liquidity);
+
+            assert!(
+                deposited_0 - returned_0 <= 1,
+                "token0 round-trip exceeded one-unit rounding loss"
+            );
+            assert!(
+                deposited_1 - returned_1 <= 1,
+                "token1 round-trip exceeded one-unit rounding loss"
+            );
+            assert_eq!(pool.get_position(&(position_id as u64)), None);
+        }
+
+        assert_eq!(token_0_client.balance(&pool_id), 0);
+        assert_eq!(token_1_client.balance(&pool_id), 0);
     }
 
     // ── Tick crossing in swap ───────────────────────────────────────────────
@@ -1376,6 +1554,108 @@ mod tests {
         assert_eq!(pool.get_sqrt_price(), limit, "price capped at the limit");
         // Liquidity should still be the active range (tick -60 not crossed).
         assert_eq!(pool.get_liquidity(), 1_000_000_000u128);
+    }
+
+    #[test]
+    fn swap_deltas_match_token_balance_changes_in_both_directions() {
+        for zero_for_one in [true, false] {
+            let (env, pool_id, token_0, token_1, lp, swapper) = setup();
+            let pool = ClPoolClient::new(&env, &pool_id);
+            pool.add_liquidity(&lp, &-60i32, &60i32, &1_000_000_000u128);
+
+            let token_0_client = token::Client::new(&env, &token_0);
+            let token_1_client = token::Client::new(&env, &token_1);
+            let swapper_0_before = token_0_client.balance(&swapper);
+            let swapper_1_before = token_1_client.balance(&swapper);
+            let pool_0_before = token_0_client.balance(&pool_id);
+            let pool_1_before = token_1_client.balance(&pool_id);
+            let limit = if zero_for_one { 1u128 } else { u128::MAX };
+
+            let (delta_0, delta_1) = pool.swap(&swapper, &zero_for_one, &1_000_000u128, &limit);
+
+            assert!(delta_0 != 0 && delta_1 != 0);
+            assert_eq!(
+                swapper_0_before - token_0_client.balance(&swapper),
+                delta_0,
+                "token0 user balance change must equal the reported delta"
+            );
+            assert_eq!(
+                swapper_1_before - token_1_client.balance(&swapper),
+                delta_1,
+                "token1 user balance change must equal the reported delta"
+            );
+            assert_eq!(
+                token_0_client.balance(&pool_id) - pool_0_before,
+                delta_0,
+                "token0 pool balance change must equal the reported delta"
+            );
+            assert_eq!(
+                token_1_client.balance(&pool_id) - pool_1_before,
+                delta_1,
+                "token1 pool balance change must equal the reported delta"
+            );
+        }
+    }
+
+    #[test]
+    fn initialize_rejects_nft_linked_to_another_pool() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool_id = env.register(ClPool, ());
+        let nft_id = env.register(PositionNft, ());
+        let other_pool = Address::generate(&env);
+        let admin = Address::generate(&env);
+        PositionNftClient::new(&env, &nft_id).initialize(&admin, &other_pool);
+
+        let result = ClPoolClient::new(&env, &pool_id).try_initialize(
+            &Address::generate(&env),
+            &Address::generate(&env),
+            &3000u32,
+            &Q96,
+            &nft_id,
+        );
+
+        assert!(result.is_err());
+        assert!(ClPoolClient::new(&env, &pool_id).try_get_token_0().is_err());
+    }
+
+    #[test]
+    fn transferred_position_nft_controls_pool_actions_and_keeps_same_id() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let owner = Address::generate(&env);
+        let new_owner = Address::generate(&env);
+        let token_0 = create_token(&env, &admin);
+        let token_1 = create_token(&env, &admin);
+        let pool_id = env.register(ClPool, ());
+        let nft_id = env.register(PositionNft, ());
+
+        PositionNftClient::new(&env, &nft_id).initialize(&admin, &pool_id);
+        let pool = ClPoolClient::new(&env, &pool_id);
+        pool.initialize(&token_0, &token_1, &3000u32, &Q96, &nft_id);
+        mint(&env, &token_0, &owner, 1_000_000_000);
+        mint(&env, &token_1, &owner, 1_000_000_000);
+
+        let (position_id, _, _) = pool.add_liquidity(&owner, &-60, &60, &1_000_000u128);
+        let nft = PositionNftClient::new(&env, &nft_id);
+
+        pool.remove_liquidity(&owner, &position_id, &1_000u128);
+        assert_eq!(nft.next_id(), 1, "partial withdrawal must not mint a duplicate NFT");
+        assert_eq!(nft.get_position(&0).unwrap().liquidity, 999_000);
+
+        nft.transfer(&owner, &new_owner, &0);
+        assert!(pool
+            .try_remove_liquidity(&owner, &position_id, &1u128)
+            .is_err());
+        assert!(pool
+            .try_collect(&owner, &position_id)
+            .is_err());
+
+        pool.remove_liquidity(&new_owner, &position_id, &1u128);
+        pool.collect(&new_owner, &position_id);
+        assert_eq!(nft.owner_of(&0), new_owner);
+        assert_eq!(nft.get_position(&0).unwrap().pool, pool_id);
     }
 
 }

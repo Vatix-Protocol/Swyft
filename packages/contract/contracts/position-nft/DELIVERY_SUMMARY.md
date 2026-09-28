@@ -12,7 +12,9 @@ The position NFT contract for Swyft has been fully implemented with all required
 
 #### Functions Implemented:
 
-- **initialize(minter)** - One-time initialization with minter address
+- **initialize(admin, minter)** - Admin-authorized, one-time pool-minter setup
+- **get_minter()** - Returns the configured pool minter
+- **update_liquidity(token_id, liquidity)** - Updates existing position metadata (minter-only)
 - **mint(owner, pool, tick_lower, tick_upper, liquidity)** - Creates position NFT
 - **burn(token_id)** - Destroys position NFT
 - **transfer(token_id, from, to)** - Transfers NFT between addresses

@@ -10,6 +10,7 @@ import {
 } from '@stellar/freighter-api';
 import { useState, useEffect, useCallback } from 'react';
 import { SWYFT_NETWORK, WALLET_STORAGE_KEY, type StellarNetwork } from '@/lib/constants';
+import { WalletRejectionError, isWalletRejection } from '@/lib/wallet-errors';
 
 export type WalletError =
   | 'NOT_INSTALLED'
@@ -279,10 +280,17 @@ export function useWallet(
       }
 
       // Freighter path
-      const result = await freighterSignTx(xdr);
-      if (typeof result === 'string') return result;
-      if ('signedTxXdr' in result) return result.signedTxXdr;
-      throw new Error('Signing rejected');
+      try {
+        const result = await freighterSignTx(xdr);
+        if (typeof result === 'string') return result;
+        if ('signedTxXdr' in result) return result.signedTxXdr;
+        throw new WalletRejectionError();
+      } catch (error) {
+        if (isWalletRejection(error)) {
+          throw error instanceof WalletRejectionError ? error : new WalletRejectionError();
+        }
+        throw error;
+      }
     },
     [walletKind, targetNetwork]
   );

@@ -5,6 +5,7 @@ indexer pipeline and into the NestJS REST/WebSocket API.
 
 > **Related docs:** [README.md](../README.md) (repo overview & quickstart) ·
 > [SECURITY.md](../SECURITY.md) (trust boundaries, secrets, disclosure) ·
+> [THREAT_MODEL_CL_DEX.md](./THREAT_MODEL_CL_DEX.md) (DEX threats and controls) ·
 > [CONTRACTS.md](../CONTRACTS.md) (contract tree & deployment) ·
 > [docs/FEE_COLLECTOR_AUTH.md](./FEE_COLLECTOR_AUTH.md) (fee-collector authz model).
 

@@ -190,6 +190,42 @@ jobs:
       - name: Build
         run: pnpm --filter api build
 
+  # Required status check (#1029): boots the full AppModule graph with every
+  # external dependency stubbed and asserts core routes + deny-by-default on
+  # privileged routes. No DB/Redis services on purpose — the suite must not
+  # depend on them. Keep the job `name` stable: branch protection keys on it.
+  # See docs/APP_SMOKE.md.
+  api-smoke:
+    name: API smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://smoke:smoke@localhost:5432/smoke
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-smoke-secret
+      STELLAR_NETWORK: testnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: App smoke spec
+        run: pnpm --filter api test:smoke
+
   sdk:
     name: SDK
     runs-on: ubuntu-latest
@@ -217,6 +253,9 @@ jobs:
 
       - name: Build
         run: pnpm --filter @swyft/sdk build
+
+      - name: Check bundle size budget
+        run: pnpm --filter @swyft/sdk size:check
 
   ui:
     name: UI
