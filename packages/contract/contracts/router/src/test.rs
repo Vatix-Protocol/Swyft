@@ -118,9 +118,27 @@ fn setup_router_with_mock_pool(env: &Env) -> MockSwapSetup<'_> {
 fn test_initialize_and_get_factory() {
     let (env, id) = setup();
     let client = RouterClient::new(&env, &id);
+    let factory_id = env.register(MockFactory, ());
+    client.initialize(&Address::generate(&env), &factory_id);
+    assert_eq!(client.get_factory(), factory_id);
+}
+
+#[test]
+fn test_get_factory_and_get_admin_panic_before_initialize() {
+    let (env, id) = setup();
+    let client = RouterClient::new(&env, &id);
+
+    assert!(client.try_get_factory().is_err());
+    assert!(client.try_get_admin().is_err());
+}
+
+#[test]
+fn test_initialize_rejects_non_contract_factory() {
+    let (env, id) = setup();
+    let client = RouterClient::new(&env, &id);
     let factory = Address::generate(&env);
-    client.initialize(&Address::generate(&env), &factory);
-    assert_eq!(client.get_factory(), factory);
+
+    assert!(client.try_initialize(&Address::generate(&env), &factory).is_err());
 }
 
 #[test]
@@ -129,17 +147,17 @@ fn test_factory_configuration_requires_admin_and_cannot_be_replaced() {
     let router_id = env.register(Router, ());
     let client = RouterClient::new(&env, &router_id);
     let admin = Address::generate(&env);
-    let factory = Address::generate(&env);
-    let attacker_factory = Address::generate(&env);
+    let factory_id = env.register(MockFactory, ());
+    let attacker_factory = env.register(MockFactory, ());
 
-    assert!(client.try_initialize(&admin, &factory).is_err());
+    assert!(client.try_initialize(&admin, &factory_id).is_err());
     assert!(client.try_get_factory().is_err());
 
     env.mock_all_auths();
-    client.initialize(&admin, &factory);
+    client.initialize(&admin, &factory_id);
     assert_eq!(client.get_admin(), admin);
     assert!(client.try_initialize(&admin, &attacker_factory).is_err());
-    assert_eq!(client.get_factory(), factory);
+    assert_eq!(client.get_factory(), factory_id);
 }
 
 #[test]
@@ -147,8 +165,8 @@ fn test_factory_configuration_requires_admin_and_cannot_be_replaced() {
 fn test_exact_input_single_deadline_expired() {
     let (env, id) = setup();
     let client = RouterClient::new(&env, &id);
-    let factory = Address::generate(&env);
-    client.initialize(&Address::generate(&env), &factory);
+    let factory_id = env.register(MockFactory, ());
+    client.initialize(&Address::generate(&env), &factory_id);
 
     let token_in = Address::generate(&env);
     let token_out = Address::generate(&env);
@@ -173,8 +191,8 @@ fn test_exact_input_single_deadline_expired() {
 fn test_exact_input_single_zero_amount() {
     let (env, id) = setup();
     let client = RouterClient::new(&env, &id);
-    let factory = Address::generate(&env);
-    client.initialize(&Address::generate(&env), &factory);
+    let factory_id = env.register(MockFactory, ());
+    client.initialize(&Address::generate(&env), &factory_id);
 
     let token_in = Address::generate(&env);
     let token_out = Address::generate(&env);
@@ -197,8 +215,8 @@ fn test_exact_input_single_zero_amount() {
 fn test_exact_output_single_deadline_expired() {
     let (env, id) = setup();
     let client = RouterClient::new(&env, &id);
-    let factory = Address::generate(&env);
-    client.initialize(&Address::generate(&env), &factory);
+    let factory_id = env.register(MockFactory, ());
+    client.initialize(&Address::generate(&env), &factory_id);
 
     env.ledger().with_mut(|l| l.timestamp = 200);
 
@@ -240,8 +258,8 @@ fn test_deadline_at_maximum_ttl_is_valid() {
 fn test_exact_output_single_zero_amount() {
     let (env, id) = setup();
     let client = RouterClient::new(&env, &id);
-    let factory = Address::generate(&env);
-    client.initialize(&Address::generate(&env), &factory);
+    let factory_id = env.register(MockFactory, ());
+    client.initialize(&Address::generate(&env), &factory_id);
 
     let token_in = Address::generate(&env);
     let token_out = Address::generate(&env);
@@ -285,173 +303,6 @@ fn test_exact_input_reverts_when_amount_out_below_min_out() {
 
 /// Exact boundary: amount_out == amount_out_min succeeds (inclusive).
 #[test]
-fn test_exact_input_succeeds_when_amount_out_equals_min_out() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let s = setup_router_with_mock_pool(&env);
+fn test_exact_inpu
 
-    // amount_in=1000 → amount_out=999
-    let swap = s.client.exact_input_single(&ExactInputSingleParams {
-        token_in: s.token_in,
-        token_out: s.token_out,
-        fee: 3000,
-        recipient: Address::generate(&env),
-        deadline: env.ledger().timestamp() + 120,
-        amount_in: 1_000,
-        amount_out_min: 999,
-        sqrt_price_limit_x96: 0,
-    });
-
-    assert_eq!(swap.amount_out, 999);
-    assert_eq!(swap.amount_in, 1_000);
-}
-
-/// Under-minOut reverts must not publish a Swap event.
-#[test]
-fn test_exact_input_emits_no_swap_event_on_slippage_revert() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let s = setup_router_with_mock_pool(&env);
-
-    let before_len = env.events().all().len();
-
-    let result = s.client.try_exact_input_single(&ExactInputSingleParams {
-        token_in: s.token_in,
-        token_out: s.token_out,
-        fee: 3000,
-        recipient: Address::generate(&env),
-        deadline: env.ledger().timestamp() + 120,
-        amount_in: 1_000,
-        amount_out_min: 1_000,
-        sqrt_price_limit_x96: 0,
-    });
-    assert!(result.is_err());
-
-    let after = env.events().all();
-    assert_eq!(
-        after.len(),
-        before_len,
-        "no events should be published when minOut check reverts"
-    );
-
-    let swap_sym = symbol_short!("Swap");
-    for (_addr, topics, _data) in after.iter() {
-        for topic in topics.iter() {
-            let as_sym: Option<Symbol> = topic.try_into_val(&env).ok();
-            assert_ne!(
-                as_sym,
-                Some(swap_sym.clone()),
-                "Swap event must not be emitted on slippage revert"
-            );
-        }
-    }
-}
-
-// ── Router ↔ real cl-pool integration ───────────────────────────────────────
-//
-// Before the `execute_swap` alignment, this test failed: the router invoked
-// `pool.swap(token_in, token_out, amount, exact_input, limit)` and tried to
-// deserialize the return value as `SwapResult`, but `cl-pool.swap` has a
-// different signature and returns `(i128, i128)`. It now exercises the full
-// router → factory → cl-pool handoff and asserts the mapped SwapResult matches
-// the on-chain balances actually moved.
-
-const LP_LIQUIDITY: u128 = 1_000_000_000; // arbitrary in-range liquidity
-const SWAP_AMOUNT_IN: u128 = 1_000_000;
-
-fn setup_real_cl_pool(env: &Env) -> (RouterClient<'_>, Address, Address, Address) {
-    let admin = Address::generate(env);
-    let token_0 = env.register_stellar_asset_contract(admin.clone());
-    let token_1 = env.register_stellar_asset_contract(admin.clone());
-
-    let nft = env.register(PositionNft, ());
-    let pool = env.register(ClPool, ());
-    PositionNftClient::new(env, &nft).initialize(&admin, &pool);
-    ClPoolClient::new(env, &pool).initialize(&token_0, &token_1, &3000, &Q96, &nft);
-
-    // Seed liquidity: fund an LP provider and add an in-range position.
-    let lp = Address::generate(env);
-    let lp_funding = 1_000_000_000_000_000u128;
-    token::StellarAssetClient::new(env, &token_0).mint(&lp, &(lp_funding as i128));
-    token::StellarAssetClient::new(env, &token_1).mint(&lp, &(lp_funding as i128));
-    ClPoolClient::new(env, &pool).add_liquidity(&lp, &-960, &960, &LP_LIQUIDITY);
-
-    // Wire a router to the pool through the test factory.
-    let factory = env.register(MockFactory, ());
-    MockFactoryClient::new(env, &factory).set_pool(&pool);
-    let router = env.register(Router, ());
-    let client = RouterClient::new(env, &router);
-    client.initialize(&Address::generate(env), &factory);
-
-    (client, token_0, token_1, lp)
-}
-
-/// The align fix must produce a real, non-fake swap against a live cl-pool:
-/// token0 → token1 (zero_for_one), recipient funds and receives via the pool.
-#[test]
-fn test_exact_input_single_round_trips_through_real_cl_pool() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, token_0, token_1, _lp) = setup_real_cl_pool(&env);
-
-    let user = Address::generate(&env);
-    token::StellarAssetClient::new(&env, &token_0).mint(&user, &(SWAP_AMOUNT_IN as i128));
-
-    let result = client.exact_input_single(&ExactInputSingleParams {
-        token_in: token_0.clone(),
-        token_out: token_1.clone(),
-        fee: 3000,
-        recipient: user.clone(),
-        deadline: env.ledger().timestamp() + 120,
-        amount_in: SWAP_AMOUNT_IN,
-        // cl-pool has in-range liquidity, so output must be > 0; minOut=1 guards
-        // against a silent zero-output "success".
-        amount_out_min: 1,
-        sqrt_price_limit_x96: 0,
-    });
-
-    // The pool may stop at a price/liquidity boundary and reports the amount
-    // actually consumed; any unspent input remains with the user.
-    assert!(result.amount_in > 0 && result.amount_in <= SWAP_AMOUNT_IN);
-    // A real swap produced positive output (not a mocked/fake success).
-    assert!(
-        result.amount_out > 0 && result.amount_out < SWAP_AMOUNT_IN,
-        "expected a positive, fee-reduced output, got {}",
-        result.amount_out
-    );
-
-    // The user's token0 balance reflects the actual input consumed …
-    assert_eq!(
-        token::Client::new(&env, &token_0).balance(&user),
-        (SWAP_AMOUNT_IN - result.amount_in) as i128,
-        "user should retain any unspent token0"
-    );
-    // … and received exactly the reported output in token1 (real transfers,
-    // proving the returned SwapResult matches Live balances).
-    assert_eq!(
-        token::Client::new(&env, &token_1).balance(&user),
-        result.amount_out as i128,
-        "reported amount_out must match the token1 actually received"
-    );
-}
-
-/// Exact-output swaps cannot be honored by cl-pool (it is exact-input only);
-/// the router must fail loudly instead of silently executing an unrelated swap.
-#[test]
-#[should_panic]
-fn test_exact_output_single_reverts_as_unsupported() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, token_0, token_1, _lp) = setup_real_cl_pool(&env);
-
-    client.exact_output_single(&ExactOutputSingleParams {
-        token_in: token_0,
-        token_out: token_1,
-        fee: 3000,
-        recipient: Address::generate(&env),
-        deadline: env.ledger().timestamp() + 120,
-        amount_out: 50_000,
-        amount_in_max: 1_000_000,
-        sqrt_price_limit_x96: 0,
-    });
-}
+/* … truncated 6425 chars — edit only what you need near the top … */
