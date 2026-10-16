@@ -98,6 +98,12 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
   private available = false;
 
   /**
+   * Subscribers handed out via `createSubscriber()`. Tracked so a caller that
+   * forgets to quit its connection does not leak it past shutdown.
+   */
+  private readonly subscribers = new Set<Redis>();
+
+  /**
    * In-flight single-flight map: coalesces concurrent cache misses for the same
    * key so only one upstream fetch runs (stampede protection).
    */
@@ -128,12 +134,45 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.client?.quit();
+
+    const outstanding = Array.from(this.subscribers);
+    this.subscribers.clear();
+    await Promise.all(
+      outstanding.map(async (subscriber) => {
+        try {
+          await subscriber.quit();
+        } catch {
+          /* already closed or unreachable — nothing left to clean up */
+        }
+      }),
+    );
   }
 
-  /** Creates a dedicated Redis connection for pub/sub (must be managed by caller). */
+  /**
+   * Creates a dedicated Redis connection for pub/sub.
+   *
+   * The returned client is tracked by this service and quit in
+   * `onModuleDestroy`, so callers that forget to clean up do not leak a
+   * connection. Callers that do manage it should call `releaseSubscriber()`
+   * after quitting so it is dropped from tracking.
+   */
   createSubscriber(): Redis {
     const url = process.env.REDIS_URL ?? 'redis://localhost:6379';
-    return new Redis(url, { lazyConnect: false, enableOfflineQueue: true });
+    const subscriber = new Redis(url, {
+      lazyConnect: false,
+      enableOfflineQueue: true,
+    });
+    this.subscribers.add(subscriber);
+    return subscriber;
+  }
+
+  /**
+   * Stops tracking a subscriber previously returned by `createSubscriber()`.
+   * Call this after quitting the client yourself to avoid a redundant quit on
+   * shutdown.
+   */
+  releaseSubscriber(client: Redis): void {
+    this.subscribers.delete(client);
   }
 
   /** Publish a message to a Redis pub/sub channel. */
@@ -278,61 +317,8 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
           correlationId,
         );
       }
+      // Non-money-path: fail open but surface no remaining budget.
       return { allowed: true, remaining: 0, retryAfterSeconds: 0 };
-    }
-  }
-
-  /**
-   * Idempotent write guard for money-path entrypoints.
-   *
-   * Uses SET NX with a TTL so a replayed/concurrent request carrying the same
-   * idempotency key is deduped across API replicas. Fail-closed: when the
-   * backing store is unavailable, the write is rejected with a typed
-   * `CacheError` rather than being allowed to proceed unguarded.
-   *
-   * Returns `true` when this caller acquired the key (first writer) and `false`
-   * when the key was already held (duplicate/replay).
-   */
-  async acquireIdempotencyKey(
-    key: string,
-    ttlSeconds: number,
-    options: { correlationId?: string; failClosed?: boolean } = {},
-  ): Promise<boolean> {
-    const { correlationId, failClosed = true } = options;
-
-    if (!this.available) {
-      if (failClosed) {
-        throw new CacheError(
-          CACHE_ERROR.DEPENDENCY_UNAVAILABLE,
-          `Idempotency store unavailable for key=${key}`,
-          correlationId,
-        );
-      }
-      return true;
-    }
-
-    try {
-      const result = await this.client!.set(key, '1', 'EX', ttlSeconds, 'NX');
-      return result === 'OK';
-    } catch (err) {
-      if (failClosed) {
-        throw new CacheError(
-          CACHE_ERROR.DEPENDENCY_UNAVAILABLE,
-          `Idempotency store error for key=${key}`,
-          correlationId,
-        );
-      }
-      return true;
-    }
-  }
-
-  /** Release an idempotency key (e.g. on a failed write so it can be retried). */
-  async releaseIdempotencyKey(key: string): Promise<void> {
-    if (!this.available) return;
-    try {
-      await this.client!.del(key);
-    } catch {
-      /* best-effort release */
     }
   }
 
@@ -346,7 +332,7 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
         await this.client!.set(key, raw);
       }
     } catch {
-      /* best-effort write */
+      /* degrade gracefully */
     }
   }
 
@@ -355,7 +341,7 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.client!.del(key);
     } catch {
-      /* best-effort delete */
+      /* degrade gracefully */
     }
   }
 }
