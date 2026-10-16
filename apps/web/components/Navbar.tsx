@@ -1,95 +1,121 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { WalletButton } from '@/components/WalletButton';
-import { NetworkSwitcher } from '@/components/NetworkSwitcher';
-import { TransactionStatusIndicator } from '@/components/TransactionStatusIndicator';
+import { WalletButton } from './WalletButton';
+import { NetworkSwitcher } from './NetworkSwitcher';
 
 const NAV_LINKS = [
-  { href: '/', label: 'Swap' },
+  { href: '/swap', label: 'Swap' },
   { href: '/history', label: 'History' },
   { href: '/portfolio', label: 'Portfolio' },
-  { href: '/settings', label: 'Settings' },
 ];
 
 export function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+      }
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const nav = navRef.current;
+      if (nav && !nav.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('pointerdown', handlePointerDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [menuOpen]);
 
   return (
     <nav
-      className="sticky top-0 z-40 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80"
+      ref={navRef}
       aria-label="Main navigation"
+      className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/80 backdrop-blur"
     >
-      {/* Primary bar */}
-      <div className="flex h-16 items-center justify-between px-4 sm:px-6">
-        {/* Left: logo + desktop links */}
-        <div className="flex items-center gap-6">
-          <Link
-            href="/"
-            className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white hover:opacity-80 transition-opacity"
-          >
-            Swyft
-          </Link>
-          {/* Desktop nav links — hidden on mobile */}
-          <div className="hidden sm:flex items-center gap-4">
-            {NAV_LINKS.map(({ href, label }) => (
-              <Link
-                key={href}
-                href={href}
-                className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 transition-colors"
-              >
-                {label}
-              </Link>
-            ))}
-          </div>
-        </div>
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
+        <Link href="/" className="text-lg font-semibold text-white">
+          Swyft
+        </Link>
 
-        {/* Right: pending tx + network + wallet + hamburger */}
-        <div className="flex items-center gap-3">
-          <TransactionStatusIndicator />
-          <NetworkSwitcher />
-          <WalletButton />
-          {/* Hamburger — visible only on mobile */}
-          <button
-            type="button"
-            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
-            aria-expanded={menuOpen}
-            aria-controls="mobile-nav"
-            onClick={() => setMenuOpen((o) => !o)}
-            className="flex sm:hidden h-10 w-10 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            {menuOpen ? (
-              /* X icon */
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            ) : (
-              /* Hamburger icon */
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Mobile dropdown menu */}
-      {menuOpen && (
-        <div
-          id="mobile-nav"
-          className="sm:hidden border-t border-zinc-100 dark:border-zinc-800 bg-white dark:bg-black px-4 py-3 flex flex-col gap-1"
-        >
-          {NAV_LINKS.map(({ href, label }) => (
+        <div className="hidden items-center gap-6 md:flex">
+          {NAV_LINKS.map((link) => (
             <Link
-              key={href}
-              href={href}
-              onClick={() => setMenuOpen(false)}
-              className="min-h-[44px] flex items-center rounded-lg px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
+              key={link.href}
+              href={link.href}
+              className="text-sm text-slate-300 transition-colors hover:text-white"
             >
-              {label}
+              {link.label}
             </Link>
           ))}
+          <NetworkSwitcher />
+          <WalletButton />
+        </div>
+
+        <button
+          type="button"
+          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={menuOpen}
+          aria-controls="mobile-nav"
+          onClick={() => setMenuOpen((open) => !open)}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-md text-slate-300 hover:text-white md:hidden"
+        >
+          <span className="sr-only">{menuOpen ? 'Close menu' : 'Open menu'}</span>
+          {menuOpen ? (
+            <svg
+              aria-hidden="true"
+              className="h-6 w-6"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          ) : (
+            <svg
+              aria-hidden="true"
+              className="h-6 w-6"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          )}
+        </button>
+      </div>
+
+      {menuOpen && (
+        <div id="mobile-nav" className="border-t border-slate-800 md:hidden">
+          <div className="flex flex-col gap-1 px-4 py-3">
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={() => setMenuOpen(false)}
+                className="flex min-h-[44px] items-center rounded-md px-3 text-sm text-slate-300 transition-colors hover:bg-slate-900 hover:text-white"
+              >
+                {link.label}
+              </Link>
+            ))}
+            <div className="mt-2 flex items-center gap-3 px-3">
+              <NetworkSwitcher />
+              <WalletButton />
+            </div>
+          </div>
         </div>
       )}
     </nav>

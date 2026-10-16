@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Navbar } from './Navbar';
 
 // Mock Next.js Link so we don't need a router context in tests
@@ -114,6 +115,51 @@ describe('Navbar', () => {
       fireEvent.click(swapLinks[swapLinks.length - 1]);
       // Menu should now be closed — only the desktop link remains
       expect(screen.getAllByRole('link', { name: 'Swap' })).toHaveLength(1);
+    });
+
+    it('closes mobile menu when Escape is pressed', async () => {
+      const user = userEvent.setup();
+      renderNavbar();
+      await user.click(screen.getByRole('button', { name: 'Open menu' }));
+      expect(screen.getByRole('button', { name: 'Close menu' })).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
+      await user.keyboard('{Escape}');
+      expect(screen.getByRole('button', { name: 'Open menu' })).toHaveAttribute(
+        'aria-expanded',
+        'false'
+      );
+      expect(screen.getAllByRole('link', { name: 'Swap' })).toHaveLength(1);
+    });
+
+    it('closes mobile menu on pointer-down outside the nav', async () => {
+      const user = userEvent.setup();
+      renderNavbar();
+      await user.click(screen.getByRole('button', { name: 'Open menu' }));
+      expect(screen.getByRole('button', { name: 'Close menu' })).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
+      await user.click(document.body);
+      expect(screen.getByRole('button', { name: 'Open menu' })).toHaveAttribute(
+        'aria-expanded',
+        'false'
+      );
+      expect(screen.getAllByRole('link', { name: 'Swap' })).toHaveLength(1);
+    });
+
+    it('does not close mobile menu on pointer-down inside the menu', async () => {
+      const user = userEvent.setup();
+      renderNavbar();
+      await user.click(screen.getByRole('button', { name: 'Open menu' }));
+      const swapLinks = screen.getAllByRole('link', { name: 'Swap' });
+      const mobileLink = swapLinks[swapLinks.length - 1];
+      await user.pointer({ keys: '[MouseLeft>]', target: mobileLink });
+      expect(screen.getByRole('button', { name: 'Close menu' })).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
     });
 
     it('hamburger button has accessible label', () => {
