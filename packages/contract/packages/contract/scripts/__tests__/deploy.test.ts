@@ -5,36 +5,13 @@
 
 import { describe, it, expect } from 'vitest';
 
-// Helper functions extracted from test-integration.ts for testing
-function scAddressArg(address: string): string {
-  return JSON.stringify({ address });
-}
-
-function scU32(n: number): string {
-  return JSON.stringify({ u32: n });
-}
-
-function scU128(n: bigint): string {
-  return JSON.stringify({
-    u128: {
-      hi: Number(n >> BigInt(64)),
-      lo: Number(n & ((BigInt(1) << BigInt(64)) - BigInt(1))),
-    },
-  });
-}
-
-function scI32(n: number): string {
-  return JSON.stringify({ i32: n });
-}
-
-function parseSCAddress(raw: string): string {
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed?.address ?? parsed?.contract_id ?? raw.trim();
-  } catch {
-    return raw.trim();
-  }
-}
+import {
+  scAddressArg,
+  scU32,
+  scU128,
+  scI32,
+  parseSCAddress,
+} from '../../../scripts/test-integration';
 
 describe('Deploy Script Helpers', () => {
   describe('scAddressArg', () => {
@@ -109,8 +86,9 @@ describe('Deploy Script Helpers', () => {
       const Q96 = BigInt(2) ** BigInt(96);
       const result = scU128(Q96);
       const parsed = JSON.parse(result);
-      expect(parsed.u128.hi).toBe(1); // 2^96 >> 64 = 2^32, but we use hi which is up to 64 bits
-      expect(parsed.u128.lo).toBeGreaterThanOrEqual(0);
+      // 2^96 >> 64 = 2^32, so hi is 2^32 and lo is 0
+      expect(parsed.u128.hi).toBe(2 ** 32);
+      expect(parsed.u128.lo).toBe(0);
     });
 
     it('should handle amounts and prices', () => {
