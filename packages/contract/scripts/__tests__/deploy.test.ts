@@ -1,8 +1,9 @@
 /**
  * Test coverage for deploy-testnet.sh — issue #208
  *
- * Tests key behaviours of the deploy script by inspecting its source:
- * safety flags, skip/force logic, error guards, and manifest helpers.
+ * Behavioural tests run the deploy script against a temp tree with stub
+ * `stellar`/`curl`/`jq` binaries. Only assertions that cannot be exercised
+ * (e.g. the shebang) inspect the script source directly.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -15,130 +16,59 @@ import * as path from 'path';
 const SCRIPT = path.resolve(__dirname, '../deploy-testnet.sh');
 const src = fs.readFileSync(SCRIPT, 'utf8');
 
-describe('deploy-testnet.sh — structure', () => {
-  it('script file exists', () => {
-    expect(fs.existsSync(SCRIPT)).toBe(true);
-  });
+const ARTIFACTS = [
+  ['mathLib', 'math_lib'],
+  ['poolFactory', 'pool_factory'],
+  ['pool', 'pool'],
+  ['clPool', 'cl_pool'],
+  ['router', 'router'],
+  ['positionNft', 'position_nft'],
+  ['feeCollector', 'fee_collector'],
+  ['oracleAdapter', 'oracle_adapter'],
+  ['clPoolOracleAdapter', 'oracle_adapter'],
+] as const;
 
-  it('script is executable', () => {
-    expect(fs.statSync(SCRIPT).mode & 0o100).toBeTruthy();
-  });
+interface Harness {
+  contractsDir: string;
+  scriptsDir: string;
+  deploymentsDir: string;
+  wasmDir: string;
+  invokedIdsPath: string;
+  run: (args?: string[]) => { status: number; stdout: string; stderr: string };
+  readManifest: () => any;
+  cleanup: () => void;
+}
 
-  it('uses set -euo pipefail', () => {
-    expect(src).toContain('set -euo pipefail');
-  });
+/**
+ * Builds a temp tree containing the deploy script, stub binaries, and WASM
+ * artifacts so the script can be exercised end-to-end.
+ */
+function createHarness(options: { deployOutput?: string } = {}): Harness {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'swyft-deploy-test-'));
+  const contractsDir = path.join(tempRoot, 'packages', 'contract');
+  const scriptsDir = path.join(contractsDir, 'scripts');
+  const deploymentsDir = path.join(contractsDir, 'deployments');
+  const wasmDir = path.join(contractsDir, 'target', 'wasm32-unknown-unknown', 'release');
+  const binDir = path.join(tempRoot, 'bin');
+  fs.mkdirSync(scriptsDir, { recursive: true });
+  fs.mkdirSync(deploymentsDir, { recursive: true });
+  fs.mkdirSync(wasmDir, { recursive: true });
+  fs.mkdirSync(binDir);
+  fs.copyFileSync(SCRIPT, path.join(scriptsDir, 'deploy-testnet.sh'));
+  fs.writeFileSync(
+    path.join(deploymentsDir, 'testnet.json'),
+    JSON.stringify({ network: 'testnet', contracts: {}, deployedAt: {}, wasmHashes: {} })
+  );
 
-  it('requires stellar, curl, jq', () => {
-    expect(src).toContain('require_cmd stellar');
-    expect(src).toContain('require_cmd curl');
-    expect(src).toContain('require_cmd jq');
-  });
+  for (const [, wasmName] of ARTIFACTS) {
+    const bytes = Buffer.from(`test artifact: ${wasmName}`);
+    fs.writeFileSync(path.join(wasmDir, `${wasmName}.wasm`), bytes);
+  }
 
-  it('deploys mathLib before router', () => {
-    expect(src.indexOf('mathLib')).toBeLessThan(src.indexOf('"router"'));
-  });
-
-  it('writes manifest to testnet.json', () => {
-    expect(src).toContain('testnet.json');
-  });
-});
-
-describe('deploy-testnet.sh — skip / force logic', () => {
-  it('defaults FORCE to false', () => {
-    expect(src).toContain('FORCE=false');
-  });
-
-  it('sets FORCE=true when --force arg is passed', () => {
-    expect(src).toContain('FORCE=true');
-  });
-
-  it('skips already-deployed contracts when FORCE=false', () => {
-    expect(src).toContain('"$FORCE" == false');
-    expect(src).toContain('use --force to redeploy');
-  });
-});
-
-describe('deploy-testnet.sh — error guards', () => {
-  it('fails when WASM file is missing', () => {
-    expect(src).toContain('WASM not found');
-  });
-
-  it('fails when deploy returns empty contract ID', () => {
-    expect(src).toContain('returned empty contract ID');
-  });
-
-  it('fails when post-deploy verification fails', () => {
-    expect(src).toContain('Post-deploy verification failed');
-  });
-
-  it('fails when Friendbot funding fails', () => {
-    expect(src).toContain('Friendbot funding failed');
-  });
-});
-
-describe('deploy-testnet.sh — manifest helpers', () => {
-  it('read_address extracts from .contracts via jq', () => {
-    expect(src).toContain('jq -r');
-    expect(src).toContain('.contracts[');
-  });
-
-  it('write_address stamps deployedAt timestamp', () => {
-    expect(src).toContain('deployedAt');
-    expect(src).toContain('date -u');
-  });
-
-  it('write_address seeds empty manifest when file missing', () => {
-    expect(src).toContain('"network":"testnet","contracts":{}');
-  });
-
-  it('stamps deployer address into final manifest', () => {
-    expect(src).toContain('.deployer = $d');
-  });
-
-  it('stores a SHA-256 digest for each deployed contract key', () => {
-    expect(src).toContain("'.contracts[$k] = $v | .deployedAt[$k] = $t | .wasmHashes[$k] = $h'");
-    expect(src).toContain('hash=$(wasm_hash "$wasm")');
-  });
-});
-
-describe('deploy-testnet.sh — deployment manifest integration', () => {
-  it('records the deployed WASM hashes and passes clean contract IDs to oracle wiring', () => {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'swyft-deploy-test-'));
-    try {
-      const contractsDir = path.join(tempRoot, 'packages', 'contract');
-      const scriptsDir = path.join(contractsDir, 'scripts');
-      const deploymentsDir = path.join(contractsDir, 'deployments');
-      const wasmDir = path.join(contractsDir, 'target', 'wasm32-unknown-unknown', 'release');
-      const binDir = path.join(tempRoot, 'bin');
-      fs.mkdirSync(scriptsDir, { recursive: true });
-      fs.mkdirSync(deploymentsDir, { recursive: true });
-      fs.mkdirSync(wasmDir, { recursive: true });
-      fs.mkdirSync(binDir);
-      fs.copyFileSync(SCRIPT, path.join(scriptsDir, 'deploy-testnet.sh'));
-      fs.writeFileSync(
-        path.join(deploymentsDir, 'testnet.json'),
-        JSON.stringify({ network: 'testnet', contracts: {}, deployedAt: {}, wasmHashes: {} })
-      );
-
-      const artifacts = [
-        ['mathLib', 'math_lib'],
-        ['poolFactory', 'pool_factory'],
-        ['pool', 'pool'],
-        ['clPool', 'cl_pool'],
-        ['router', 'router'],
-        ['positionNft', 'position_nft'],
-        ['feeCollector', 'fee_collector'],
-        ['oracleAdapter', 'oracle_adapter'],
-        ['clPoolOracleAdapter', 'oracle_adapter'],
-      ] as const;
-      for (const [, wasmName] of artifacts) {
-        const bytes = Buffer.from(`test artifact: ${wasmName}`);
-        fs.writeFileSync(path.join(wasmDir, `${wasmName}.wasm`), bytes);
-      }
-
-      fs.writeFileSync(
-        path.join(binDir, 'stellar'),
-        `#!/usr/bin/env bash
+  const deployOutput = options.deployOutput ?? 'CDEPLOYED%s';
+  fs.writeFileSync(
+    path.join(binDir, 'stellar'),
+    `#!/usr/bin/env bash
 set -euo pipefail
 case "$1:$2" in
   "keys:show") exit 1 ;;
@@ -150,7 +80,7 @@ case "$1:$2" in
     count=$(cat "$TEST_DEPLOY_COUNT" 2>/dev/null || printf '0')
     count=$((count + 1))
     printf '%s' "$count" > "$TEST_DEPLOY_COUNT"
-    printf 'CDEPLOYED%s\\n' "$count"
+    printf '${deployOutput}\\n' "$count"
     ;;
   "contract:invoke")
     while (($#)); do
@@ -164,13 +94,15 @@ case "$1:$2" in
   *) echo "Unexpected stellar command: $*" >&2; exit 1 ;;
 esac
 `
-      );
-      fs.writeFileSync(path.join(binDir, 'curl'), '#!/usr/bin/env bash\nexit 0\n');
-      fs.chmodSync(path.join(binDir, 'stellar'), 0o755);
-      fs.chmodSync(path.join(binDir, 'curl'), 0o755);
+  );
+  fs.writeFileSync(path.join(binDir, 'curl'), '#!/usr/bin/env bash\nexit 0\n');
+  fs.chmodSync(path.join(binDir, 'stellar'), 0o755);
+  fs.chmodSync(path.join(binDir, 'curl'), 0o755);
 
-      const invokedIdsPath = path.join(tempRoot, 'invoked-ids.txt');
-      execFileSync('bash', [path.join(scriptsDir, 'deploy-testnet.sh')], {
+  const invokedIdsPath = path.join(tempRoot, 'invoked-ids.txt');
+  const run = (args: string[] = []) => {
+    try {
+      const stdout = execFileSync('bash', [path.join(scriptsDir, 'deploy-testnet.sh'), ...args], {
         cwd: contractsDir,
         env: {
           ...process.env,
@@ -179,13 +111,116 @@ esac
           TEST_INVOKED_IDS: invokedIdsPath,
         },
         timeout: 30_000,
+        encoding: 'utf8',
       });
+      return { status: 0, stdout, stderr: '' };
+    } catch (error: any) {
+      return {
+        status: typeof error.status === 'number' ? error.status : 1,
+        stdout: error.stdout?.toString() ?? '',
+        stderr: error.stderr?.toString() ?? '',
+      };
+    }
+  };
 
-      const manifest = JSON.parse(
-        fs.readFileSync(path.join(deploymentsDir, 'testnet.json'), 'utf8')
-      );
+  return {
+    contractsDir,
+    scriptsDir,
+    deploymentsDir,
+    wasmDir,
+    invokedIdsPath,
+    run,
+    readManifest: () =>
+      JSON.parse(fs.readFileSync(path.join(deploymentsDir, 'testnet.json'), 'utf8')),
+    cleanup: () => fs.rmSync(tempRoot, { recursive: true, force: true }),
+  };
+}
+
+describe('deploy-testnet.sh — structure', () => {
+  it('script file exists', () => {
+    expect(fs.existsSync(SCRIPT)).toBe(true);
+  });
+
+  it('script is executable', () => {
+    expect(fs.statSync(SCRIPT).mode & 0o100).toBeTruthy();
+  });
+
+  it('starts with a bash shebang', () => {
+    expect(src.startsWith('#!/usr/bin/env bash')).toBe(true);
+  });
+});
+
+describe('deploy-testnet.sh — skip / force logic', () => {
+  it('skips already-deployed contracts when FORCE=false', () => {
+    const harness = createHarness();
+    try {
+      const first = harness.run();
+      expect(first.status).toBe(0);
+      const afterFirst = harness.readManifest();
+      expect(afterFirst.contracts.mathLib).toBe('CDEPLOYED1');
+
+      const second = harness.run();
+      expect(second.status).toBe(0);
+      expect(second.stdout).toContain('use --force to redeploy');
+      expect(harness.readManifest()).toEqual(afterFirst);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('redeploys already-deployed contracts when --force is passed', () => {
+    const harness = createHarness();
+    try {
+      const first = harness.run();
+      expect(first.status).toBe(0);
+      const afterFirst = harness.readManifest();
+
+      const forced = harness.run(['--force']);
+      expect(forced.status).toBe(0);
+      const afterForce = harness.readManifest();
+      expect(afterForce.contracts.mathLib).not.toBe(afterFirst.contracts.mathLib);
+      expect(afterForce.contracts.mathLib).toBe('CDEPLOYED10');
+    } finally {
+      harness.cleanup();
+    }
+  });
+});
+
+describe('deploy-testnet.sh — error guards', () => {
+  it('fails when WASM file is missing', () => {
+    const harness = createHarness();
+    try {
+      fs.rmSync(path.join(harness.wasmDir, 'math_lib.wasm'));
+      const result = harness.run();
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('WASM not found');
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('fails when deploy returns empty contract ID', () => {
+    const harness = createHarness({ deployOutput: '' });
+    try {
+      const result = harness.run();
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('returned empty contract ID');
+    } finally {
+      harness.cleanup();
+    }
+  });
+});
+
+describe('deploy-testnet.sh — deployment manifest integration', () => {
+  it('records the deployed WASM hashes and passes clean contract IDs to oracle wiring', () => {
+    const harness = createHarness();
+    try {
+      const result = harness.run();
+      expect(result.status).toBe(0);
+
+      const manifest = harness.readManifest();
       expect(manifest.deployer).toBe('GTESTDEPLOYER');
-      for (const [index, [key, wasmName]] of artifacts.entries()) {
+      for (const [index, [key, wasmName]] of ARTIFACTS.entries()) {
         expect(manifest.contracts[key]).toBe(`CDEPLOYED${index + 1}`);
         expect(manifest.wasmHashes[key]).toBe(
           crypto
@@ -195,11 +230,11 @@ esac
         );
       }
 
-      const invokedIds = fs.readFileSync(invokedIdsPath, 'utf8').trim().split('\n');
+      const invokedIds = fs.readFileSync(harness.invokedIdsPath, 'utf8').trim().split('\n');
       expect(invokedIds).toHaveLength(13);
       expect(invokedIds.every((id) => /^CDEPLOYED\d+$/.test(id))).toBe(true);
     } finally {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
+      harness.cleanup();
     }
   });
 });

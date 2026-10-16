@@ -119,6 +119,47 @@ fn test_mint_out_of_range_does_not_add_active_liquidity() {
 }
 
 #[test]
+fn test_mint_rejects_inverted_tick_range() {
+    let (env, id, t0, t1, lp) = setup();
+    init_pool(&env, &id, &t0, &t1);
+    fund_lp(&env, &t0, &t1, &lp);
+    let client = PoolClient::new(&env, &id);
+
+    assert!(client.try_mint(&lp, &1u64, &60, &-60, &1_000_000u128).is_err());
+    assert_eq!(client.get_state().liquidity, 0);
+}
+
+#[test]
+fn test_mint_rejects_equal_tick_range() {
+    let (env, id, t0, t1, lp) = setup();
+    init_pool(&env, &id, &t0, &t1);
+    fund_lp(&env, &t0, &t1, &lp);
+    let client = PoolClient::new(&env, &id);
+
+    assert!(client.try_mint(&lp, &1u64, &60, &60, &1_000_000u128).is_err());
+    assert_eq!(client.get_state().liquidity, 0);
+}
+
+#[test]
+fn test_mint_rejects_zero_liquidity() {
+    let (env, id, t0, t1, lp) = setup();
+    init_pool(&env, &id, &t0, &t1);
+    fund_lp(&env, &t0, &t1, &lp);
+    let client = PoolClient::new(&env, &id);
+    let token_0_client = token::Client::new(&env, &t0);
+    let token_1_client = token::Client::new(&env, &t1);
+
+    let lp_0_before = token_0_client.balance(&lp);
+    let lp_1_before = token_1_client.balance(&lp);
+
+    assert!(client.try_mint(&lp, &1u64, &-60, &60, &0u128).is_err());
+    assert_eq!(client.get_state().liquidity, 0);
+    // No token transfer occurred.
+    assert_eq!(token_0_client.balance(&lp), lp_0_before);
+    assert_eq!(token_1_client.balance(&lp), lp_1_before);
+}
+
+#[test]
 fn test_burn_removes_liquidity() {
     let (env, id, t0, t1, lp) = setup();
     init_pool(&env, &id, &t0, &t1);

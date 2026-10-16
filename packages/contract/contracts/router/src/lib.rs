@@ -191,12 +191,25 @@ impl Router {
         params.recipient.require_auth();
 
         let pool = get_pool(&env, &params.token_in, &params.token_out, params.fee);
+
+        // Resolve the swap direction from the pool's own token ordering rather
+        // than from the caller's argument order. A caller may pass the pair in
+        // either order; the pool is always told to swap in its canonical
+        // `token_0 -> token_1` (or reverse) direction.
+        let zero_for_one = resolve_zero_for_one(
+            &env,
+            &pool,
+            &params.token_in,
+            &params.token_out,
+        );
+
         let (amount_in_used, amount_out) = execute_swap(
             &env,
             &pool,
             &params.recipient,
             &params.token_in,
             &params.token_out,
+            zero_for_one,
             params.amount_in,
             params.sqrt_price_limit_x96,
         );
@@ -246,6 +259,14 @@ impl Router {
     /// # Returns
     /// Never returns; always reverts with `RouterError::ExactOutputUnsupported`.
     pub fn exact_output_single(env: Env, params: ExactOutputSingleParams) -> SwapResult {
+        check_deadline(&env, params.deadline);
+        if params.amount_out == 0 {
+            panic_router(&env, RouterError::ZeroAmount);
+        }
+
+        // `cl_pool.swap` is an exact-input-only swap: it consumes a fixed
+        // `amount_in` and derives the output amount. Exact-output swaps are
+        // therefore unsupported by this router.
         let _ = params;
         panic_router(&env, RouterError::ExactOutputUnsupported)
     }

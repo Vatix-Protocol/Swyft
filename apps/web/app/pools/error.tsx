@@ -14,13 +14,13 @@ export default function PoolsError({
   }, [error]);
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-8">
-      <div className="text-center py-12">
+    <main className="mx-auto max-w-4xl px-4 py-10">
+      <div role="alert" className="text-center py-12">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-white mb-2">
           Something went wrong
         </h2>
         <p className="text-sm text-zinc-500 mb-4">
-          We couldn&apos;t load the pools list. This might be a temporary issue.
+          We couldn&apos;t load the pools. This might be a temporary issue.
         </p>
         <button
           onClick={unstable_retry}
@@ -28,7 +28,10 @@ export default function PoolsError({
         >
           Try again
         </button>
+        {error.digest && (
+          <p className="mt-4 text-xs text-zinc-400">Reference: {error.digest}</p>
+        )}
       </div>
-    </div>
+    </main>
   );
 }

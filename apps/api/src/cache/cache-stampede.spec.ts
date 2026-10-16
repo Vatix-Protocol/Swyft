@@ -162,4 +162,18 @@ describe('CacheService - Singleflight lock (stampede protection)', () => {
       expect(waitTimeoutMs).toBeLessThan(lockTtlSeconds * 1000);
     });
   });
+
+  describe('createSubscriber lifecycle', () => {
+    it('should quit subscribers created via createSubscriber() on module destroy', async () => {
+      const { CacheService } = await import('./cache.service');
+      const service = new CacheService();
+
+      const subscriber = service.createSubscriber();
+      expect(subscriber.status).not.toBe('end');
+
+      await service.onModuleDestroy();
+
+      expect(subscriber.status).toBe('end');
+    });
+  });
 });
