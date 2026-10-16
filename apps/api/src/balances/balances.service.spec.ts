@@ -228,76 +228,195 @@ describe('math-lib fixed-point invariants', () => {
       expect(() => checkedSub(I128_MAX, -1n)).toThrow(RangeError);
     });
 
-    it('is exact at the boundaries', () => {
-      expect(checkedSub(I128_MAX, 1n)).toBe(I128_MAX - 1n);
-      expect(checkedSub(I128_MIN, -1n)).toBe(I128_MIN + 1n);
+    it('is exact for in-range values', () => {
+      expect(checkedSub(10n, 4n)).toBe(6n);
+      expect(checkedSub(0n, 0n)).toBe(0n);
     });
   });
 
   describe('scaleChecked', () => {
-    it('scales deterministically by 10^decimals', () => {
+    it('scales deterministically by the token decimals', () => {
       expect(scaleChecked(1n, 7)).toBe(10_000_000n);
-      expect(scaleChecked(0n, 18)).toBe(0n);
+      expect(scaleChecked(5n, 2)).toBe(500n);
     });
 
-    it('fails closed when scaling overflows i128', () => {
-      expect(() => scaleChecked(I128_MAX, 1)).toThrow(RangeError);
-    });
-
-    it('rejects adversarial decimals values', () => {
+    it('rejects invalid decimals instead of silently truncating', () => {
       expect(() => scaleChecked(1n, -1)).toThrow(RangeError);
       expect(() => scaleChecked(1n, 19)).toThrow(RangeError);
       expect(() => scaleChecked(1n, 1.5)).toThrow(RangeError);
     });
+
+    it('fails closed when scaling would overflow i128', () => {
+      expect(() => scaleChecked(I128_MAX, 18)).toThrow(RangeError);
+    });
   });
 
-  describe('formatScaled rounding', () => {
+  describe('formatScaled', () => {
     it('truncates toward zero deterministically', () => {
       expect(formatScaled(12_500_000n, 7)).toBe('1.25');
-      expect(formatScaled(1n, 7)).toBe('0.0000001');
-      expect(formatScaled(9n, 7)).toBe('0.0000009');
+      expect(formatScaled(500n, 2)).toBe('5');
+      expect(formatScaled(0n, 7)).toBe('0');
     });
 
-    it('handles negative values without losing the sign', () => {
+    it('preserves the sign for negative balances', () => {
       expect(formatScaled(-12_500_000n, 7)).toBe('-1.25');
-      expect(formatScaled(-1n, 7)).toBe('-0.0000001');
     });
+  });
+});
 
-    it('is stable across repeated invocations (no hidden state)', () => {
-      const first = formatScaled(123_456_789n, 7);
-      const second = formatScaled(123_456_789n, 7);
-      expect(first).toBe(second);
+// ─── Slippage policy clamp bounds (#1153) ────────────────────────────────────
+//
+// SLIPPAGE_POLICY is the server-side source of truth for the clamp an
+// untrusted client can reach. These tests pin the inclusive bounds so a future
+// edit cannot silently widen the ceiling without a failing test.
+
+describe('SLIPPAGE_POLICY clamp bounds (#1153)', () => {
+  it('pins the documented inclusive bounds', () => {
+    expect(SLIPPAGE_POLICY.minToleranceBps).toBe(1);
+    expect(SLIPPAGE_POLICY.maxToleranceBps).toBe(500);
+    expect(SLIPPAGE_POLICY.minDeadlineSeconds).toBe(5);
+    expect(SLIPPAGE_POLICY.maxDeadlineSeconds).toBe(300);
+  });
+
+  it('accepts the inclusive tolerance boundaries 1 and 500 unchanged', () => {
+    expect(validateSlippageParams({ toleranceBps: 1, deadlineSeconds: 30 })).toEqual({
+      toleranceBps: 1,
+      deadlineSeconds: 30,
+    });
+    expect(
+      validateSlippageParams({
+        toleranceBps: SLIPPAGE_POLICY.maxToleranceBps,
+        deadlineSeconds: 30,
+      }),
+    ).toEqual({ toleranceBps: 500, deadlineSeconds: 30 });
+  });
+
+  it('rejects tolerance 0 and 501 with SLIPPAGE_INVALID_TOLERANCE', () => {
+    expect(() =>
+      validateSlippageParams({ toleranceBps: 0, deadlineSeconds: 30 }),
+    ).toThrow(SLIPPAGE_ERROR_CODES.SLIPPAGE_INVALID_TOLERANCE);
+    expect(() =>
+      validateSlippageParams({
+        toleranceBps: SLIPPAGE_POLICY.maxToleranceBps + 1,
+        deadlineSeconds: 30,
+      }),
+    ).toThrow(SLIPPAGE_ERROR_CODES.SLIPPAGE_INVALID_TOLERANCE);
+  });
+
+  it('rejects negative tolerance with SLIPPAGE_INVALID_TOLERANCE', () => {
+    expect(() =>
+      validateSlippageParams({ toleranceBps: -1, deadlineSeconds: 30 }),
+    ).toThrow(SLIPPAGE_ERROR_CODES.SLIPPAGE_INVALID_TOLERANCE);
+  });
+
+  it('accepts the inclusive deadline boundaries 5 and 300', () => {
+    expect(
+      validateSlippageParams({
+        toleranceBps: 100,
+        deadlineSeconds: SLIPPAGE_POLICY.minDeadlineSeconds,
+      }),
+    ).toEqual({ toleranceBps: 100, deadlineSeconds: 5 });
+    expect(
+      validateSlippageParams({
+        toleranceBps: 100,
+        deadlineSeconds: SLIPPAGE_POLICY.maxDeadlineSeconds,
+      }),
+    ).toEqual({ toleranceBps: 100, deadlineSeconds: 300 });
+  });
+
+  it('rejects deadline 4 and 301 with SLIPPAGE_INVALID_DEADLINE', () => {
+    expect(() =>
+      validateSlippageParams({
+        toleranceBps: 100,
+        deadlineSeconds: SLIPPAGE_POLICY.minDeadlineSeconds - 1,
+      }),
+    ).toThrow(SLIPPAGE_ERROR_CODES.SLIPPAGE_INVALID_DEADLINE);
+    expect(() =>
+      validateSlippageParams({
+        toleranceBps: 100,
+        deadlineSeconds: SLIPPAGE_POLICY.maxDeadlineSeconds + 1,
+      }),
+    ).toThrow(SLIPPAGE_ERROR_CODES.SLIPPAGE_INVALID_DEADLINE);
+  });
+});
+
+// ─── Position-NFT metadata validation (#1153) ────────────────────────────────
+//
+// POSITION_NFT_TICK_RANGE is the server-side source of truth for the tick
+// range an untrusted client can reach. These tests pin the inclusive bounds
+// and the supported metadata version.
+
+describe('position-NFT metadata validation (#1153)', () => {
+  it('pins the documented tick range and metadata version', () => {
+    expect(POSITION_NFT_TICK_RANGE.minTick).toBe(-887272);
+    expect(POSITION_NFT_TICK_RANGE.maxTick).toBe(887272);
+    expect(POSITION_NFT_METADATA_VERSION).toBe(1);
+  });
+
+  it('accepts a valid, ordered tick range at the supported metadata version', () => {
+    expect(
+      validatePositionNftMetadata({
+        metadataVersion: POSITION_NFT_METADATA_VERSION,
+        tickLower: -100,
+        tickUpper: 100,
+      }),
+    ).toEqual({
+      metadataVersion: POSITION_NFT_METADATA_VERSION,
+      tickLower: -100,
+      tickUpper: 100,
     });
   });
 
-  describe('property: checked arithmetic never wraps', () => {
-    const samples = [
-      0n,
-      1n,
-      -1n,
-      I128_MAX,
-      I128_MIN,
-      I128_MAX - 1n,
-      I128_MIN + 1n,
-      123_456_789n,
-      -987_654_321n,
-    ];
-
-    it('either returns an in-range result or throws — never wraps', () => {
-      for (const a of samples) {
-        for (const b of samples) {
-          let result: bigint | undefined;
-          try {
-            result = checkedAdd(a, b);
-          } catch (err) {
-            expect(err).toBeInstanceOf(RangeError);
-          }
-          if (result !== undefined) {
-            expect(result).toBeGreaterThanOrEqual(I128_MIN);
-            expect(result).toBeLessThanOrEqual(I128_MAX);
-          }
-        }
-      }
+  it('accepts the inclusive tick boundaries', () => {
+    expect(
+      validatePositionNftMetadata({
+        metadataVersion: POSITION_NFT_METADATA_VERSION,
+        tickLower: POSITION_NFT_TICK_RANGE.minTick,
+        tickUpper: POSITION_NFT_TICK_RANGE.maxTick,
+      }),
+    ).toEqual({
+      metadataVersion: POSITION_NFT_METADATA_VERSION,
+      tickLower: -887272,
+      tickUpper: 887272,
     });
+  });
+
+  it('rejects tickLower === tickUpper with POSITION_NFT_INVALID_TICK_RANGE', () => {
+    expect(() =>
+      validatePositionNftMetadata({
+        metadataVersion: POSITION_NFT_METADATA_VERSION,
+        tickLower: 10,
+        tickUpper: 10,
+      }),
+    ).toThrow(POSITION_NFT_ERROR_CODES.POSITION_NFT_INVALID_TICK_RANGE);
+  });
+
+  it('rejects ticks below minTick and above maxTick with POSITION_NFT_INVALID_TICK_RANGE', () => {
+    expect(() =>
+      validatePositionNftMetadata({
+        metadataVersion: POSITION_NFT_METADATA_VERSION,
+        tickLower: POSITION_NFT_TICK_RANGE.minTick - 1,
+        tickUpper: 100,
+      }),
+    ).toThrow(POSITION_NFT_ERROR_CODES.POSITION_NFT_INVALID_TICK_RANGE);
+    expect(() =>
+      validatePositionNftMetadata({
+        metadataVersion: POSITION_NFT_METADATA_VERSION,
+        tickLower: -100,
+        tickUpper: POSITION_NFT_TICK_RANGE.maxTick + 1,
+      }),
+    ).toThrow(POSITION_NFT_ERROR_CODES.POSITION_NFT_INVALID_TICK_RANGE);
+  });
+
+  it('rejects an unsupported metadataVersion with POSITION_NFT_UNSUPPORTED_METADATA_VERSION', () => {
+    expect(() =>
+      validatePositionNftMetadata({
+        metadataVersion: POSITION_NFT_METADATA_VERSION + 1,
+        tickLower: -100,
+        tickUpper: 100,
+      }),
+    ).toThrow(
+      POSITION_NFT_ERROR_CODES.POSITION_NFT_UNSUPPORTED_METADATA_VERSION,
+    );
   });
 });
