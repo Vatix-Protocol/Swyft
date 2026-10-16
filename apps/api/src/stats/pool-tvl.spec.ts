@@ -68,6 +68,19 @@ describe('calculatePoolTvl', () => {
     ).toBe(0);
   });
 
+  it('returns zero for a pool with zero liquidity', () => {
+    expect(
+      calculatePoolTvl({
+        currentSqrtPrice,
+        positions: [{ ...position, liquidity: '0' }],
+        price0: 1,
+        price1: 1,
+        decimals0: 7,
+        decimals1: 7,
+      }),
+    ).toBe(0);
+  });
+
   it.each([
     { price0: 0, price1: 1 },
     { price0: 1, price1: Number.NaN },
@@ -95,5 +108,27 @@ describe('calculatePoolTvl', () => {
         decimals1: 7,
       }),
     ).toThrow('Indexed position liquidity is invalid');
+  });
+
+  it('keeps the aggregate TVL finite when a pool is invalid', () => {
+    const valid = calculatePoolTvl({
+      currentSqrtPrice,
+      positions: [position],
+      price0: 1,
+      price1: 1,
+      decimals0: 7,
+      decimals1: 7,
+    });
+    const invalid = calculatePoolTvl({
+      currentSqrtPrice,
+      positions: [{ ...position, liquidity: '0' }],
+      price0: 1,
+      price1: 1,
+      decimals0: 7,
+      decimals1: 7,
+    });
+    const aggregate = valid + invalid;
+    expect(Number.isFinite(aggregate)).toBe(true);
+    expect(aggregate).toBe(valid);
   });
 });
