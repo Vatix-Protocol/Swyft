@@ -251,30 +251,128 @@ export function getSwapQuote(params: LocalSwapQuoteParams): LocalSwapQuote {
   }
 
   const zeroForOne = direction(params.poolState, params.tokenIn);
-  let sqrtPrice = BigInt(params.poolState.sqrtPrice);
-  let liquidity = BigInt(params.poolState.liquidity);
-  let currentTick = params.poolState.currentTick;
+  let sqrtPrice = BigInt(params.poolState.sqrtPriceX96);
+  const liquidity = BigInt(params.poolState.liquidity);
 
   if (liquidity <= 0n) {
-    throw new Error('zero liquidity in current range');
+    throw new QuoteValidationError('zero liquidity');
   }
 
-  const fee = mulDivRoundingUp(amountIn, feeUnits(params.poolState.feeTier), 1_000_000n);
-  let remaining = amountIn - fee;
-  if (remaining <= 0n) {
-    throw new Error('amountIn is fully consumed by fees');
-  }
+  const feeTier = params.poolState.feeTier;
+  const feeAmount = (amountIn * BigInt(feeTier)) / 1_000_000n;
+  const amountInAfterFee = amountIn - feeAmount;
 
-  let amountOut = 0n;
-  const ticks = sortedTicks(params.poolState.ticks ?? [], zeroForOne, currentTick);
+  let remainingIn = amountInAfterFee;
+  let totalOut = 0n;
+  let crossedTicks = 0;
 
-  while (remaining > 0n) {
-    if (liquidity <= 0n) {
-      throw new Error('zero liquidity in range');
+  const ticks = params.poolState.ticks ?? [];
+  const sortedTicks = [...ticks].sort((a, b) =>
+    zeroForOne ? b.tick - a.tick : a.tick - b.tick,
+  );
+
+  for (const tick of sortedTicks) {
+    if (remainingIn <= 0n) break;
+    const targetSqrtPrice = BigInt(tick.sqrtPriceX96);
+    const step = computeSwapStep(
+      sqrtPrice,
+      targetSqrtPrice,
+      liquidity,
+      remainingIn,
+      zeroForOne,
+    );
+    totalOut += step.amountOut;
+    remainingIn -= step.amountIn;
+    sqrtPrice = step.nextSqrtPrice;
+    if (step.reachedTarget) {
+      crossedTicks += 1;
+    } else {
+      break;
     }
+  }
 
-    const nextTick = ticks.shift();
-    const targetTick = nextTick?.tick ?? (zeroForOne ? MIN_TICK : MAX_TICK);
-    const targetSqrtPrice = sqrtRati
+  if (remainingIn > 0n) {
+    throw new QuoteValidationError('amount exceeds available liquidity');
+  }
 
-/* … truncated 5365 chars — edit only what you need near the top … */
+  if (totalOut <= 0n) {
+    throw new QuoteValidationError('zero liquidity');
+  }
+
+  const amountOut = totalOut;
+  const executionPrice = Number(amountOut) / Number(amountIn);
+  const spotPrice = Number(Q96) / Number(sqrtPrice);
+  const priceImpactPct = Math.max(0, ((spotPrice - executionPrice) / spotPrice) * 100);
+  const minimumReceived = (amountOut * BigInt(10_000 - params.slippage)) / 10_000n;
+
+  return {
+    amountOut: amountOut.toString(),
+    priceImpact: parseFloat(priceImpactPct.toFixed(4)),
+    fee: feeAmount.toString(),
+    minimumReceived: minimumReceived.toString(),
+    sqrtPriceLimitX96: sqrtPrice.toString(),
+  };
+}
+
+/**
+ * Resolves the swap direction from the pool state and the input token.
+ * Throws {@link QuoteValidationError} when the token does not match either
+ * side of the pool.
+ */
+function direction(poolState: PoolState, tokenIn: string): boolean {
+  if (tokenIn === poolState.token0) return true;
+  if (tokenIn === poolState.token1) return false;
+  throw new QuoteValidationError('invalid token direction');
+}
+
+/** Parses a string or bigint amount into a bigint, defaulting to 0n. */
+function toBigIntAmount(amount: string | bigint): bigint {
+  if (typeof amount === 'bigint') return amount;
+  try {
+    return BigInt(amount);
+  } catch {
+    return 0n;
+  }
+}
+
+/**
+ * Computes a single swap step against a target sqrt price, mirroring the
+ * Uniswap v3 `computeSwapStep` helper. Returns the input consumed, output
+ * produced, the next sqrt price, and whether the target was reached.
+ */
+function computeSwapStep(
+  sqrtPriceCurrent: bigint,
+  sqrtPriceTarget: bigint,
+  liquidity: bigint,
+  amountRemaining: bigint,
+  zeroForOne: boolean,
+): SwapStepResult {
+  const sqrtPriceNext = zeroForOne
+    ? sqrtPriceTarget < sqrtPriceCurrent
+      ? sqrtPriceTarget
+      : sqrtPriceCurrent
+    : sqrtPriceTarget > sqrtPriceCurrent
+      ? sqrtPriceTarget
+      : sqrtPriceCurrent;
+
+  const reachedTarget = sqrtPriceNext === sqrtPriceTarget;
+
+  const amountIn = zeroForOne
+    ? (liquidity * (sqrtPriceCurrent - sqrtPriceNext)) / sqrtPriceCurrent
+    : (liquidity * (sqrtPriceNext - sqrtPriceCurrent)) / sqrtPriceNext;
+
+  const amountOut = zeroForOne
+    ? (liquidity * (sqrtPriceCurrent - sqrtPriceNext)) / sqrtPriceNext
+    : (liquidity * (sqrtPriceNext - sqrtPriceCurrent)) / sqrtPriceCurrent;
+
+  if (amountIn > amountRemaining) {
+    return {
+      amountIn: amountRemaining,
+      amountOut: (amountOut * amountRemaining) / amountIn,
+      nextSqrtPrice: sqrtPriceCurrent,
+      reachedTarget: false,
+    };
+  }
+
+  return { amountIn, amountOut, nextSqrtPrice: sqrtPriceNext, reachedTarget };
+}

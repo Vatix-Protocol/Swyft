@@ -79,10 +79,29 @@ describe('getSwapQuote', () => {
         amountIn: '100',
         slippage: 0,
       })
+    ).toThrow(QuoteValidationError);
+    expect(() =>
+      getSwapQuote({
+        poolState: pool({ liquidity: '0' }),
+        tokenIn: 'token0',
+        amountIn: '100',
+        slippage: 0,
+      })
     ).toThrow('zero liquidity');
   });
 
   it('rejects swaps that exceed available liquidity', () => {
+    expect(() =>
+      getSwapQuote({
+        poolState: {
+          ...pool({ liquidity: '1', currentTick: -887271 }),
+          ticks: [],
+        },
+        tokenIn: 'token0',
+        amountIn: '1000000000000000000000000000000',
+        slippage: 0,
+      })
+    ).toThrow(QuoteValidationError);
     expect(() =>
       getSwapQuote({
         poolState: {
@@ -104,7 +123,36 @@ describe('getSwapQuote', () => {
         amountIn: '100',
         slippage: 0,
       })
+    ).toThrow(QuoteValidationError);
+    expect(() =>
+      getSwapQuote({
+        poolState: pool(),
+        tokenIn: 'not-in-pool',
+        amountIn: '100',
+        slippage: 0,
+      })
     ).toThrow('invalid token direction');
+  });
+
+  it('rejects tick-crossing swaps that exhaust liquidity with QuoteValidationError', () => {
+    expect(() =>
+      getSwapQuote({
+        poolState: {
+          ...pool({ liquidity: '1', currentTick: -887271 }),
+          ticks: [
+            {
+              tick: -887272,
+              liquidityNet: '-1',
+              liquidityGross: '1',
+              feeGrowthOutside: '0',
+            },
+          ],
+        },
+        tokenIn: 'token0',
+        amountIn: '1000000000000000000000000000000',
+        slippage: 0,
+      })
+    ).toThrow(QuoteValidationError);
   });
 
   it('runs typical quotes under 5ms', () => {
