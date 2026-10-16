@@ -109,9 +109,80 @@ describe('SearchService', () => {
       'LEFT JOIN "pool" pool ON pool."id" = p."poolId"',
     );
     expect(poolSql).toContain(
-      'COALESCE(NULLIF(pool."volume24h", \'\')::numeric, 0) DESC',
+      'COALESCE(NULLIF(regexp_replace(pool."volume24h", \'[^0-9.\\-]\', \'\', \'g\'), \'\')::numeric, 0) DESC',
     );
     expect(poolSql).toContain('p."poolId" ASC');
+  });
+
+  it('guards the volume24h cast so non-numeric values cannot raise', async () => {
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const service = new SearchService(prisma as never);
+
+    await service.search('usdc');
+
+    const poolSql = prisma.$queryRawUnsafe.mock.calls[1][0] as string;
+    expect(poolSql).not.toContain('NULLIF(pool."volume24h", \'\')::numeric');
+    expect(poolSql).toContain('regexp_replace(pool."volume24h"');
+  });
+
+  it('resolves and returns pools when a row has a non-numeric volume24h', async () => {
+    const token = {
+      contractAddress: 'GUSDC',
+      symbol: 'USDC',
+      name: 'USD Coin',
+      decimals: 7,
+      logoUri: null,
+    };
+    const numericPool = {
+      poolId: 'pool-1',
+      tokenA: 'GUSDC',
+      tokenB: 'GXLM',
+      tokenASymbol: 'USDC',
+      tokenBSymbol: 'XLM',
+      fee: '30',
+      volume24h: '1000',
+    };
+    const nonNumericPool = {
+      poolId: 'pool-2',
+      tokenA: 'GUSDC',
+      tokenB: 'GXLM',
+      tokenASymbol: 'USDC',
+      tokenBSymbol: 'XLM',
+      fee: '30',
+      volume24h: 'unknown',
+    };
+
+    prisma.$queryRawUnsafe
+      .mockResolvedValueOnce([token])
+      .mockResolvedValueOnce([numericPool, nonNumericPool]);
+    const service = new SearchService(prisma as never);
+
+    const result = await service.search('usdc');
+
+    expect(result.pools).toEqual([numericPool, nonNumericPool]);
+  });
+
+  it('sorts a non-numeric volume24h row after rows with a valid numeric volume', () => {
+    // Fixture mirrors the guarded SQL ORDER BY contract: unparseable volume
+    // is treated as 0 and therefore sorts last.
+    const fixtures = [
+      { poolId: 'pool-2', volume24h: 'unknown' },
+      { poolId: 'pool-1', volume24h: '1000' },
+      { poolId: 'pool-3', volume24h: '1,234' },
+    ];
+
+    const toVolume = (value: string): number => {
+      const cleaned = value.replace(/[^0-9.\-]/g, '');
+      const parsed = Number(cleaned);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const ranked = [...fixtures].sort((a, b) => {
+      const volumeDiff = toVolume(b.volume24h) - toVolume(a.volume24h);
+      return volumeDiff !== 0 ? volumeDiff : a.poolId.localeCompare(b.poolId);
+    });
+
+    expect(ranked.map((p) => p.poolId)).toEqual(['pool-3', 'pool-1', 'pool-2']);
   });
 
   it('documents a stable equal-volume fixture order (volume desc, poolId asc)', () => {

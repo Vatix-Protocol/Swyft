@@ -129,7 +129,11 @@ export class SearchService {
           OR p."tokenA" ILIKE $2
           OR p."tokenB" ILIKE $2
         ORDER BY
-          COALESCE(NULLIF(pool."volume24h", '')::numeric, 0) DESC,
+          CASE
+            WHEN pool."volume24h" ~ '^[0-9]+(\.[0-9]+)?$'
+              THEN pool."volume24h"::numeric
+            ELSE 0
+          END DESC,
           p."poolId" ASC
         LIMIT $3 OFFSET $4
       `,
