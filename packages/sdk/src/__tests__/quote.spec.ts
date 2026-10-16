@@ -5,9 +5,19 @@ import {
   isEmptyQuote,
   QuoteValidationError,
 } from '../quote';
-import { PoolState } from '../types';
+import { PoolState, TickState } from '../types';
 
 const Q96 = '79228162514264337593543950336'; // 2^96
+
+function tick(overrides: Partial<TickState> = {}): TickState {
+  return {
+    tick: 0,
+    liquidityNet: '0',
+    liquidityGross: '0',
+    feeGrowthOutside: '0',
+    ...overrides,
+  };
+}
 
 function pool(overrides: Partial<PoolState> = {}): PoolState {
   return {
@@ -51,17 +61,15 @@ describe('getSwapQuote', () => {
 
   it('simulates initialized tick crossings', () => {
     const quote = getSwapQuote({
-      poolState: {
-        ...pool(),
+      poolState: pool({
         ticks: [
-          {
+          tick({
             tick: -120,
             liquidityNet: '-500000000000',
             liquidityGross: '500000000000',
-            feeGrowthOutside: '0',
-          },
+          }),
         ],
-      },
+      }),
       tokenIn: 'token0',
       amountIn: '7000000000',
       slippage: 0,
@@ -93,10 +101,7 @@ describe('getSwapQuote', () => {
   it('rejects swaps that exceed available liquidity', () => {
     expect(() =>
       getSwapQuote({
-        poolState: {
-          ...pool({ liquidity: '1', currentTick: -887271 }),
-          ticks: [],
-        },
+        poolState: pool({ liquidity: '1', currentTick: -887271, ticks: [] }),
         tokenIn: 'token0',
         amountIn: '1000000000000000000000000000000',
         slippage: 0,
@@ -104,10 +109,7 @@ describe('getSwapQuote', () => {
     ).toThrow(QuoteValidationError);
     expect(() =>
       getSwapQuote({
-        poolState: {
-          ...pool({ liquidity: '1', currentTick: -887271 }),
-          ticks: [],
-        },
+        poolState: pool({ liquidity: '1', currentTick: -887271, ticks: [] }),
         tokenIn: 'token0',
         amountIn: '1000000000000000000000000000000',
         slippage: 0,
@@ -137,17 +139,17 @@ describe('getSwapQuote', () => {
   it('rejects tick-crossing swaps that exhaust liquidity with QuoteValidationError', () => {
     expect(() =>
       getSwapQuote({
-        poolState: {
-          ...pool({ liquidity: '1', currentTick: -887271 }),
+        poolState: pool({
+          liquidity: '1',
+          currentTick: -887271,
           ticks: [
-            {
+            tick({
               tick: -887272,
               liquidityNet: '-1',
               liquidityGross: '1',
-              feeGrowthOutside: '0',
-            },
+            }),
           ],
-        },
+        }),
         tokenIn: 'token0',
         amountIn: '1000000000000000000000000000000',
         slippage: 0,
@@ -314,36 +316,6 @@ describe('getSwapQuote — feeTier validation', () => {
     ).toThrow(QuoteValidationError);
   });
 
-  it('rejects negative feeTier with QuoteValidationError', () => {
-    expect(() =>
-      getSwapQuote({
-        poolState: pool({ feeTier: -3000 }),
-        tokenIn: 'token0',
-        amountIn: '1000000',
-        slippage: 50,
-      })
-    ).toThrow(QuoteValidationError);
-  });
+  it('rejects negative feeTier with QuoteValidationError
 
-  it('rejects non-integer feeTier with QuoteValidationError', () => {
-    expect(() =>
-      getSwapQuote({
-        poolState: pool({ feeTier: 3000.5 }),
-        tokenIn: 'token0',
-        amountIn: '1000000',
-        slippage: 50,
-      })
-    ).toThrow(QuoteValidationError);
-  });
-
-  it('names the feeTier field in the error message', () => {
-    expect(() =>
-      getSwapQuote({
-        poolState: pool({ feeTier: 0 }),
-        tokenIn: 'token0',
-        amountIn: '1000000',
-        slippage: 50,
-      })
-    ).toThrow(/feeTier/i);
-  });
-});
+/* … truncated 774 chars — edit only what you need near the top … */

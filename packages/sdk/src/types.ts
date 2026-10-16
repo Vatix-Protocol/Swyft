@@ -35,6 +35,7 @@ export interface PoolState {
   readonly feeTier: number;
   readonly token0: string;
   readonly token1: string;
+  readonly ticks?: readonly TickState[];
 }
 
 /**
