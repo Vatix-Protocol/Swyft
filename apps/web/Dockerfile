@@ -1,50 +1,42 @@
-FROM node:20-slim AS base
-RUN npm install -g pnpm@8.15.0
+# syntax=docker/dockerfile:1
+
+# ── deps ──────────────────────────────────────────────────────────────────────
+FROM node:20-alpine AS deps
 WORKDIR /app
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json apps/web/package.json
+COPY packages ./packages
+RUN pnpm install --frozen-lockfile --filter web...
 
-FROM base AS deps
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
-COPY apps/web/package.json apps/web/
-COPY packages/config/package.json packages/config/
-COPY packages/contract/package.json packages/contract/
-COPY packages/sdk/package.json packages/sdk/
-COPY packages/ui/package.json packages/ui/
-RUN pnpm install --frozen-lockfile
-
-FROM base AS builder
+# ── builder ───────────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+WORKDIR /app
+RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules 2>/dev/null || true
+COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY . .
-ARG NEXT_PUBLIC_API_URL=http://localhost:3001
-ARG NEXT_PUBLIC_API_URL_TESTNET=
-ARG NEXT_PUBLIC_API_URL_PUBLIC=
-ARG NEXT_PUBLIC_SWYFT_API_KEY=
+
+# NEXT_PUBLIC_* values are inlined into the client bundle at build time, so
+# they must be present as build args here — setting them only at runtime has
+# no effect on the compiled JavaScript.
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_API_URL_TESTNET
+ARG NEXT_PUBLIC_API_URL_PUBLIC
+ARG NEXT_PUBLIC_SWYFT_API_KEY
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL_TESTNET=$NEXT_PUBLIC_API_URL_TESTNET
 ENV NEXT_PUBLIC_API_URL_PUBLIC=$NEXT_PUBLIC_API_URL_PUBLIC
 ENV NEXT_PUBLIC_SWYFT_API_KEY=$NEXT_PUBLIC_SWYFT_API_KEY
-# Next.js inlines NEXT_PUBLIC_* into the client bundle at build time, so the
-# per-network overrides MUST be baked in here (runtime `environment:` in
-# docker-compose is too late). Pass them with e.g.
-#   --build-arg NEXT_PUBLIC_API_URL_PUBLIC=https://api.mainnet.swyft.dev
-#   --build-arg NEXT_PUBLIC_SWYFT_API_KEY=<key>
-# An unset/blank arg bakes in an empty string, which lib/constants.ts treats
-# as "fall back to NEXT_PUBLIC_API_URL" — never a broken URL.
-# WARNING: a blank NEXT_PUBLIC_API_URL_PUBLIC on a PUBLIC/mainnet deployment
-# will cause the pool list and all market-data hooks to fall back to the
-# testnet API, serving wrong data without a visible error. Always set it.
+
 RUN pnpm --filter web build
 
-FROM node:20-slim AS runner
+# ── runner ────────────────────────────────────────────────────────────────────
+FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /app/apps/web/public ./apps/web/public
-
 EXPOSE 3000
-ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
-
 CMD ["node", "apps/web/server.js"]
