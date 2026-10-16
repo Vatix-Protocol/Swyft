@@ -87,6 +87,27 @@ export function isEmptyQuote(quote: SwapQuote): boolean {
 }
 
 /**
+ * Validates the slippage tolerance (in basis points) shared by the local
+ * quote helpers. Throws {@link QuoteValidationError} when the value is not a
+ * finite number within the inclusive `[0, 10000]` bps range.
+ */
+function validateSlippage(slippage: number): void {
+  if (!Number.isFinite(slippage) || slippage < 0 || slippage > 10000) {
+    throw new QuoteValidationError('slippage must be between 0 and 10000 basis points');
+  }
+}
+
+/**
+ * Validates a pool fee tier. Throws {@link QuoteValidationError} when the
+ * value is not a positive integer.
+ */
+function validateFeeTier(feeTier: number): void {
+  if (!Number.isInteger(feeTier) || feeTier <= 0) {
+    throw new QuoteValidationError('feeTier must be a positive integer');
+  }
+}
+
+/**
  * Calculates a local swap quote.
  *
  * @param params - Quote inputs for the swap.
@@ -98,12 +119,12 @@ export function calculateSwapQuote(params: SwapQuoteParams): SwapQuote {
     !params.amountIn ||
     params.amountIn.trim().length === 0 ||
     !params.tokenInId ||
-    !params.tokenOutId ||
-    params.slippageBps < 0 ||
-    params.slippageBps > 10000
+    !params.tokenOutId
   ) {
     return EMPTY_QUOTE;
   }
+
+  validateSlippage(params.slippageBps);
 
   const amountIn = parseFloat(params.amountIn);
 
@@ -179,12 +200,12 @@ export function calculateExactOutputQuote(params: ExactOutputQuoteParams): Exact
     !params.amountOut ||
     params.amountOut.trim().length === 0 ||
     !params.tokenInId ||
-    !params.tokenOutId ||
-    params.slippageBps < 0 ||
-    params.slippageBps > 10000
+    !params.tokenOutId
   ) {
     return EMPTY_EXACT_OUTPUT_QUOTE;
   }
+
+  validateSlippage(params.slippageBps);
 
   const amountOut = parseFloat(params.amountOut);
   if (!Number.isFinite(amountOut) || amountOut <= 0) {
@@ -221,6 +242,9 @@ export function calculateExactOutputQuote(params: ExactOutputQuoteParams): Exact
 }
 
 export function getSwapQuote(params: LocalSwapQuoteParams): LocalSwapQuote {
+  validateSlippage(params.slippage);
+  validateFeeTier(params.poolState.feeTier);
+
   const amountIn = toBigIntAmount(params.amountIn);
   if (amountIn <= 0n) {
     throw new QuoteValidationError('amountIn must be greater than zero');
@@ -251,179 +275,6 @@ export function getSwapQuote(params: LocalSwapQuoteParams): LocalSwapQuote {
 
     const nextTick = ticks.shift();
     const targetTick = nextTick?.tick ?? (zeroForOne ? MIN_TICK : MAX_TICK);
-    const targetSqrtPrice = sqrtRatioAtTick(targetTick);
+    const targetSqrtPrice = sqrtRati
 
-    const step: SwapStepResult = zeroForOne
-      ? swapToken0ForToken1Step(remaining, liquidity, sqrtPrice, targetSqrtPrice)
-      : swapToken1ForToken0Step(remaining, liquidity, sqrtPrice, targetSqrtPrice);
-
-    remaining -= step.amountIn;
-    amountOut += step.amountOut;
-    sqrtPrice = step.nextSqrtPrice;
-
-    if (!step.reachedTarget) {
-      break;
-    }
-
-    if (!nextTick) {
-      throw new Error('amount exceeds available liquidity');
-    }
-
-    liquidity = zeroForOne
-      ? liquidity - BigInt(nextTick.liquidityNet)
-      : liquidity + BigInt(nextTick.liquidityNet);
-    currentTick = nextTick.tick;
-  }
-
-  const minimumReceived = applySlippage(amountOut, params.slippage);
-
-  return {
-    amountOut: amountOut.toString(),
-    priceImpact: calcPriceImpact(params.poolState.sqrtPrice, sqrtPrice),
-    fee: fee.toString(),
-    minimumReceived: minimumReceived.toString(),
-    sqrtPriceLimitX96: sqrtPrice.toString(),
-  };
-}
-
-function direction(pool: PoolState, tokenIn: string): boolean {
-  if (tokenIn === pool.token0) return true;
-  if (tokenIn === pool.token1) return false;
-  throw new Error('invalid token direction');
-}
-
-function sortedTicks(
-  ticks: readonly TickState[],
-  zeroForOne: boolean,
-  currentTick: number
-): TickState[] {
-  return ticks
-    .filter((tick) => (zeroForOne ? tick.tick < currentTick : tick.tick > currentTick))
-    .sort((a, b) => (zeroForOne ? b.tick - a.tick : a.tick - b.tick));
-}
-
-function swapToken0ForToken1Step(
-  amountRemaining: bigint,
-  liquidity: bigint,
-  sqrtPrice: bigint,
-  targetSqrtPrice: bigint
-): SwapStepResult {
-  const amountToTarget = getAmount0Delta(targetSqrtPrice, sqrtPrice, liquidity, true);
-
-  if (amountRemaining >= amountToTarget) {
-    return {
-      amountIn: amountToTarget,
-      amountOut: getAmount1Delta(targetSqrtPrice, sqrtPrice, liquidity, false),
-      nextSqrtPrice: targetSqrtPrice,
-      reachedTarget: true,
-    };
-  }
-
-  const nextSqrtPrice = getNextSqrtPriceFromAmount0In(sqrtPrice, liquidity, amountRemaining);
-  return {
-    amountIn: amountRemaining,
-    amountOut: getAmount1Delta(nextSqrtPrice, sqrtPrice, liquidity, false),
-    nextSqrtPrice,
-    reachedTarget: false,
-  };
-}
-
-function swapToken1ForToken0Step(
-  amountRemaining: bigint,
-  liquidity: bigint,
-  sqrtPrice: bigint,
-  targetSqrtPrice: bigint
-): SwapStepResult {
-  const amountToTarget = getAmount1Delta(sqrtPrice, targetSqrtPrice, liquidity, true);
-
-  if (amountRemaining >= amountToTarget) {
-    return {
-      amountIn: amountToTarget,
-      amountOut: getAmount0Delta(sqrtPrice, targetSqrtPrice, liquidity, false),
-      nextSqrtPrice: targetSqrtPrice,
-      reachedTarget: true,
-    };
-  }
-
-  const nextSqrtPrice = sqrtPrice + (amountRemaining * Q96) / liquidity;
-  return {
-    amountIn: amountRemaining,
-    amountOut: getAmount0Delta(sqrtPrice, nextSqrtPrice, liquidity, false),
-    nextSqrtPrice,
-    reachedTarget: false,
-  };
-}
-
-function getAmount0Delta(
-  sqrtA: bigint,
-  sqrtB: bigint,
-  liquidity: bigint,
-  roundUp: boolean
-): bigint {
-  const [lower, upper] = sqrtA < sqrtB ? [sqrtA, sqrtB] : [sqrtB, sqrtA];
-  const numerator = liquidity * (upper - lower) * Q96;
-  const denominator = upper * lower;
-  return roundUp ? divRoundingUp(numerator, denominator) : numerator / denominator;
-}
-
-function getAmount1Delta(
-  sqrtA: bigint,
-  sqrtB: bigint,
-  liquidity: bigint,
-  roundUp: boolean
-): bigint {
-  const [lower, upper] = sqrtA < sqrtB ? [sqrtA, sqrtB] : [sqrtB, sqrtA];
-  const numerator = liquidity * (upper - lower);
-  return roundUp ? divRoundingUp(numerator, Q96) : numerator / Q96;
-}
-
-function getNextSqrtPriceFromAmount0In(
-  sqrtPrice: bigint,
-  liquidity: bigint,
-  amountIn: bigint
-): bigint {
-  const numerator = liquidity * sqrtPrice * Q96;
-  const denominator = liquidity * Q96 + amountIn * sqrtPrice;
-  return divRoundingUp(numerator, denominator);
-}
-
-function sqrtRatioAtTick(tick: number): bigint {
-  const ratio = Math.sqrt(Math.pow(1.0001, tick));
-  return BigInt(Math.floor(ratio * Number(Q96)));
-}
-
-function calcPriceImpact(startSqrt: string, endSqrt: bigint): number {
-  const start = Number(BigInt(startSqrt));
-  const end = Number(endSqrt);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start === 0) return 0;
-  const startPrice = (start / Number(Q96)) ** 2;
-  const endPrice = (end / Number(Q96)) ** 2;
-  return Number(Math.abs(((endPrice - startPrice) / startPrice) * 100).toFixed(6));
-}
-
-function applySlippage(amountOut: bigint, slippage: number): bigint {
-  const bps = BigInt(Math.max(0, Math.floor(slippage)));
-  if (bps > 10_000n) throw new Error('slippage cannot exceed 10000 bps');
-  return (amountOut * (10_000n - bps)) / 10_000n;
-}
-
-function feeUnits(feeTier: number): bigint {
-  if (!Number.isInteger(feeTier) || feeTier < 0 || feeTier >= 1_000_000) {
-    throw new Error('invalid fee tier');
-  }
-  return BigInt(feeTier);
-}
-
-function toBigIntAmount(value: string | bigint): bigint {
-  if (typeof value === 'bigint') return value;
-  if (!/^\d+$/.test(value)) throw new Error('amountIn must be an integer string');
-  return BigInt(value);
-}
-
-function mulDivRoundingUp(a: bigint, b: bigint, denominator: bigint): bigint {
-  return divRoundingUp(a * b, denominator);
-}
-
-function divRoundingUp(numerator: bigint, denominator: bigint): bigint {
-  return numerator === 0n ? 0n : (numerator - 1n) / denominator + 1n;
-}
+/* … truncated 5365 chars — edit only what you need near the top … */
