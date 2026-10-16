@@ -10,7 +10,7 @@ use soroban_sdk::{
     token, Address, Env,
 };
 
-use crate::{ClPool, ClPoolClient, Q96};
+use crate::{ClPool, ClPoolClient, PoolError, Q96};
 use oracle_adapter::{OracleAdapter, OracleAdapterClient};
 use position_nft::{PositionNft, PositionNftClient};
 
@@ -42,7 +42,7 @@ fn setup_with_oracle() -> (Env, Address, Address, Address, Address, Address) {
     OracleAdapterClient::new(&env, &oracle_id).initialize(&cl_pool_id);
 
     let client = ClPoolClient::new(&env, &cl_pool_id);
-    client.initialize(&token_0, &token_1, &3_000u32, &Q96, &nft_id);
+    client.initialize(&admin, &token_0, &token_1, &3_000u32, &Q96, &nft_id);
     client.set_oracle(&oracle_id);
 
     // In-range liquidity so swaps actually move the price. Kept small enough
@@ -109,10 +109,86 @@ fn test_swap_without_oracle_wiring_still_succeeds() {
     PositionNftClient::new(&env, &nft_id).initialize(&admin, &cl_pool_id);
 
     let client = ClPoolClient::new(&env, &cl_pool_id);
-    client.initialize(&token_0, &token_1, &3_000u32, &Q96, &nft_id);
+    client.initialize(&admin, &token_0, &token_1, &3_000u32, &Q96, &nft_id);
     client.add_liquidity(&trader, &-600, &600, &1_000_000u128);
 
     let (amount_0_delta, amount_1_delta) = client.swap(&trader, &true, &1_000u128, &0u128);
     assert!(amount_0_delta > 0);
     assert!(amount_1_delta < 0);
+}
+
+/// Deploys a cl-pool with real tokens and an admin, without wiring an oracle.
+fn setup_unwired() -> (Env, Address, Address, Address, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let cl_pool_id = env.register(ClPool, ());
+    let nft_id = env.register(PositionNft, ());
+
+    let admin = Address::generate(&env);
+    let token_0 = env.register_stellar_asset_contract(admin.clone());
+    let token_1 = env.register_stellar_asset_contract(admin.clone());
+
+    PositionNftClient::new(&env, &nft_id).initialize(&admin, &cl_pool_id);
+
+    let client = ClPoolClient::new(&env, &cl_pool_id);
+    client.initialize(&admin, &token_0, &token_1, &3_000u32, &Q96, &nft_id);
+
+    (env, cl_pool_id, admin, token_0, token_1)
+}
+
+#[test]
+fn test_set_oracle_rejects_pool_address() {
+    let (env, cl_pool_id, _admin, _token_0, _token_1) = setup_unwired();
+    let client = ClPoolClient::new(&env, &cl_pool_id);
+
+    let result = client.try_set_oracle(&cl_pool_id);
+    assert_eq!(result, Err(Ok(PoolError::InvalidOracle)));
+}
+
+#[test]
+fn test_set_oracle_rejects_token_addresses() {
+    let (env, cl_pool_id, _admin, token_0, token_1) = setup_unwired();
+    let client = ClPoolClient::new(&env, &cl_pool_id);
+
+    assert_eq!(
+        client.try_set_oracle(&token_0),
+        Err(Ok(PoolError::InvalidOracle))
+    );
+    assert_eq!(
+        client.try_set_oracle(&token_1),
+        Err(Ok(PoolError::InvalidOracle))
+    );
+}
+
+#[test]
+fn test_set_oracle_requires_admin_auth() {
+    let env = Env::default();
+    // No mocked auths: the admin's require_auth must fail.
+    let cl_pool_id = env.register(ClPool, ());
+    let nft_id = env.register(PositionNft, ());
+
+    let admin = Address::generate(&env);
+    let token_0 = env.register_stellar_asset_contract(admin.clone());
+    let token_1 = env.register_stellar_asset_contract(admin.clone());
+
+    env.mock_all_auths();
+    PositionNftClient::new(&env, &nft_id).initialize(&admin, &cl_pool_id);
+    let client = ClPoolClient::new(&env, &cl_pool_id);
+    client.initialize(&admin, &token_0, &token_1, &3_000u32, &Q96, &nft_id);
+
+    // Drop the blanket auth mock so the missing admin signature is observable.
+    env.set_auths(&[]);
+    let oracle_id = env.register(OracleAdapter, ());
+    assert!(client.try_set_oracle(&oracle_id).is_err());
+}
+
+#[test]
+fn test_set_oracle_succeeds_for_distinct_authorized_oracle() {
+    let (env, cl_pool_id, _admin, _token_0, _token_1) = setup_unwired();
+    let client = ClPoolClient::new(&env, &cl_pool_id);
+    let oracle_id = env.register(OracleAdapter, ());
+
+    client.set_oracle(&oracle_id);
+    assert_eq!(client.get_oracle(), oracle_id);
 }
