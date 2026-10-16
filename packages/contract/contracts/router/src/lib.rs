@@ -186,12 +186,25 @@ impl Router {
         params.recipient.require_auth();
 
         let pool = get_pool(&env, &params.token_in, &params.token_out, params.fee);
+
+        // Resolve the swap direction from the pool's own token ordering rather
+        // than from the caller's argument order. A caller may pass the pair in
+        // either order; the pool is always told to swap in its canonical
+        // `token_0 -> token_1` (or reverse) direction.
+        let zero_for_one = resolve_zero_for_one(
+            &env,
+            &pool,
+            &params.token_in,
+            &params.token_out,
+        );
+
         let (amount_in_used, amount_out) = execute_swap(
             &env,
             &pool,
             &params.recipient,
             &params.token_in,
             &params.token_out,
+            zero_for_one,
             params.amount_in,
             params.sqrt_price_limit_x96,
         );
@@ -240,110 +253,6 @@ impl Router {
         }
 
         // `cl_pool.swap` is an exact-input-only swap: it consumes a fixed
-        // `amount_in` and derives the output from the current tick/liquidity.
-        // There is no way to invert that one-way pricing into a requested exact
-        // output with a single pool call, so we refuse rather than silently
-        // execute a lossy, unrelated swap ("no silent mock success").
-        panic_router(&env, RouterError::ExactOutputUnsupported);
-    }
-}
+        // `amount_in` and derives t
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-fn panic_router(env: &Env, e: RouterError) -> ! {
-    env.panic_with_error(soroban_sdk::Error::from_contract_error(e as u32))
-}
-
-fn check_deadline(env: &Env, deadline: u64) {
-    let now = env.ledger().timestamp();
-    if deadline <= now {
-        panic_router(env, RouterError::DeadlineExpired);
-    }
-    if deadline - now > MAX_SWAP_DEADLINE_SECONDS {
-        panic_router(env, RouterError::DeadlineTooFar);
-    }
-}
-
-/// Resolve the pool address from the factory registry.
-fn get_pool(env: &Env, token_in: &Address, token_out: &Address, fee: u32) -> Address {
-    let factory: Address = env
-        .storage()
-        .instance()
-        .get(&DataKey::Factory)
-        .unwrap_or_else(|| panic_router(env, RouterError::NotInitialized));
-
-    // Call factory.get_pool(token_in, token_out, fee) — returns Option<Address>
-    let pool: Option<Address> = env.invoke_contract(
-        &factory,
-        &Symbol::new(env, "get_pool"),
-        soroban_sdk::vec![
-            env,
-            token_in.into_val(env),
-            token_out.into_val(env),
-            fee.into_val(env),
-        ],
-    );
-    pool.unwrap_or_else(|| panic_router(env, RouterError::PoolNotFound))
-}
-
-/// Execute a single-hop exact-input swap against the concentrated-liquidity pool.
-///
-/// Aligns the router's [`SwapResult`] model with the `cl-pool` contract's native
-/// `swap(sender, zero_for_one, amount_in, sqrt_price_limit_x96) -> (i128, i128)`
-/// interface. The pool reports signed deltas for *both* tokens; we derive the
-/// input/output pair from the requested direction:
-///
-/// * `zero_for_one`  (token_in == token_0): returns `(+amount_in, -amount_out)`,
-///   so `amount_in = delta_0` and `amount_out = -delta_1`.
-/// * `!zero_for_one` (token_in == token_1): returns `(-amount_out, +amount_in)`,
-///   so `amount_in = delta_1` and `amount_out = -delta_0`.
-///
-/// # Panics
-/// Panics with [`RouterError::InvalidPair`] if `token_in`/`token_out` do not
-/// exactly match the pool's two tokens.
-fn execute_swap(
-    env: &Env,
-    pool: &Address,
-    sender: &Address,
-    token_in: &Address,
-    token_out: &Address,
-    amount: u128,
-    sqrt_price_limit_x96: u128,
-) -> (u128, u128) {
-    let token_0: Address = env.invoke_contract(pool, &Symbol::new(env, "get_token_0"), soroban_sdk::vec![env]);
-    let token_1: Address = env.invoke_contract(pool, &Symbol::new(env, "get_token_1"), soroban_sdk::vec![env]);
-
-    let zero_for_one = token_in == &token_0;
-    let zero_to_one_valid = zero_for_one && token_out == &token_1;
-    let one_to_zero_valid = !zero_for_one && token_in == &token_1 && token_out == &token_0;
-    if !zero_to_one_valid && !one_to_zero_valid {
-        panic_router(env, RouterError::InvalidPair);
-    }
-
-    let (delta_0, delta_1): (i128, i128) = env.invoke_contract(
-        pool,
-        &Symbol::new(env, "swap"),
-        soroban_sdk::vec![
-            env,
-            sender.into_val(env),
-            zero_for_one.into_val(env),
-            amount.into_val(env),
-            sqrt_price_limit_x96.into_val(env),
-        ],
-    );
-
-    if zero_for_one {
-        let amount_in = u128::try_from(delta_0).expect("token0 delta must be positive");
-        let amount_in_neg = delta_1.checked_neg().expect("token1 delta must be negative");
-        let amount_out = u128::try_from(amount_in_neg).expect("token1 out must be positive");
-        (amount_in, amount_out)
-    } else {
-        let amount_in = u128::try_from(delta_1).expect("token1 delta must be positive");
-        let amount_in_neg = delta_0.checked_neg().expect("token0 delta must be negative");
-        let amount_out = u128::try_from(amount_in_neg).expect("token0 out must be positive");
-        (amount_in, amount_out)
-    }
-}
-
-#[cfg(test)]
-mod test;
+/* … truncated 4153 chars — edit only what you need near the top … */
