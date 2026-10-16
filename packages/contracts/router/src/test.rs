@@ -44,6 +44,15 @@ fn exact_output_single_success() {
 }
 
 #[test]
+#[should_panic(expected = "invalid path")]
+fn reverts_on_same_token_pool_rate() {
+    let (env, router_id, token_a, _, _) = setup();
+    let client = RouterClient::new(&env, &router_id);
+
+    client.set_pool_rate(&token_a, &token_a, &2);
+}
+
+#[test]
 #[should_panic(expected = "slippage breach")]
 fn reverts_on_slippage_breach() {
     let (env, router_id, token_a, token_b, _) = setup();
@@ -250,80 +259,6 @@ mod integration {
         let h = setup_integration();
 
         // Step 1 — swap
-        let amount_out = h.router.exact_input_single(
-            &h.token_a, &h.token_b, &10, &1, &INTEG_DEADLINE,
-        );
-        assert_eq!(amount_out, 30, "rate=3 × amount_in=10 should yield 30");
+        let amount_out = h.router.
 
-        // Step 2 — a pool/hook deposits protocol fees earned on token_b
-        let depositor = Address::generate(&h.env);
-        let fee_amount: i128 = 6;
-        let accumulated =
-            h.fee_collector.deposit_protocol_fees(&h.token_b, &depositor, &fee_amount);
-        assert_eq!(accumulated, fee_amount, "balance after deposit should equal deposited amount");
-
-        // Step 3 — admin collects the fees
-        let collected = h.fee_collector.collect_protocol_fees(&h.token_b, &h.admin);
-        assert_eq!(collected, fee_amount, "collected amount should match deposited fee");
-
-        // Step 4 — balance is zeroed
-        assert_eq!(
-            h.fee_collector.get_accumulated_fees(&h.token_b),
-            0,
-            "accumulated fees should be zero after collection"
-        );
-    }
-
-    /// deposit_protocol_fees is a no-op when the fee switch is disabled:
-    /// the balance is unchanged and no funds are transferred.
-    #[test]
-    fn deposit_is_noop_when_fee_switch_off() {
-        let h = setup_integration();
-        h.fee_collector.set_fee_switch(&false);
-
-        let balance_before = h.fee_collector.get_accumulated_fees(&h.token_b);
-        let depositor = Address::generate(&h.env);
-        let returned =
-            h.fee_collector.deposit_protocol_fees(&h.token_b, &depositor, &100);
-
-        assert_eq!(returned, balance_before, "deposit should be no-op when fee switch is off");
-        assert_eq!(h.fee_collector.get_accumulated_fees(&h.token_b), balance_before);
-    }
-
-    /// Multi-hop swap A→B→C, then collect fees on the intermediate token B.
-    #[test]
-    fn multi_hop_swap_then_fee_collect() {
-        let h = setup_integration();
-        let token_c = Address::generate(&h.env);
-        h.router.set_pool_rate(&h.token_b, &token_c, &2);
-
-        // A→B (rate 3) → B→C (rate 2): 10 × 3 × 2 = 60
-        let path = soroban_sdk::vec![
-            &h.env,
-            h.token_a.clone(),
-            h.token_b.clone(),
-            token_c.clone()
-        ];
-        let amount_out = h.router.exact_input(&path, &10, &1, &INTEG_DEADLINE);
-        assert_eq!(amount_out, 60);
-
-        // Two hops → two swap events
-        assert_eq!(h.env.events().all().len(), 2);
-
-        // Deposit and collect intermediate-token fees
-        let depositor = Address::generate(&h.env);
-        h.fee_collector.deposit_protocol_fees(&h.token_b, &depositor, &4);
-        let collected = h.fee_collector.collect_protocol_fees(&h.token_b, &h.admin);
-        assert_eq!(collected, 4);
-        assert_eq!(h.fee_collector.get_accumulated_fees(&h.token_b), 0);
-    }
-
-    /// Collecting fees with zero balance must panic with "no protocol fees to collect".
-    #[test]
-    #[should_panic(expected = "no protocol fees to collect")]
-    fn collect_with_zero_balance_panics() {
-        let h = setup_integration();
-        // No deposit was made — balance is 0
-        h.fee_collector.collect_protocol_fees(&h.token_b, &h.admin);
-    }
-}
+/* … truncated 3132 chars — edit only what you need near the top … */
