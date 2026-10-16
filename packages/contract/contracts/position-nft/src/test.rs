@@ -121,6 +121,53 @@ fn test_mint_emits_transfer_event() {
     assert_eq!(last.1.len(), 1);
 }
 
+#[test]
+#[should_panic(expected = "zero liquidity")]
+fn test_mint_rejects_zero_liquidity() {
+    let (env, contract_id, _minter, pool, user) = setup();
+    let client = PositionNftClient::new(&env, &contract_id);
+
+    client.mint(&user, &pool, &-60i32, &60i32, &0u128);
+}
+
+#[test]
+fn test_mint_zero_liquidity_leaves_next_id_unchanged() {
+    let (env, contract_id, _minter, pool, user) = setup();
+    let client = PositionNftClient::new(&env, &contract_id);
+
+    assert!(client.try_mint(&user, &pool, &-60i32, &60i32, &0u128).is_err());
+    assert_eq!(client.next_id(), 0u64);
+    assert!(client.get_position(&0u64).is_none());
+}
+
+#[test]
+#[should_panic(expected = "invalid tick range")]
+fn test_mint_rejects_inverted_tick_range() {
+    let (env, contract_id, _minter, pool, user) = setup();
+    let client = PositionNftClient::new(&env, &contract_id);
+
+    client.mint(&user, &pool, &60i32, &-60i32, &1_000u128);
+}
+
+#[test]
+#[should_panic(expected = "invalid tick range")]
+fn test_mint_rejects_equal_tick_bounds() {
+    let (env, contract_id, _minter, pool, user) = setup();
+    let client = PositionNftClient::new(&env, &contract_id);
+
+    client.mint(&user, &pool, &60i32, &60i32, &1_000u128);
+}
+
+#[test]
+fn test_mint_inverted_tick_range_leaves_next_id_unchanged() {
+    let (env, contract_id, _minter, pool, user) = setup();
+    let client = PositionNftClient::new(&env, &contract_id);
+
+    assert!(client.try_mint(&user, &pool, &60i32, &-60i32, &1_000u128).is_err());
+    assert_eq!(client.next_id(), 0u64);
+    assert!(client.get_position(&0u64).is_none());
+}
+
 // ── owner_of ──────────────────────────────────────────────────────────────────
 
 #[test]
@@ -251,5 +298,5 @@ fn test_burn_requires_minter_auth() {
 
     let auths = env.auths();
     let minter_auth = auths.iter().any(|(addr, _)| *addr == minter);
-    assert!(minter_auth, "minter auth was not required for burn");
+    assert!(minter_auth, "minter auth was not required");
 }
