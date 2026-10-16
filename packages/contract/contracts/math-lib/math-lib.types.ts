@@ -72,7 +72,14 @@ export interface NextSqrtPriceParams {
 
 // ── Constructor helpers ───────────────────────────────────────────────────────
 
-/** Cast a raw bigint to SqrtPriceX96 (validates > 0). */
+/**
+ * Cast a raw bigint to SqrtPriceX96.
+ *
+ * Any non-zero value is accepted, including prices below Q96 (i.e. prices
+ * below 1.0), which are valid pool states. Only zero is rejected, matching
+ * `sqrt_price_to_tick` in lib.rs which returns `PriceOutOfBounds` solely for
+ * `sqrt_price_x96 == 0`.
+ */
 export function toSqrtPriceX96(value: bigint): SqrtPriceX96 {
   if (value <= 0n)
     throw new MathError(MathErrorCode.PriceOutOfBounds, 'sqrtPriceX96 must be positive');
