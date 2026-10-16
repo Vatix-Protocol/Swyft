@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Token } from '@swyft/ui';
 import { API_BASE } from '@/lib/constants';
 import { apiFetch } from '@/lib/api-fetch';
@@ -12,9 +12,16 @@ export function useTokens() {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    let cancelled = false;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const load = useCallback(() => {
     setLoading(true);
     setError(null);
 
@@ -30,7 +37,7 @@ export function useTokens() {
           name: string;
           logoUri: string | null;
         }[] | { items?: Array<{ contractAddress: string; symbol: string; name: string; logoUri: string | null }> }) => {
-          if (cancelled) return;
+          if (!mountedRef.current) return;
           const items = Array.isArray(data) ? data : data.items ?? [];
           const list: Token[] = items.map((t) => ({
             id: t.contractAddress ?? '',
@@ -42,21 +49,20 @@ export function useTokens() {
         }
       )
       .catch((err: unknown) => {
-        if (!cancelled) {
-          setTokens([]);
-          setError(err instanceof Error ? err : new Error('Failed to load tokens'));
-        }
+        if (!mountedRef.current) return;
+        setTokens([]);
+        setError(err instanceof Error ? err : new Error('Failed to load tokens'));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (mountedRef.current) setLoading(false);
       });
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  return { tokens, loading, error };
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return { tokens, loading, error, refetch: load };
 }
 
 export function useRecentTokens() {
