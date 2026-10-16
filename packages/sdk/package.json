@@ -94,7 +94,7 @@
     "build": "tsup",
     "build:check": "tsc --noEmit",
     "size:check": "node scripts/check-bundle-budget.mjs",
-    "check:bundle": "pnpm run build && node scripts/check-bundle-budget.mjs",
+    "check:bundle": "pnpm run build && node scripts/check-bundle-budget.mjs && node --test scripts/__tests__/entrypoints.test.js",
     "clean": "rimraf dist",
     "test": "jest",
     "test:cov": "jest --coverage",
