@@ -52,11 +52,20 @@ export const FEE_APR_DOC_URL =
  */
 export const ROUTER_ADDRESS = process.env.NEXT_PUBLIC_ROUTER_ADDRESS ?? '';
 
+/**
+ * Strips trailing slashes from a resolved base URL so appending the '/v1'
+ * suffix never produces a double slash (e.g. an override pasted with a
+ * trailing slash from a browser address bar or deployment dashboard).
+ */
+function normalizeBase(base: string): string {
+  return base.replace(/\/+$/, '');
+}
+
 /** Per-network API base URLs. The environment variable overrides the default
  *  for the build-time network; the other network uses its own default. */
 const API_BASE_MAP: Record<StellarNetwork, string> = {
-  TESTNET: `${process.env.NEXT_PUBLIC_API_URL_TESTNET ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/v1`,
-  PUBLIC: `${process.env.NEXT_PUBLIC_API_URL_PUBLIC ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/v1`,
+  TESTNET: `${normalizeBase(process.env.NEXT_PUBLIC_API_URL_TESTNET ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001')}/v1`,
+  PUBLIC: `${normalizeBase(process.env.NEXT_PUBLIC_API_URL_PUBLIC ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001')}/v1`,
 };
 
 /** Returns the API base URL for the given network. */
@@ -66,5 +75,5 @@ export function getApiBase(network: StellarNetwork): string {
       ? process.env.NEXT_PUBLIC_API_URL_TESTNET
       : process.env.NEXT_PUBLIC_API_URL_PUBLIC) || undefined;
   const base = override ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-  return `${base}/v1`;
+  return `${normalizeBase(base)}/v1`;
 }

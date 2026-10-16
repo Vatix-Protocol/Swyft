@@ -14,6 +14,9 @@ import { getApiBase } from '@/lib/constants';
  * user selected, so testnet and mainnet must be able to point at different
  * API deployments. If an override is unset or blank, the network must fall
  * back to the shared URL rather than producing a broken "/v1" URL.
+ *
+ * The resolved base is normalized so a trailing slash on any source (override,
+ * shared URL, or localhost default) never yields a double-slashed "//v1".
  */
 
 // Capture the pre-test values so we restore them after each test.
@@ -79,5 +82,25 @@ describe('getApiBase', () => {
     process.env.NEXT_PUBLIC_API_URL = 'https://api.swyft.example';
 
     expect(getApiBase('PUBLIC')).toBe('https://api.swyft.example/v1');
+  });
+
+  it('normalizes a trailing slash on the per-network override to a single /v1 suffix', () => {
+    // Operators commonly paste URLs with a trailing slash from a browser
+    // address bar or a deployment dashboard.
+    process.env.NEXT_PUBLIC_API_URL_PUBLIC = 'https://api-mainnet.swyft.example/';
+
+    expect(getApiBase('PUBLIC')).toBe('https://api-mainnet.swyft.example/v1');
+  });
+
+  it('normalizes a trailing slash on the shared NEXT_PUBLIC_API_URL to a single /v1 suffix', () => {
+    process.env.NEXT_PUBLIC_API_URL = 'https://api.swyft.example/';
+
+    expect(getApiBase('TESTNET')).toBe('https://api.swyft.example/v1');
+    expect(getApiBase('PUBLIC')).toBe('https://api.swyft.example/v1');
+  });
+
+  it('leaves the localhost default unaffected by trailing-slash normalization', () => {
+    expect(getApiBase('TESTNET')).toBe('http://localhost:3001/v1');
+    expect(getApiBase('PUBLIC')).toBe('http://localhost:3001/v1');
   });
 });
