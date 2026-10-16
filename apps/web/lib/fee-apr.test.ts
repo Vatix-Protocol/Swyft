@@ -11,10 +11,15 @@ describe('formatFeeApr', () => {
     expect(formatFeeApr(0)).toBe('0.00%');
   });
 
-  it.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 'not-a-number'])(
-    'renders invalid APR %s as unavailable',
-    (value) => {
-      expect(formatFeeApr(value)).toBe('N/A');
-    },
-  );
+  it.each([
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+    -1,
+    'not-a-number',
+    '',
+    '   ',
+  ])('renders invalid APR %s as unavailable', (value) => {
+    expect(formatFeeApr(value)).toBe('N/A');
+  });
 });
