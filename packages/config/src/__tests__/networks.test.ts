@@ -6,6 +6,7 @@
  *  - Passphrases and URLs are the canonical Stellar values (single source of truth)
  *  - Helper functions return the right values
  *  - isStellarNetwork rejects invalid inputs
+ *  - All accessors share one documented behaviour for unknown network input
  *
  * Run:  cd packages/config && pnpm test
  */
@@ -82,6 +83,14 @@ describe('getNetworkPassphrase', () => {
   it('returns PUBLIC passphrase', () => {
     expect(getNetworkPassphrase('PUBLIC')).toBe('Public Global Stellar Network ; September 2015');
   });
+
+  it.each(['', 'unknown', 'TESTNET '])('throws for unknown network %j', (network) => {
+    expect(() => getNetworkPassphrase(network as never)).toThrow(/unknown network/i);
+  });
+
+  it('throws for a wrong-cased known network', () => {
+    expect(() => getNetworkPassphrase('testnet' as never)).toThrow(/testnet/);
+  });
 });
 
 // ── getNetworkRpcUrl ───────────────────────────────────────────────────────────
@@ -94,6 +103,14 @@ describe('getNetworkRpcUrl', () => {
   it('returns PUBLIC RPC URL', () => {
     expect(getNetworkRpcUrl('PUBLIC')).toBe('https://soroban-mainnet.stellar.org');
   });
+
+  it.each(['', 'unknown', 'TESTNET '])('throws for unknown network %j', (network) => {
+    expect(() => getNetworkRpcUrl(network as never)).toThrow(/unknown network/i);
+  });
+
+  it('throws for a wrong-cased known network', () => {
+    expect(() => getNetworkRpcUrl('testnet' as never)).toThrow(/testnet/);
+  });
 });
 
 // ── getNetworkHorizonUrl ───────────────────────────────────────────────────────
@@ -105,6 +122,14 @@ describe('getNetworkHorizonUrl', () => {
 
   it('returns PUBLIC Horizon URL', () => {
     expect(getNetworkHorizonUrl('PUBLIC')).toBe('https://horizon.stellar.org');
+  });
+
+  it.each(['', 'unknown', 'TESTNET '])('throws for unknown network %j', (network) => {
+    expect(() => getNetworkHorizonUrl(network as never)).toThrow(/unknown network/i);
+  });
+
+  it('throws for a wrong-cased known network', () => {
+    expect(() => getNetworkHorizonUrl('testnet' as never)).toThrow(/testnet/);
   });
 });
 
@@ -135,6 +160,14 @@ describe('getExplorerTxUrl', () => {
     const longHash = 'a'.repeat(64);
     expect(getExplorerTxUrl(longHash, 'PUBLIC')).toContain(longHash);
   });
+
+  it.each(['', 'unknown', 'TESTNET '])('throws for unknown network %j', (network) => {
+    expect(() => getExplorerTxUrl(HASH, network as never)).toThrow(/unknown network/i);
+  });
+
+  it('throws for a wrong-cased known network', () => {
+    expect(() => getExplorerTxUrl(HASH, 'testnet' as never)).toThrow(/testnet/);
+  });
 });
 
 // ── isStellarNetwork ───────────────────────────────────────────────────────────
@@ -158,6 +191,14 @@ describe('isStellarNetwork', () => {
 
   it('rejects empty string', () => {
     expect(isStellarNetwork('')).toBe(false);
+  });
+
+  it('rejects unknown', () => {
+    expect(isStellarNetwork('unknown')).toBe(false);
+  });
+
+  it('rejects a trailing-space typo', () => {
+    expect(isStellarNetwork('TESTNET ')).toBe(false);
   });
 
   it('rejects undefined', () => {

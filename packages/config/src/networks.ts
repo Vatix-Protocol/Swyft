@@ -67,6 +67,8 @@ export const NETWORK_PRESETS: Record<StellarNetwork, NetworkPreset> = {
 /**
  * Type-guard: returns `true` when `value` is a valid {@link StellarNetwork}.
  *
+ * This is the single source of truth for narrowing network identifiers.
+ *
  * @example
  * ```ts
  * const raw = process.env.NEXT_PUBLIC_STELLAR_NETWORK;
@@ -78,7 +80,28 @@ export function isStellarNetwork(value: unknown): value is StellarNetwork {
 }
 
 /**
+ * Resolves a network identifier to its preset, throwing a descriptive error
+ * for unknown input.
+ *
+ * All accessor helpers below share this behaviour: an unknown network (e.g. an
+ * env var typo like `'testnet '` or `'PUBLIC'`-cased incorrectly) throws rather
+ * than silently returning a preset for the wrong network, which would be unsafe
+ * for anything that signs transactions.
+ */
+function resolvePreset(network: unknown): NetworkPreset {
+  if (!isStellarNetwork(network)) {
+    throw new Error(
+      `Unknown Stellar network: ${JSON.stringify(network)}. ` +
+        `Expected one of: ${Object.keys(NETWORK_PRESETS).join(', ')}.`,
+    );
+  }
+  return NETWORK_PRESETS[network];
+}
+
+/**
  * Returns the network passphrase for the given {@link StellarNetwork}.
+ *
+ * Throws a descriptive `Error` when `network` is not a known network.
  *
  * @example
  * ```ts
@@ -87,25 +110,31 @@ export function isStellarNetwork(value: unknown): value is StellarNetwork {
  * ```
  */
 export function getNetworkPassphrase(network: StellarNetwork): string {
-  return NETWORK_PRESETS[network].passphrase;
+  return resolvePreset(network).passphrase;
 }
 
 /**
  * Returns the default Soroban RPC URL for the given {@link StellarNetwork}.
+ *
+ * Throws a descriptive `Error` when `network` is not a known network.
  */
 export function getNetworkRpcUrl(network: StellarNetwork): string {
-  return NETWORK_PRESETS[network].rpcUrl;
+  return resolvePreset(network).rpcUrl;
 }
 
 /**
  * Returns the default Horizon URL for the given {@link StellarNetwork}.
+ *
+ * Throws a descriptive `Error` when `network` is not a known network.
  */
 export function getNetworkHorizonUrl(network: StellarNetwork): string {
-  return NETWORK_PRESETS[network].horizonUrl;
+  return resolvePreset(network).horizonUrl;
 }
 
 /**
  * Builds a Stellar Expert explorer URL for a transaction hash.
+ *
+ * Throws a descriptive `Error` when `network` is not a known network.
  *
  * @example
  * ```ts
@@ -114,5 +143,5 @@ export function getNetworkHorizonUrl(network: StellarNetwork): string {
  * ```
  */
 export function getExplorerTxUrl(hash: string, network: StellarNetwork = 'TESTNET'): string {
-  return `${NETWORK_PRESETS[network].explorerBaseUrl}/tx/${hash}`;
+  return `${resolvePreset(network).explorerBaseUrl}/tx/${hash}`;
 }
