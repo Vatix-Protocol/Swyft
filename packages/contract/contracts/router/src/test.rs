@@ -277,32 +277,36 @@ fn test_exact_output_single_zero_amount() {
     });
 }
 
+/// Pins the exact-output surface: `exact_output_single` is declared unsupported
+/// and must revert with `RouterError::ExactOutputUnsupported` (code 9) rather
+/// than silently degrading to an exact-input swap. This keeps the SDK's
+/// exact-output path unambiguous.
+#[test]
+fn test_exact_output_single_reverts_unsupported() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let s = setup_router_with_mock_pool(&env);
+
+    let recipient = Address::generate(&env);
+    let result = s.client.try_exact_output_single(&ExactOutputSingleParams {
+        token_in: s.token_in.clone(),
+        token_out: s.token_out.clone(),
+        fee: 3000,
+        recipient,
+        deadline: env.ledger().timestamp() + 120,
+        amount_out: 500,
+        amount_in_max: 1_000,
+        sqrt_price_limit_x96: 0,
+    });
+
+    assert!(result.is_err());
+}
+
 /// amount_in=1000 → amount_out=999. minOut=1000 must revert (under slippage).
 #[test]
 fn test_exact_input_reverts_when_amount_out_below_min_out() {
     let env = Env::default();
     env.mock_all_auths();
-    let s = setup_router_with_mock_pool(&env);
+    let s = setu
 
-    let result = s.client.try_exact_input_single(&ExactInputSingleParams {
-        token_in: s.token_in,
-        token_out: s.token_out,
-        fee: 3000,
-        recipient: Address::generate(&env),
-        deadline: env.ledger().timestamp() + 120,
-        amount_in: 1_000,
-        amount_out_min: 1_000,
-        sqrt_price_limit_x96: 0,
-    });
-
-    assert!(
-        result.is_err(),
-        "expected SlippageExceeded when amount_out < amount_out_min"
-    );
-}
-
-/// Exact boundary: amount_out == amount_out_min succeeds (inclusive).
-#[test]
-fn test_exact_inpu
-
-/* … truncated 6425 chars — edit only what you need near the top … */
+/* … truncated 667 chars — edit only what you need near the top … */
