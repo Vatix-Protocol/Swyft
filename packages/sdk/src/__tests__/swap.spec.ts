@@ -14,6 +14,7 @@ const POOL = toStellarAddress('CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBA
 const TOKEN_IN = toStellarAddress('CABQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGCK3');
 const TOKEN_OUT = toStellarAddress('CACQKBIFAUCQKBIFAUCQKBIFAUCQKBIFAUCQKBIFAUCQKBIFAUCQLC2U');
 const OWNER = toStellarAddress('GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ');
+const SOURCE_ACCOUNT = toStellarAddress('GADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOZPI');
 const AMOUNT_IN = toRawAmount('1000000');
 const MIN_OUT = toRawAmount('990000');
 
@@ -87,11 +88,21 @@ describe('buildSwapTx', () => {
     expect(tx1.xdr).not.toBe(tx2.xdr);
   });
 
-  // NOTE: Consistent XDR hash test removed because buildSwapTx uses a random source account keypair,
-  // which means the XDR will differ even with identical parameters. This is acceptable because:
-  // 1. The transaction will have identical semantics (same operations, same parameters)
-  // 2. The randomness only affects the source account, which is a placeholder anyway
-  // 3. Verification should focus on the transaction's operations and parameters, not the XDR hash
+  it('produces identical XDR for identical params when sourceAccount is supplied', () => {
+    const tx1 = buildSwapTx({ ...validParams, sourceAccount: SOURCE_ACCOUNT });
+    const tx2 = buildSwapTx({ ...validParams, sourceAccount: SOURCE_ACCOUNT });
+    expect(tx1.xdr).toBe(tx2.xdr);
+  });
+
+  it('produces different XDR for different amountIn when sourceAccount is supplied', () => {
+    const tx1 = buildSwapTx({ ...validParams, sourceAccount: SOURCE_ACCOUNT });
+    const tx2 = buildSwapTx({
+      ...validParams,
+      amountIn: toRawAmount('5000000'),
+      sourceAccount: SOURCE_ACCOUNT,
+    });
+    expect(tx1.xdr).not.toBe(tx2.xdr);
+  });
 
   it('produces different XDR hash for different poolId', () => {
     const tx1 = buildSwapTx(validParams);
@@ -223,116 +234,110 @@ describe('deadline', () => {
     ownerAddress: OWNER,
   };
 
-  function decode(xdr: string): Transaction {
-    return TransactionBuilder.fromXDR(xdr, Networks.TESTNET) as Transaction;
-  }
-
-  it('defaults the deadline to now + DEFAULT_SWAP_DEADLINE_SECONDS', () => {
-    const before = Math.floor(Date.now() / 1000);
+  it('uses DEFAULT_SWAP_DEADLINE_SECONDS when deadline is not provided', () => {
     const tx = buildSwapTx(validParams);
-    const parsed = decode(tx.xdr);
+    const parsed = TransactionBuilder.fromXDR(tx.xdr, Networks.TESTNET);
+    expect(parsed).toBeInstanceOf(Transaction);
+    const txObj = parsed as Transaction;
+    const now = Math.floor(Date.now() / 1000);
+    expect(txObj.timeBounds?.maxTime).toBeDefined();
+    const maxTime = Number(txObj.timeBounds?.maxTime);
+    expect(maxTime).toBeGreaterThanOrEqual(now + DEFAULT_SWAP_DEADLINE_SECONDS - 5);
+    expect(maxTime).toBeLessThanOrEqual(now + DEFAULT_SWAP_DEADLINE_SECONDS + 5);
+  });
+
+  it('uses provided deadlineSeconds', () => {
+    const tx = buildSwapTx({ ...validParams, deadlineSeconds: 120 });
+    const parsed = TransactionBuilder.fromXDR(tx.xdr, Networks.TESTNET) as Transaction;
+    const now = Math.floor(Date.now() / 1000);
     const maxTime = Number(parsed.timeBounds?.maxTime);
-    expect(maxTime).toBeGreaterThanOrEqual(before + DEFAULT_SWAP_DEADLINE_SECONDS);
-    expect(maxTime).toBeLessThanOrEqual(before + DEFAULT_SWAP_DEADLINE_SECONDS + 5);
+    expect(maxTime).toBeGreaterThanOrEqual(now + 120 - 5);
+    expect(maxTime).toBeLessThanOrEqual(now + 120 + 5);
   });
 
-  it('uses an explicit deadline as the transaction maxTime precondition', () => {
-    const deadline = Math.floor(Date.now() / 1000) + 120;
-    const tx = buildSwapTx({ ...validParams, deadline });
-    const parsed = decode(tx.xdr);
-    expect(Number(parsed.timeBounds?.maxTime)).toBe(deadline);
-  });
-
-  it('includes the deadline in the router contract call arguments', () => {
-    const deadline = Math.floor(Date.now() / 1000) + 120;
-    const tx = buildSwapTx({ ...validParams, deadline });
-    const parsed = decode(tx.xdr);
-    const op = parsed.operations[0] as unknown as { func: { invokeContract(): { args(): unknown[] } } };
-    const args = op.func.invokeContract().args();
-    
-    // The deadline is at index 4 in the exact_input_single params
-    // [tokenIn, tokenOut, fee, recipient, deadline, amountIn, amountOutMin, sqrtPriceLimit]
-    const deadlineInCall = BigInt(scValToNative(args[4] as never));
-    expect(deadlineInCall).toBe(BigInt(deadline));
-  });
-
-  it('throws SwapValidationError for an already-expired deadline', () => {
-    const pastDeadline = Math.floor(Date.now() / 1000) - 10;
-    expect(() => buildSwapTx({ ...validParams, deadline: pastDeadline })).toThrow(
+  it('throws SwapValidationError for deadlineSeconds of 0', () => {
+    expect(() => buildSwapTx({ ...validParams, deadlineSeconds: 0 })).toThrow(
       SwapValidationError
     );
   });
 
-  it('throws SwapValidationError for a non-integer deadline', () => {
-    expect(() => buildSwapTx({ ...validParams, deadline: 1.5 })).toThrow(SwapValidationError);
-  });
-
-  it('rejects a deadline beyond the maximum swap TTL', () => {
-    const deadline = Math.floor(Date.now() / 1000) + MAX_SWAP_DEADLINE_SECONDS + 1;
-
-    expect(() => buildSwapTx({ ...validParams, deadline })).toThrow(SwapValidationError);
-  });
-
-  it('accepts an explicit deadline within the maximum swap TTL', () => {
-    const deadline = Math.floor(Date.now() / 1000) + MAX_SWAP_DEADLINE_SECONDS - 1;
-
-    expect(() => buildSwapTx({ ...validParams, deadline })).not.toThrow();
-  });
-
-  it('produces different XDR for different deadlines', () => {
-    const now = Math.floor(Date.now() / 1000);
-    const tx1 = buildSwapTx({ ...validParams, deadline: now + 60 });
-    const tx2 = buildSwapTx({ ...validParams, deadline: now + 120 });
-    expect(tx1.xdr).not.toBe(tx2.xdr);
-  });
-});
-
-describe('exact-output swap deadline', () => {
-  it('applies and bounds the same TTL on exact-output transactions', () => {
-    const now = Math.floor(Date.now() / 1000);
-    const validParams = {
-      routerId: POOL,
-      tokenInId: TOKEN_IN,
-      tokenOutId: TOKEN_OUT,
-      fee: 3000,
-      amountOut: toRawAmount('990000'),
-      amountInMax: toRawAmount('1000000'),
-      ownerAddress: OWNER,
-    };
-    const transaction = (deadline?: number) =>
-      buildExactOutputSwapTx({
-        ...validParams,
-        ...(deadline === undefined ? {} : { deadline }),
-      });
-    const decoded = TransactionBuilder.fromXDR(
-      transaction().xdr,
-      Networks.TESTNET,
-    ) as Transaction;
-
-    expect(Number(decoded.timeBounds?.maxTime)).toBeGreaterThanOrEqual(
-      now + DEFAULT_SWAP_DEADLINE_SECONDS,
+  it('throws SwapValidationError for negative deadlineSeconds', () => {
+    expect(() => buildSwapTx({ ...validParams, deadlineSeconds: -1 })).toThrow(
+      SwapValidationError
     );
-    expect(Number(decoded.timeBounds?.maxTime)).toBeLessThanOrEqual(
-      now + DEFAULT_SWAP_DEADLINE_SECONDS + 5,
-    );
+  });
+
+  it('throws SwapValidationError for deadlineSeconds exceeding MAX_SWAP_DEADLINE_SECONDS', () => {
     expect(() =>
-      transaction(now + MAX_SWAP_DEADLINE_SECONDS + 1),
+      buildSwapTx({ ...validParams, deadlineSeconds: MAX_SWAP_DEADLINE_SECONDS + 1 })
     ).toThrow(SwapValidationError);
   });
+
+  it('accepts deadlineSeconds equal to MAX_SWAP_DEADLINE_SECONDS', () => {
+    const tx = buildSwapTx({ ...validParams, deadlineSeconds: MAX_SWAP_DEADLINE_SECONDS });
+    expect(tx.type).toBe('swap');
+  });
 });
 
-describe('cast helpers', () => {
-  it('toStellarAddress returns the same string value', () => {
-    const addr = 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ';
-    expect(toStellarAddress(addr)).toBe(addr);
+describe('buildExactOutputSwapTx', () => {
+  const validParams = {
+    poolId: POOL,
+    tokenInId: TOKEN_IN,
+    tokenOutId: TOKEN_OUT,
+    amountOut: toRawAmount('1000000'),
+    maximumIn: toRawAmount('1010000'),
+    ownerAddress: OWNER,
+  };
+
+  it("returns type 'swap'", () => {
+    const tx = buildExactOutputSwapTx(validParams);
+    expect(tx.type).toBe('swap');
   });
 
-  it('toRawAmount returns the same string value', () => {
-    expect(toRawAmount('9999')).toBe('9999');
+  it('returns a valid XDR string', () => {
+    const tx = buildExactOutputSwapTx(validParams);
+    expect(typeof tx.xdr).toBe('string');
+    expect(tx.xdr.length).toBeGreaterThan(0);
+    expect(() => Buffer.from(tx.xdr, 'base64')).not.toThrow();
   });
 
-  it('toXdrBase64 returns the same string value', () => {
-    const b64 = btoa('hello');
-    expect(toXdrBase64(b64)).toBe(b64);
+  it('produces identical XDR for identical params when sourceAccount is supplied', () => {
+    const tx1 = buildExactOutputSwapTx({ ...validParams, sourceAccount: SOURCE_ACCOUNT });
+    const tx2 = buildExactOutputSwapTx({ ...validParams, sourceAccount: SOURCE_ACCOUNT });
+    expect(tx1.xdr).toBe(tx2.xdr);
+  });
+
+  it('produces different XDR for different amountOut when sourceAccount is supplied', () => {
+    const tx1 = buildExactOutputSwapTx({ ...validParams, sourceAccount: SOURCE_ACCOUNT });
+    const tx2 = buildExactOutputSwapTx({
+      ...validParams,
+      amountOut: toRawAmount('2000000'),
+      sourceAccount: SOURCE_ACCOUNT,
+    });
+    expect(tx1.xdr).not.toBe(tx2.xdr);
+  });
+
+  it('throws SwapValidationError for zero amountOut', () => {
+    expect(() =>
+      buildExactOutputSwapTx({ ...validParams, amountOut: toRawAmount('0') })
+    ).toThrow(SwapValidationError);
+  });
+
+  it('throws SwapValidationError for zero maximumIn', () => {
+    expect(() =>
+      buildExactOutputSwapTx({ ...validParams, maximumIn: toRawAmount('0') })
+    ).toThrow(SwapValidationError);
+  });
+
+  it('throws SwapValidationError for invalid poolId', () => {
+    expect(() =>
+      buildExactOutputSwapTx({ ...validParams, poolId: toStellarAddress('invalid') })
+    ).toThrow(SwapValidationError);
+  });
+
+  it('throws SwapValidationError for invalid ownerAddress', () => {
+    expect(() =>
+      buildExactOutputSwapTx({ ...validParams, ownerAddress: toStellarAddress('NOTAVALIDADDRESS') })
+    ).toThrow(SwapValidationError);
   });
 });

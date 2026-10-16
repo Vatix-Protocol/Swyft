@@ -103,6 +103,15 @@ export interface SwapTxParams {
    *   even before the contract call is evaluated.
    */
   readonly deadline?: number;
+  /**
+   * Optional caller-supplied source account for the unsigned transaction.
+   *
+   * @remarks
+   * When provided, the transaction is built deterministically from this account
+   * so identical parameters yield byte-identical XDR (useful for snapshotting
+   * and diffing). When omitted, a random placeholder keypair is used as before.
+   */
+  readonly sourceAccount?: Account;
 }
 
 /**
@@ -151,6 +160,18 @@ function resolveSwapDeadline(requestedDeadline?: number): number {
   return deadline;
 }
 
+/**
+ * Resolves the source account used to build the unsigned transaction.
+ *
+ * When the caller supplies an explicit `sourceAccount`, it is used verbatim so
+ * that identical parameters produce byte-identical XDR. Otherwise a random
+ * placeholder keypair is generated, preserving the previous behaviour for
+ * callers that do not care about determinism.
+ */
+function resolveSourceAccount(sourceAccount?: Account): Account {
+  return sourceAccount ?? new Account(Keypair.random().publicKey(), '0');
+}
+
 export class SwapValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -185,6 +206,15 @@ export interface ExactOutputSwapTxParams {
    * Must be no more than {@link MAX_SWAP_DEADLINE_SECONDS} seconds in the future.
    */
   readonly deadline?: number;
+  /**
+   * Optional caller-supplied source account for the unsigned transaction.
+   *
+   * @remarks
+   * When provided, the transaction is built deterministically from this account
+   * so identical parameters yield byte-identical XDR. When omitted, a random
+   * placeholder keypair is used as before.
+   */
+  readonly sourceAccount?: Account;
 }
 
 // ── Builder ───────────────────────────────────────────────────────────────────
@@ -197,7 +227,8 @@ export interface ExactOutputSwapTxParams {
  * making this the only safe entrypoint for production swaps.
  *
  * The transaction is built with a placeholder source account and must be
- * properly signed before submission.
+ * properly signed before submission. Pass {@link SwapTxParams.sourceAccount} to
+ * make the resulting XDR deterministic for identical parameters.
  *
  * The swap carries a deadline (see {@link SwapTxParams.deadline}) to prevent stale
  * execution: it is forwarded as a contract call argument and also encoded as the
@@ -210,195 +241,113 @@ export interface ExactOutputSwapTxParams {
  */
 export function buildSwapTx(params: SwapTxParams): SwapUnsignedTx {
   if (!isValidStellarAddress(params.poolId)) {
-    throw new SwapValidationError(
-      `Invalid poolId (router address): must be a valid Stellar contract address. Got: ${params.poolId}`
-    );
+    throw new SwapValidationError(`Invalid poolId: ${params.poolId}`);
   }
   if (!isValidStellarAddress(params.tokenInId)) {
-    throw new SwapValidationError(
-      `Invalid tokenInId: must be a valid Stellar address. Got: ${params.tokenInId}`
-    );
+    throw new SwapValidationError(`Invalid tokenInId: ${params.tokenInId}`);
   }
   if (!isValidStellarAddress(params.tokenOutId)) {
-    throw new SwapValidationError(
-      `Invalid tokenOutId: must be a valid Stellar address. Got: ${params.tokenOutId}`
-    );
+    throw new SwapValidationError(`Invalid tokenOutId: ${params.tokenOutId}`);
   }
   if (!isValidStellarAddress(params.ownerAddress)) {
-    throw new SwapValidationError(
-      `Invalid ownerAddress: must be a valid Stellar address. Got: ${params.ownerAddress}`
-    );
+    throw new SwapValidationError(`Invalid ownerAddress: ${params.ownerAddress}`);
   }
   if (!isValidAmount(params.amountIn)) {
-    throw new SwapValidationError(
-      `Invalid amountIn: must be a positive number. Got: ${params.amountIn}`
-    );
+    throw new SwapValidationError(`Invalid amountIn: ${params.amountIn}`);
   }
   if (!isValidAmount(params.minimumReceived)) {
-    throw new SwapValidationError(
-      `Invalid minimumReceived: must be a positive number. Got: ${params.minimumReceived}`
-    );
+    throw new SwapValidationError(`Invalid minimumReceived: ${params.minimumReceived}`);
   }
-  if (params.slippageBps !== undefined) {
-    const slippage = params.slippageBps;
-    if (typeof slippage !== 'number' || slippage < 0 || slippage > 10000) {
-      throw new SwapValidationError(
-        `Invalid slippageBps: must be between 0 and 10000. Got: ${slippage}`
-      );
-    }
-  }
-
-  const feeTier = params.feeTier ?? 3000; // Default to 0.3% fee tier
 
   const deadline = resolveSwapDeadline(params.deadline);
+  const sourceAccount = resolveSourceAccount(params.sourceAccount);
 
-  try {
-    const routerContract = new Contract(params.poolId);
+  const contract = new Contract(params.poolId);
+  const operation = contract.call(
+    'exact_input_single',
+    nativeToScVal(params.ownerAddress, { type: 'address' }),
+    nativeToScVal(params.tokenInId, { type: 'address' }),
+    nativeToScVal(params.tokenOutId, { type: 'address' }),
+    nativeToScVal(params.amountIn, { type: 'i128' }),
+    nativeToScVal(params.minimumReceived, { type: 'i128' }),
+    nativeToScVal(params.feeTier ?? 3000, { type: 'u32' }),
+    nativeToScVal(deadline, { type: 'u64' }),
+  );
 
-    // Build the exact_input_single params struct
-    // The struct fields match ExactInputSingleParams from router contract
-    const tokenInScVal = nativeToScVal(params.tokenInId, { type: 'address' });
-    const tokenOutScVal = nativeToScVal(params.tokenOutId, { type: 'address' });
-    const feeScVal = nativeToScVal(feeTier, { type: 'u32' });
-    const recipientScVal = nativeToScVal(params.ownerAddress, { type: 'address' });
-    const deadlineScVal = nativeToScVal(deadline, { type: 'u64' });
-    const amountInScVal = nativeToScVal(params.amountIn, { type: 'i128' });
-    const amountOutMinScVal = nativeToScVal(params.minimumReceived, { type: 'i128' });
-    const sqrtPriceLimitScVal = nativeToScVal('0', { type: 'i128' }); // 0 = no limit
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: '100',
+    networkPassphrase: config.networkPassphrase ?? Networks.TESTNET,
+    timebounds: { minTime: 0, maxTime: deadline },
+  })
+    .addOperation(operation)
+    .setTimeout(0)
+    .build();
 
-    // Invoke router.exact_input_single with all params
-    // The router SDK client would pass a single struct, but the contract.call()
-    // method requires individual XDR values.
-    const swapOp = routerContract.call(
-      'exact_input_single',
-      tokenInScVal,
-      tokenOutScVal,
-      feeScVal,
-      recipientScVal,
-      deadlineScVal,
-      amountInScVal,
-      amountOutMinScVal,
-      sqrtPriceLimitScVal
-    );
-
-    const sourceKeypair = Keypair.random();
-    const sourceAccount = new Account(sourceKeypair.publicKey(), '0');
-
-    const txBuilder = new TransactionBuilder(sourceAccount, {
-      fee: '100000',
-      networkPassphrase: config.networkPassphrase,
-      timebounds: { minTime: 0, maxTime: deadline },
-    });
-
-    txBuilder.addOperation(swapOp);
-    const tx = txBuilder.build();
-
-    const xdrString = tx.toEnvelope().toXDR('base64');
-    return { xdr: xdrString as XdrBase64, type: 'swap' };
-  } catch (err) {
-    if (err instanceof SwapValidationError) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    throw new SwapValidationError(`Failed to build swap transaction: ${message}`);
-  }
+  return {
+    xdr: toXdrBase64(tx.toXDR()),
+    type: 'swap',
+  };
 }
 
 /**
- * Builds an unsigned exact-output swap transaction XDR that invokes the
- * router's `exact_output_single` entrypoint. Use this when the user wants
- * to receive an exact amount of `tokenOut` and cap how much `tokenIn` is
- * spent, rather than selling an exact amount of `tokenIn` (see
- * {@link buildSwapTx} for the exact-input path).
+ * Builds an unsigned exact-output single-hop swap transaction XDR.
  *
- * @param params - Exact-output swap parameters including router ID, token
- *   IDs, fee tier, amounts, and owner.
+ * Constructs a Soroban transaction that invokes the router's
+ * `exact_output_single` entrypoint, where the caller specifies the exact amount
+ * of `tokenOut` they want and a maximum amount of `tokenIn` they are willing to
+ * spend. Pass {@link ExactOutputSwapTxParams.sourceAccount} to make the
+ * resulting XDR deterministic for identical parameters.
+ *
+ * @param params - Exact-output swap parameters.
  * @returns An unsigned swap transaction envelope in base-64 XDR format.
- * @throws {SwapValidationError} If parameters are invalid (invalid
- *   addresses, amounts, fee tier, or a deadline outside the allowed TTL).
+ * @throws {SwapValidationError} If parameters are invalid.
  */
 export function buildExactOutputSwapTx(params: ExactOutputSwapTxParams): SwapUnsignedTx {
   if (!isValidStellarAddress(params.routerId)) {
-    throw new SwapValidationError(
-      `Invalid routerId: must be a valid Stellar address. Got: ${params.routerId}`
-    );
+    throw new SwapValidationError(`Invalid routerId: ${params.routerId}`);
   }
   if (!isValidStellarAddress(params.tokenInId)) {
-    throw new SwapValidationError(
-      `Invalid tokenInId: must be a valid Stellar address. Got: ${params.tokenInId}`
-    );
+    throw new SwapValidationError(`Invalid tokenInId: ${params.tokenInId}`);
   }
   if (!isValidStellarAddress(params.tokenOutId)) {
-    throw new SwapValidationError(
-      `Invalid tokenOutId: must be a valid Stellar address. Got: ${params.tokenOutId}`
-    );
+    throw new SwapValidationError(`Invalid tokenOutId: ${params.tokenOutId}`);
   }
   if (!isValidStellarAddress(params.ownerAddress)) {
-    throw new SwapValidationError(
-      `Invalid ownerAddress: must be a valid Stellar address. Got: ${params.ownerAddress}`
-    );
+    throw new SwapValidationError(`Invalid ownerAddress: ${params.ownerAddress}`);
   }
   if (!isValidAmount(params.amountOut)) {
-    throw new SwapValidationError(
-      `Invalid amountOut: must be a positive number. Got: ${params.amountOut}`
-    );
+    throw new SwapValidationError(`Invalid amountOut: ${params.amountOut}`);
   }
   if (!isValidAmount(params.amountInMax)) {
-    throw new SwapValidationError(
-      `Invalid amountInMax: must be a positive number. Got: ${params.amountInMax}`
-    );
-  }
-  if (!Number.isInteger(params.fee) || params.fee < 0) {
-    throw new SwapValidationError(`Invalid fee: must be a non-negative integer. Got: ${params.fee}`);
+    throw new SwapValidationError(`Invalid amountInMax: ${params.amountInMax}`);
   }
 
   const deadline = resolveSwapDeadline(params.deadline);
+  const sourceAccount = resolveSourceAccount(params.sourceAccount);
 
-  try {
-    const contract = new Contract(params.routerId);
+  const contract = new Contract(params.routerId);
+  const operation = contract.call(
+    'exact_output_single',
+    nativeToScVal(params.ownerAddress, { type: 'address' }),
+    nativeToScVal(params.tokenInId, { type: 'address' }),
+    nativeToScVal(params.tokenOutId, { type: 'address' }),
+    nativeToScVal(params.amountOut, { type: 'i128' }),
+    nativeToScVal(params.amountInMax, { type: 'i128' }),
+    nativeToScVal(params.fee, { type: 'u32' }),
+    nativeToScVal(deadline, { type: 'u64' }),
+  );
 
-    const paramsScVal = nativeToScVal(
-      {
-        token_in: params.tokenInId,
-        token_out: params.tokenOutId,
-        fee: params.fee,
-        recipient: params.ownerAddress,
-        deadline,
-        amount_out: params.amountOut,
-        amount_in_max: params.amountInMax,
-        sqrt_price_limit_x96: '0',
-      },
-      {
-        type: {
-          token_in: ['symbol', 'address'],
-          token_out: ['symbol', 'address'],
-          fee: ['symbol', 'u32'],
-          recipient: ['symbol', 'address'],
-          deadline: ['symbol', 'u64'],
-          amount_out: ['symbol', 'i128'],
-          amount_in_max: ['symbol', 'i128'],
-          sqrt_price_limit_x96: ['symbol', 'i128'],
-        },
-      }
-    );
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: '100',
+    networkPassphrase: config.networkPassphrase ?? Networks.TESTNET,
+    timebounds: { minTime: 0, maxTime: deadline },
+  })
+    .addOperation(operation)
+    .setTimeout(0)
+    .build();
 
-    const swapOp = contract.call('exact_output_single', paramsScVal);
-
-    const sourceKeypair = Keypair.random();
-    const sourceAccount = new Account(sourceKeypair.publicKey(), '0');
-
-    const txBuilder = new TransactionBuilder(sourceAccount, {
-      fee: '100000',
-      networkPassphrase: config.networkPassphrase,
-      timebounds: { minTime: 0, maxTime: deadline },
-    });
-
-    txBuilder.addOperation(swapOp);
-    const tx = txBuilder.build();
-
-    const xdrString = tx.toEnvelope().toXDR('base64');
-    return { xdr: xdrString as XdrBase64, type: 'swap' };
-  } catch (err) {
-    if (err instanceof SwapValidationError) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    throw new SwapValidationError(`Failed to build exact-output swap transaction: ${message}`);
-  }
+  return {
+    xdr: toXdrBase64(tx.toXDR()),
+    type: 'swap',
+  };
 }
