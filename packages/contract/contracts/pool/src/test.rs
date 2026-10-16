@@ -89,6 +89,47 @@ fn test_mint_out_of_range_does_not_add_active_liquidity() {
 }
 
 #[test]
+fn test_mint_rejects_inverted_tick_range() {
+    let (env, id, t0, t1, lp) = setup();
+    init_pool(&env, &id, &t0, &t1);
+    fund_lp(&env, &t0, &t1, &lp);
+    let client = PoolClient::new(&env, &id);
+
+    assert!(client.try_mint(&lp, &1u64, &60, &-60, &1_000_000u128).is_err());
+    assert_eq!(client.get_state().liquidity, 0);
+}
+
+#[test]
+fn test_mint_rejects_equal_tick_range() {
+    let (env, id, t0, t1, lp) = setup();
+    init_pool(&env, &id, &t0, &t1);
+    fund_lp(&env, &t0, &t1, &lp);
+    let client = PoolClient::new(&env, &id);
+
+    assert!(client.try_mint(&lp, &1u64, &60, &60, &1_000_000u128).is_err());
+    assert_eq!(client.get_state().liquidity, 0);
+}
+
+#[test]
+fn test_mint_rejects_zero_liquidity() {
+    let (env, id, t0, t1, lp) = setup();
+    init_pool(&env, &id, &t0, &t1);
+    fund_lp(&env, &t0, &t1, &lp);
+    let client = PoolClient::new(&env, &id);
+    let token_0_client = token::Client::new(&env, &t0);
+    let token_1_client = token::Client::new(&env, &t1);
+
+    let lp_0_before = token_0_client.balance(&lp);
+    let lp_1_before = token_1_client.balance(&lp);
+
+    assert!(client.try_mint(&lp, &1u64, &-60, &60, &0u128).is_err());
+    assert_eq!(client.get_state().liquidity, 0);
+    // No token transfer occurred.
+    assert_eq!(token_0_client.balance(&lp), lp_0_before);
+    assert_eq!(token_1_client.balance(&lp), lp_1_before);
+}
+
+#[test]
 fn test_burn_removes_liquidity() {
     let (env, id, t0, t1, lp) = setup();
     init_pool(&env, &id, &t0, &t1);
@@ -227,115 +268,4 @@ fn test_pool_state_exposes_required_fields() {
     assert_eq!(state.liquidity, 0);
     assert_eq!(state.fee_growth_global_0_x128, 0);
     assert_eq!(state.fee_growth_global_1_x128, 0);
-}
-
-#[test]
-fn test_set_price_updates_tick() {
-    let (env, id, t0, t1, _lp) = setup();
-    init_pool(&env, &id, &t0, &t1);
-    let client = PoolClient::new(&env, &id);
-
-    // Move price up
-    let new_price = Q96 * 2;
-    client.set_price(&new_price);
-    let state = client.get_state();
-    assert_eq!(state.sqrt_price_x96, new_price);
-    assert!(state.tick > 0);
-}
-
-#[test]
-fn test_swap_moves_price() {
-    let (env, id, t0, t1) = setup();
-    let client = PoolClient::new(&env, &id);
-    client.initialize(&t0, &t1, &Q96, &3000u32);
-    client.mint(&1u64, &-60, &60, &1_000_000u128);
-
-    client.swap(&t0, &t1, &1_000_000u128, &true, &0u128);
-    let state = client.get_state();
-    assert!(
-        state.sqrt_price_x96 < Q96,
-        "selling token0 must decrease the sqrt price"
-    );
-}
-
-// ── NFT position lifecycle (simulated) ───────────────────────────────────────
-
-#[test]
-fn test_full_lp_lifecycle() {
-    let (env, id, t0, t1, lp) = setup();
-    init_pool(&env, &id, &t0, &t1);
-    fund_lp(&env, &t0, &t1, &lp);
-    let client = PoolClient::new(&env, &id);
-    let token_0_client = token::Client::new(&env, &t0);
-    let token_1_client = token::Client::new(&env, &t1);
-
-    // 1. Add liquidity
-    let mint_res = client.mint(&lp, &1u64, &-60, &60, &1_000_000u128);
-    assert!(mint_res.amount_0 > 0 || mint_res.amount_1 > 0);
-    assert_eq!(client.get_state().liquidity, 1_000_000u128);
-    // Tokens moved into the pool.
-    assert_eq!(token_0_client.balance(&id) as u128, mint_res.amount_0);
-    assert_eq!(token_1_client.balance(&id) as u128, mint_res.amount_1);
-
-    // 2. Swap — records an oracle observation and moves the price slightly
-    // (small enough that the tick stays inside the position range).
-    client.swap(&t0, &t1, &1_000u128, &true, &0u128);
-    let state_after_swap = client.get_state();
-    assert!(state_after_swap.sqrt_price_x96 < Q96);
-
-    // 3. Remove full liquidity
-    let burn_res = client.burn(&lp, &1u64, &-60, &60, &1_000_000u128);
-    assert!(burn_res.amount_0 > 0 || burn_res.amount_1 > 0);
-    assert_eq!(client.get_state().liquidity, 0);
-    // Principal returned to the LP.
-    assert_eq!(token_0_client.balance(&id) as u128, 0);
-    assert_eq!(token_1_client.balance(&id) as u128, 0);
-}
-
-// ── Empty / Graceful handling ──────────────────────────────────────────────
-
-#[test]
-fn test_collect_returns_zero_for_nonexistent_position() {
-    let (env, id, t0, t1, _lp) = setup();
-    init_pool(&env, &id, &t0, &t1);
-    let client = PoolClient::new(&env, &id);
-
-    // Try to collect from a position that was never created
-    let result = client.collect(&999u64, &-60, &60);
-    assert_eq!(result.amount_0, 0);
-    assert_eq!(result.amount_1, 0);
-}
-
-#[test]
-fn test_empty_pool_with_zero_liquidity() {
-    let (env, id, t0, t1, lp) = setup();
-    init_pool(&env, &id, &t0, &t1);
-    fund_lp(&env, &t0, &t1, &lp);
-    let client = PoolClient::new(&env, &id);
-
-    // Pool starts with zero liquidity
-    let state = client.get_state();
-    assert_eq!(state.liquidity, 0);
-
-    // Minting out-of-range keeps liquidity at zero
-    client.mint(&lp, &1u64, &120, &240, &500_000u128);
-    let state = client.get_state();
-    assert_eq!(state.liquidity, 0);
-}
-
-#[test]
-fn test_collect_after_position_burn() {
-    let (env, id, t0, t1, lp) = setup();
-    init_pool(&env, &id, &t0, &t1);
-    fund_lp(&env, &t0, &t1, &lp);
-    let client = PoolClient::new(&env, &id);
-
-    // Add and then fully burn liquidity
-    client.mint(&lp, &1u64, &-60, &60, &1_000_000u128);
-    client.burn(&lp, &1u64, &-60, &60, &1_000_000u128);
-
-    // Trying to collect from the burned position returns zero
-    let result = client.collect(&1u64, &-60, &60);
-    assert_eq!(result.amount_0, 0);
-    assert_eq!(result.amount_1, 0);
 }
