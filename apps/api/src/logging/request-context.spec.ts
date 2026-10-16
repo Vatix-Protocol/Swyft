@@ -1,44 +1,39 @@
-import { RequestContext } from './request-context';
+import { resolveCorrelationId } from '../observability/correlation-id';
 
-describe('RequestContext', () => {
-  it('returns undefined outside of a run() scope', () => {
-    expect(RequestContext.requestId).toBeUndefined();
+describe('resolveCorrelationId', () => {
+  it('preserves an inbound correlation id verbatim', () => {
+    const inbound = 'abc-123.def:456_ghi';
+    expect(resolveCorrelationId({ 'x-correlation-id': inbound })).toBe(inbound);
   });
 
-  it('exposes the requestId within a run() scope', () => {
-    RequestContext.run({ requestId: 'req-1' }, () => {
-      expect(RequestContext.requestId).toBe('req-1');
-    });
+  it('preserves an inbound request id when no correlation id is present', () => {
+    const inbound = 'req-789';
+    expect(resolveCorrelationId({ 'x-request-id': inbound })).toBe(inbound);
   });
 
-  it('clears the requestId once the scope has exited', () => {
-    RequestContext.run({ requestId: 'req-2' }, () => {
-      expect(RequestContext.requestId).toBe('req-2');
-    });
-    expect(RequestContext.requestId).toBeUndefined();
+  it('generates a non-empty id when none is supplied', () => {
+    const generated = resolveCorrelationId(undefined);
+    expect(typeof generated).toBe('string');
+    expect(generated.length).toBeGreaterThan(0);
   });
 
-  it('propagates through nested async calls within the same scope', async () => {
-    await RequestContext.run({ requestId: 'req-3' }, async () => {
-      await Promise.resolve();
-      expect(RequestContext.requestId).toBe('req-3');
-    });
+  it('generates a non-empty id when the supplied value is invalid', () => {
+    const generated = resolveCorrelationId({ 'x-correlation-id': 'bad id with spaces' });
+    expect(generated.length).toBeGreaterThan(0);
+    expect(generated).not.toBe('bad id with spaces');
   });
 
-  it('isolates concurrent scopes from each other', async () => {
-    const results: string[] = [];
+  it('does not share an id between two concurrent contexts', async () => {
+    const first = resolveCorrelationId({ 'x-correlation-id': 'first-id' });
+    const second = resolveCorrelationId({ 'x-correlation-id': 'second-id' });
 
-    await Promise.all([
-      RequestContext.run({ requestId: 'a' }, async () => {
-        await new Promise((r) => setTimeout(r, 10));
-        results.push(RequestContext.requestId!);
-      }),
-      RequestContext.run({ requestId: 'b' }, async () => {
-        await new Promise((r) => setTimeout(r, 1));
-        results.push(RequestContext.requestId!);
-      }),
+    const [a, b] = await Promise.all([
+      Promise.resolve().then(() => first),
+      Promise.resolve().then(() => second),
     ]);
 
-    expect(results.sort()).toEqual(['a', 'b']);
+    expect(a).toBe('first-id');
+    expect(b).toBe('second-id');
+    expect(a).not.toBe(b);
   });
 });

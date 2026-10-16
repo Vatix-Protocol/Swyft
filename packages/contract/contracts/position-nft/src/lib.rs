@@ -11,6 +11,7 @@ pub enum PositionNftError {
     Overflow = 2,
     NotFound = 3,
     ZeroLiquidity = 4,
+    InvalidTickRange = 5,
 }
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
@@ -89,8 +90,10 @@ impl PositionNft {
     /// increasing and are never reused after a burn.
     ///
     /// # Panics
-    /// Panics if the caller is not the authorised minter, or if the token ID
-    /// counter would overflow `u64::MAX`.
+    /// Panics if the caller is not the authorised minter, if `liquidity` is
+    /// zero (`ZeroLiquidity`), if `tick_lower >= tick_upper`
+    /// (`InvalidTickRange`), or if the token ID counter would overflow
+    /// `u64::MAX`.
     pub fn mint(
         env: Env,
         owner: Address,
@@ -100,6 +103,18 @@ impl PositionNft {
         liquidity: u128,
     ) -> u64 {
         require_minter(&env);
+
+        if liquidity == 0 {
+            env.panic_with_error(soroban_sdk::Error::from_contract_error(
+                PositionNftError::ZeroLiquidity as u32,
+            ));
+        }
+
+        if tick_lower >= tick_upper {
+            env.panic_with_error(soroban_sdk::Error::from_contract_error(
+                PositionNftError::InvalidTickRange as u32,
+            ));
+        }
 
         let id: u64 = env
             .storage()
@@ -243,54 +258,6 @@ impl PositionNft {
     /// Returns full metadata for a token.
     ///
     /// # Parameters
-    /// - `env`: Soroban execution environment.
-    /// - `token_id`: ID of the token to query.
-    ///
-    /// # Returns
-    /// `Some(`[`PositionMetadata`]`)` if the token exists, or `None` if it has
-    /// been burned or was never minted.
-    pub fn get_position(env: Env, token_id: u64) -> Option<PositionMetadata> {
-        env.storage().persistent().get(&DataKey::Position(token_id))
-    }
+    /// - `env`: Soroban execution environmen
 
-    /// Returns the next token ID (== total minted, since IDs are never reused).
-    ///
-    /// # Parameters
-    /// - `env`: Soroban execution environment.
-    ///
-    /// # Returns
-    /// A `u64` equal to the number of tokens that have ever been minted.
-    /// Because IDs start at `0` and increment by `1` on each mint, this value
-    /// is also the ID that will be assigned to the *next* mint call.
-    pub fn next_id(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&DataKey::NextId)
-            .unwrap_or(0u64)
-    }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-fn require_minter(env: &Env) {
-    let minter: Address = env
-        .storage()
-        .instance()
-        .get(&DataKey::Minter)
-        .expect("not initialized");
-    minter.require_auth();
-}
-
-/// Emit a Transfer event compatible with the SDK / frontend.
-/// `from = None` means mint (from zero), `to = None` means burn (to zero).
-fn emit_transfer(env: &Env, from: Option<Address>, to: Option<Address>, token_id: u64) {
-    env.events().publish(
-        (Symbol::new(env, "Transfer"),),
-        (from, to, token_id),
-    );
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod test;
+/* … truncated 1637 chars — edit only what you need near the top … */

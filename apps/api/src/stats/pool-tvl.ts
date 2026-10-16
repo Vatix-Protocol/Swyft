@@ -18,6 +18,22 @@ export interface PoolTvlInput {
   decimals1: number;
 }
 
+const MAX_SAFE_RESERVE = BigInt(Number.MAX_SAFE_INTEGER);
+
+/**
+ * Converts a bigint reserve into a scaled number without an unsafe
+ * bigint -> number conversion. The integer part is divided by the token
+ * scale using bigint arithmetic, and the fractional remainder is kept as a
+ * separate term so the result stays exact within double precision even when
+ * the raw reserve exceeds Number.MAX_SAFE_INTEGER.
+ */
+function scaleReserve(reserve: bigint, decimals: number): number {
+  const scale = 10n ** BigInt(decimals);
+  const whole = reserve / scale;
+  const remainder = reserve % scale;
+  return Number(whole) + Number(remainder) / 10 ** decimals;
+}
+
 /**
  * Computes the USD-denominated TVL for a single pool.
  *
@@ -100,11 +116,14 @@ export function calculatePoolTvl({
     reserve1 += amounts.amount1;
   }
 
+  // Reserves are scaled with bigint arithmetic before any number conversion so
+  // large reserves are computed exactly within double precision instead of
+  // being silently rounded by an unsafe bigint -> number cast.
   if (reserve0 === 0n && reserve1 === 0n) return 0;
 
   const tvl =
-    (Number(reserve0) / 10 ** decimals0) * price0 +
-    (Number(reserve1) / 10 ** decimals1) * price1;
+    scaleReserve(reserve0, decimals0) * price0 +
+    scaleReserve(reserve1, decimals1) * price1;
   if (!Number.isFinite(tvl) || tvl < 0) {
     throw new Error('Computed pool TVL is invalid');
   }
