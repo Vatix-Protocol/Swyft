@@ -287,6 +287,27 @@ export default [tseslint.configs.base, ...swyftConfig.swyftEslintConfig()];
 
 // ── Observability / CLI ───────────────────────────────────────────────────────
 
+describe('sanitizeCorrelationId boundaries', () => {
+  it('returns a 64-character valid id unchanged', () => {
+    const id = 'a'.repeat(64);
+    expect(sanitizeCorrelationId(id)).toBe(id);
+  });
+
+  it('truncates a 65-character valid id to 64 characters', () => {
+    expect(sanitizeCorrelationId('a'.repeat(65))).toBe('a'.repeat(64));
+  });
+
+  it('returns null for empty and all-invalid input', () => {
+    expect(sanitizeCorrelationId('')).toBeNull();
+    expect(sanitizeCorrelationId('!@# $%^&*()')).toBeNull();
+    expect(sanitizeCorrelationId(undefined)).toBeNull();
+  });
+
+  it('falls back to local-<pid> when no env var identifies the run', () => {
+    expect(resolveCorrelationId({})).toMatch(/^local-\d+$/);
+  });
+});
+
 describe('correlation ids and CLI', () => {
   it('sanitizes correlation ids against log injection', () => {
     expect(sanitizeCorrelationId('run\n{"status":"ok"}')).toBe('runstatusok');
