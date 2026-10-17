@@ -41,6 +41,7 @@ export const ERROR_CODES = Object.freeze({
   ESLINT_UNRESOLVED: 'SHARED_CONFIG_ESLINT_UNRESOLVED',
   ESLINT_RULE_WEAKENED: 'SHARED_CONFIG_ESLINT_RULE_WEAKENED',
   PACKAGE_FILE_MISSING: 'SHARED_CONFIG_PACKAGE_FILE_MISSING',
+  BARREL_EXPORT_MISMATCH: 'SHARED_CONFIG_BARREL_EXPORT_MISMATCH',
 });
 
 /**
@@ -169,11 +170,11 @@ export function resolveTsconfigChain(root, file, depth = 0, seen = new Set()) {
   return { chain, configs };
 }
 
-export function checkTsconfigs(root, workspaces) {
+export function checkTsconfigs(root, workspaces, exempt = EXEMPT_WORKSPACES) {
   const errors = [];
   const base = path.join(root, BASE_TSCONFIG);
   for (const ws of workspaces) {
-    if (EXEMPT_WORKSPACES[ws.id]) continue;
+    if (exempt[ws.id]) continue;
     const primary = path.join(ws.dir, 'tsconfig.json');
     if (!fs.existsSync(primary)) {
       errors.push(
@@ -237,16 +238,16 @@ function findEslintConfig(dir) {
   return null;
 }
 
-function lintWorkspaces(workspaces) {
+function lintWorkspaces(workspaces, exempt = EXEMPT_WORKSPACES) {
   return workspaces.filter(
-    (ws) => !EXEMPT_WORKSPACES[ws.id] && typeof ws.pkg.scripts?.lint === 'string'
+    (ws) => !exempt[ws.id] && typeof ws.pkg.scripts?.lint === 'string'
   );
 }
 
 /** Static check: each lint workspace's config imports and spreads the shared layer. */
-export function checkEslintStatic(root, workspaces) {
+export function checkEslintStatic(root, workspaces, exempt = EXEMPT_WORKSPACES) {
   const errors = [];
-  for (const ws of lintWorkspaces(workspaces)) {
+  for (const ws of lintWorkspaces(workspaces, exempt)) {
     const file = findEslintConfig(ws.dir);
     if (!file) {
       errors.push(
@@ -296,10 +297,10 @@ function severity(entry) {
  * computed config of a probe file, then asserts every shared security rule is
  * still `error`. Fails closed if ESLint cannot be loaded.
  */
-export async function checkEslintEffective(root, workspaces) {
+export async function checkEslintEffective(root, workspaces, exempt = EXEMPT_WORKSPACES) {
   const { securityRules } = require(path.join(root, SHARED_ESLINT));
   const errors = [];
-  for (const ws of lintWorkspaces(workspaces)) {
+  for (const ws of lintWorkspaces(workspaces, exempt)) {
     const file = findEslintConfig(ws.dir);
     if (!file) continue; // reported by the static check
     let computed;
@@ -345,6 +346,79 @@ export async function checkEslintEffective(root, workspaces) {
   return errors;
 }
 
+// ── Barrel / networks export parity ───────────────────────────────────────────
+
+/**
+ * Extracts the named value-exports from a TypeScript barrel/source file by
+ * scanning `export { ... } from '...'` and `export function/const/class NAME`
+ * statements. Types-only exports (`export type { ... }`) are intentionally
+ * excluded because they vanish at runtime.
+ */
+function extractValueExports(source) {
+  const names = new Set();
+  // export { A, B, C } from '...'  (not `export type {`)
+  for (const m of source.matchAll(/^export\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"]/gm)) {
+    for (const part of m[1].split(',')) {
+      const name = part.trim().split(/\s+as\s+/).at(-1).trim();
+      if (name) names.add(name);
+    }
+  }
+  // export function/const/class/let/var Name
+  for (const m of source.matchAll(/^export\s+(?:async\s+)?(?:function|const|class|let|var)\s+(\w+)/gm)) {
+    names.add(m[1]);
+  }
+  return names;
+}
+
+/**
+ * Verifies that every value symbol re-exported by packages/config/src/index.ts
+ * is actually exported by packages/config/src/networks.ts (issue #1194).
+ *
+ * Failing fast here means a rename in networks.ts surfaces in config:check
+ * rather than only as a downstream TypeScript error.
+ */
+export function checkBarrelExports(root) {
+  const pkgDir = path.join(root, 'packages', 'config');
+  const indexFile = path.join(pkgDir, 'src', 'index.ts');
+  const networksFile = path.join(pkgDir, 'src', 'networks.ts');
+  const errors = [];
+
+  if (!fs.existsSync(indexFile) || !fs.existsSync(networksFile)) {
+    // Missing source files are already caught by checkPackageFiles.
+    return errors;
+  }
+
+  const indexSource = fs.readFileSync(indexFile, 'utf8');
+  const networksSource = fs.readFileSync(networksFile, 'utf8');
+
+  const barrelExports = extractValueExports(indexSource);
+  const networksExports = extractValueExports(networksSource);
+
+  for (const name of barrelExports) {
+    if (!networksExports.has(name)) {
+      errors.push(
+        violation(
+          ERROR_CODES.BARREL_EXPORT_MISMATCH,
+          'packages/config/src/index.ts',
+          `re-exports "${name}" but packages/config/src/networks.ts does not export it`
+        )
+      );
+    }
+  }
+  for (const name of networksExports) {
+    if (!barrelExports.has(name)) {
+      errors.push(
+        violation(
+          ERROR_CODES.BARREL_EXPORT_MISMATCH,
+          'packages/config/src/networks.ts',
+          `exports "${name}" but packages/config/src/index.ts does not re-export it`
+        )
+      );
+    }
+  }
+  return errors;
+}
+
 // ── @swyft/config package integrity ───────────────────────────────────────────
 
 export function checkPackageFiles(root) {
@@ -381,14 +455,15 @@ function dedupe(errors) {
  * Runs every shared-config invariant. Read-only.
  * @returns {Promise<{ errors: Array<{code: string, file: string, message: string}>, workspaces: number }>}
  */
-export async function checkSharedConfig({ root = DEFAULT_ROOT, effective = true } = {}) {
+export async function checkSharedConfig({ root = DEFAULT_ROOT, effective = true, exempt = EXEMPT_WORKSPACES } = {}) {
   const workspaces = listWorkspaces(root);
   const errors = [
     ...checkPackageFiles(root),
-    ...checkTsconfigs(root, workspaces),
-    ...checkEslintStatic(root, workspaces),
+    ...checkBarrelExports(root),
+    ...checkTsconfigs(root, workspaces, exempt),
+    ...checkEslintStatic(root, workspaces, exempt),
   ];
-  if (effective) errors.push(...(await checkEslintEffective(root, workspaces)));
+  if (effective) errors.push(...(await checkEslintEffective(root, workspaces, exempt)));
   return { errors, workspaces: workspaces.length };
 }
 

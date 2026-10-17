@@ -144,6 +144,38 @@ describe('checkFixtures invariants', () => {
   });
 });
 
+describe('checkFixtures/writeFixtures error semantics (#1199)', () => {
+  let root;
+  beforeEach(() => {
+    root = makeSandbox();
+  });
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('checkFixtures counts all inspected fixtures even when some are invalid', () => {
+    // Make e2e-seed invalid: non-testnet network is a non-repairable schema violation.
+    editJson(root, 'fixtures/e2e-seed.json', (s) => {
+      s.network = 'mainnet';
+    });
+    const result = fixtures.checkFixtures({ root });
+    assert.ok(result.errors.length > 0, 'expected errors for invalid fixture');
+    assert.ok(
+      result.fixtures >= 2,
+      `expected fixtures count >= 2 even with errors, got ${result.fixtures}`
+    );
+  });
+
+  it('writeFixtures is all-or-nothing: written is [] when any fixture is invalid', () => {
+    editJson(root, 'fixtures/e2e-seed.json', (s) => {
+      s.network = 'mainnet';
+    });
+    const result = fixtures.writeFixtures({ root, env: {} });
+    assert.ok(result.errors.length > 0, 'expected blocking errors');
+    assert.deepEqual(result.written, [], 'written must be [] when errors exist');
+  });
+});
+
 describe('validateE2eSeed', () => {
   const seed = () =>
     JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'fixtures/e2e-seed.json'), 'utf8'));
@@ -207,6 +239,45 @@ describe('validateClMathVectors', () => {
     assert.match(messages, /tick_to_sqrt_price needs at least 3/);
     assert.match(messages, /amounts_for_liquidity needs at least 3/);
     assert.match(messages, /sqrtPriceLowerX96 < sqrtPriceUpperX96/);
+  });
+});
+
+describe('parseRustTickVectors (#1197 — null contract)', () => {
+  it('returns null when no mod fixture_tests block exists in the source', () => {
+    assert.equal(fixtures.parseRustTickVectors(''), null);
+    assert.equal(fixtures.parseRustTickVectors('fn main() { println!("hi"); }'), null);
+    assert.equal(fixtures.parseRustTickVectors('mod other { (100, 200) }'), null);
+  });
+
+  it('returns null for a source string with no parseable tick vectors', () => {
+    assert.equal(fixtures.parseRustTickVectors('just some rust code with no tuples'), null);
+  });
+
+  it('distinguishes null (not found) from [] (found but empty)', () => {
+    // When the module exists but contains no vector tuples, the result is [],
+    // NOT null — the | null contract means "no module found".
+    assert.deepEqual(
+      fixtures.parseRustTickVectors('mod fixture_tests {\n  // no vectors here\n}'),
+      []
+    );
+  });
+
+  it('parses vectors with numeric tick and string sqrtPriceX96', () => {
+    const result = fixtures.parseRustTickVectors(
+      'mod fixture_tests {\n' +
+        '  (100, 79228162514264337593543950336)\n' +
+        '  (-100, 79624303326835659281511670087)\n' +
+        '}'
+    );
+    assert.ok(Array.isArray(result));
+    assert.equal(result.length, 2);
+    assert.equal(result[0].tick, 100);
+    assert.equal(typeof result[0].tick, 'number');
+    assert.equal(result[0].sqrtPriceX96, '79228162514264337593543950336');
+    assert.equal(typeof result[0].sqrtPriceX96, 'string');
+    assert.equal(result[1].tick, -100);
+    assert.equal(typeof result[1].tick, 'number');
+    assert.equal(typeof result[1].sqrtPriceX96, 'string');
   });
 });
 

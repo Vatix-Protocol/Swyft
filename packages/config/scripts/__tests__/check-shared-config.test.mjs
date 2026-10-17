@@ -206,6 +206,75 @@ describe('checkSharedConfig (static)', () => {
     for (const reason of Object.values(EXEMPT_WORKSPACES))
       expect(reason.length).toBeGreaterThan(20);
   });
+
+  it('verifies barrel exports match ./networks (passing case)', async () => {
+    // The sandbox copies the real src/index.ts and src/networks.ts.
+    expect((await staticCheck()).errors).toEqual([]);
+  });
+
+  it('fails when the barrel re-exports a symbol absent from networks.ts', async () => {
+    const networksPath = path.join(root, 'packages/config/src/networks.ts');
+    const original = fs.readFileSync(networksPath, 'utf8');
+    // Drop the `export` keyword so networks.ts no longer exports getExplorerTxUrl.
+    fs.writeFileSync(networksPath, original.replace('export function getExplorerTxUrl', 'function getExplorerTxUrl'));
+    const result = await staticCheck();
+    expect(codes(result)).toContain(ERROR_CODES.BARREL_EXPORT_MISMATCH);
+    const mismatch = result.errors.find((e) => e.code === ERROR_CODES.BARREL_EXPORT_MISMATCH);
+    expect(mismatch.message).toContain('getExplorerTxUrl');
+  });
+
+  it('fails when networks.ts exports a symbol the barrel does not re-export', async () => {
+    const networksPath = path.join(root, 'packages/config/src/networks.ts');
+    const original = fs.readFileSync(networksPath, 'utf8');
+    // Add an export the barrel does not advertise.
+    fs.writeFileSync(
+      networksPath,
+      `${original}\nexport const __unusedExtra = 42;\n`
+    );
+    const result = await staticCheck();
+    expect(codes(result)).toContain(ERROR_CODES.BARREL_EXPORT_MISMATCH);
+    const mismatch = result.errors.find((e) => e.code === ERROR_CODES.BARREL_EXPORT_MISMATCH);
+    expect(mismatch.message).toContain('__unusedExtra');
+  });
+});
+
+// ── EXEMPT_WORKSPACES deny-by-default (#1198) ────────────────────────────────
+
+describe('EXEMPT_WORKSPACES deny-by-default', () => {
+  it('flags TSCONFIG_MISSING for a new workspace without a tsconfig', async () => {
+    write(root, 'packages/newpkg/package.json', { name: 'newpkg' });
+    const result = await staticCheck();
+    expect(codes(result)).toContain(ERROR_CODES.TSCONFIG_MISSING);
+    expect(result.errors.find((e) => e.code === ERROR_CODES.TSCONFIG_MISSING).file).toBe(
+      'packages/newpkg/tsconfig.json'
+    );
+  });
+
+  it('flags ESLINT_MISSING for a workspace with a lint script but no eslint config', async () => {
+    write(root, 'packages/newpkg/package.json', { name: 'newpkg', scripts: { lint: 'eslint' } });
+    write(root, 'packages/newpkg/tsconfig.json', {
+      extends: '../../packages/config/tsconfig.base.json',
+    });
+    const result = await staticCheck();
+    expect(codes(result)).toContain(ERROR_CODES.ESLINT_MISSING);
+  });
+
+  it('exempting a workspace suppresses its errors without suppressing others', async () => {
+    // Two workspaces, both missing a tsconfig → two TSCONFIG_MISSING errors.
+    write(root, 'packages/newpkg/package.json', { name: 'newpkg' });
+    write(root, 'packages/brokenlint/package.json', { name: 'brokenlint' });
+
+    const before = await staticCheck();
+    const beforeMissing = before.errors.filter((e) => e.code === ERROR_CODES.TSCONFIG_MISSING);
+    expect(beforeMissing).toHaveLength(2);
+
+    // Exempt only brokenlint.
+    const exempt = { ...EXEMPT_WORKSPACES, 'packages/brokenlint': 'test exemption' };
+    const after = await checkSharedConfig({ root, effective: false, exempt });
+    const afterMissing = after.errors.filter((e) => e.code === ERROR_CODES.TSCONFIG_MISSING);
+    expect(afterMissing).toHaveLength(1);
+    expect(afterMissing[0].file).toBe('packages/newpkg/tsconfig.json');
+  });
 });
 
 // ── Effective (ESLint-computed) enforcement ───────────────────────────────────
