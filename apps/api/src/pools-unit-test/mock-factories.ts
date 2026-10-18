@@ -97,6 +97,7 @@ export const mockPool = (overrides: Partial<Pool> = {}): Pool => ({
   volume24h: '1200000',
   feeApr: '0.15',
   currentPrice: null,
+  active: true,
   createdAt: new Date('2024-01-01T00:00:00Z'),
   updatedAt: new Date('2024-06-01T00:00:00Z'),
   ...overrides,
