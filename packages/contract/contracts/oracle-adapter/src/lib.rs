@@ -15,6 +15,9 @@ pub enum OracleError {
     Unauthorized = 3,
     WindowTooLarge = 4,
     InsufficientHistory = 5,
+    /// The newest observation is older than the current ledger time, so the
+    /// requested TWAP window extends beyond the available data.
+    StaleObservation = 6,
 }
 
 /// A single price observation stored in the circular buffer.
@@ -173,6 +176,14 @@ impl OracleAdapter {
             .persistent()
             .get(&DataKey::Obs(latest_idx))
             .unwrap();
+
+        // Reject when the newest observation is older than the current ledger
+        // time: the requested window would extend beyond the available data,
+        // so returning a TWAP would be based on a stale tail.
+        let now = env.ledger().timestamp();
+        if latest.timestamp < now {
+            panic_oracle_error(&env, OracleError::StaleObservation);
+        }
 
         let target_ts = latest.timestamp.saturating_sub(window_secs);
 
