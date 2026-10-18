@@ -4,9 +4,29 @@ import {
   WEBHOOK_RETRY_ATTEMPTS,
   WEBHOOK_RETRY_BACKOFF_MS,
 } from './webhook.processor';
+import { webhookBackoffDelayMs } from './webhook-backoff';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebhookPayload } from './webhook.types';
 import { Job } from 'bullmq';
+
+// Mock the backoff helper so the processor's retry scheduling can be driven
+// and asserted against controllable, deterministic delay values.
+jest.mock('./webhook-backoff', () => ({
+  WEBHOOK_RETRY_ATTEMPTS: 3,
+  WEBHOOK_RETRY_BACKOFF_MS: 2000,
+  webhookBackoffDelayMs: jest.fn(
+    (attempt: number, baseDelayMs = 2000, maxAttempts = 3) => {
+      if (attempt < 1 || attempt > maxAttempts) return null;
+      if (attempt === 1) return 0;
+      return baseDelayMs * 2 ** (attempt - 2);
+    },
+  ),
+  webhookBackoffSchedule: jest.fn(),
+}));
+
+function backoffMock(): jest.Mock {
+  return webhookBackoffDelayMs as unknown as jest.Mock;
+}
 
 // ── Mock factories ────────────────────────────────────────────────────────────
 
@@ -330,5 +350,76 @@ describe('WebhookWorker (dispatch integration)', () => {
         }),
       });
     });
+  });
+});
+
+// ── backoff-driven retry scheduling ───────────────────────────────────────────
+
+describe('WebhookWorker backoff-driven retry scheduling', () => {
+  let worker: WebhookWorker;
+  let prisma: ReturnType<typeof buildMockPrisma>;
+
+  beforeEach(() => {
+    prisma = buildMockPrisma();
+    worker = new WebhookWorker(prisma as unknown as PrismaService);
+    (worker as any).queue = buildMockQueue();
+
+    // Reset the helper to the deterministic curve before each test.
+    const mock = backoffMock();
+    mock.mockReset();
+    mock.mockImplementation(
+      (attempt: number, baseDelayMs = 2000, maxAttempts = 3) => {
+        if (attempt < 1 || attempt > maxAttempts) return null;
+        if (attempt === 1) return 0;
+        return baseDelayMs * 2 ** (attempt - 2);
+      },
+    );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('invokes the backoff helper once per retry attempt with the attempt index', async () => {
+    await worker.dispatch('wh-1', basePayload);
+
+    const mock = backoffMock();
+    // One invocation per retry attempt: attempts 2..maxAttempts.
+    expect(mock).toHaveBeenCalledTimes(WEBHOOK_RETRY_ATTEMPTS - 1);
+    expect(mock).toHaveBeenCalledWith(
+      2,
+      WEBHOOK_RETRY_BACKOFF_MS,
+      WEBHOOK_RETRY_ATTEMPTS,
+    );
+    expect(mock).toHaveBeenCalledWith(
+      3,
+      WEBHOOK_RETRY_BACKOFF_MS,
+      WEBHOOK_RETRY_ATTEMPTS,
+    );
+  });
+
+  it('schedules the first retry using the delay returned by the helper', async () => {
+    backoffMock().mockImplementation(() => 1500);
+
+    await worker.dispatch('wh-1', basePayload);
+
+    const [, , opts] = (worker as any).queue.add.mock.calls[0];
+    expect(opts.attempts).toBe(WEBHOOK_RETRY_ATTEMPTS);
+    expect(opts.backoff).toEqual({ type: 'exponential', delay: 1500 });
+  });
+
+  it('caps attempts at the maximum and never schedules a null-delay retry', async () => {
+    // The helper returns null once the maximum attempt count is exceeded.
+    backoffMock().mockImplementation((attempt: number) =>
+      attempt > WEBHOOK_RETRY_ATTEMPTS ? null : 2000,
+    );
+
+    await worker.dispatch('wh-1', basePayload);
+
+    const [, , opts] = (worker as any).queue.add.mock.calls[0];
+    expect(opts.attempts).toBe(WEBHOOK_RETRY_ATTEMPTS);
+    expect(opts.attempts).toBeLessThanOrEqual(WEBHOOK_RETRY_ATTEMPTS);
+    expect(opts.backoff.delay).not.toBeNull();
+    expect(typeof opts.backoff.delay).toBe('number');
   });
 });
