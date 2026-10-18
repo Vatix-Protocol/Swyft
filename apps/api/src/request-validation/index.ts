@@ -30,4 +30,5 @@ export {
   BusinessRuleViolationException,
   SlippageExceededException,
   UpstreamServiceException,
+  LiquidityOperationException,
 } from './http.exceptions';

@@ -34,7 +34,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
    * real token addresses are backfilled by projectPoolCreated once that
    * authoritative event is processed.
    */
-  private static readonly UNKNOWN_TOKEN_ADDRESS = 'unknown';
+  static readonly UNKNOWN_TOKEN_ADDRESS = 'unknown';
   private readonly logger = new Logger(IndexerWorker.name);
   private readonly workers: Worker[] = [];
   private readonly queueEvents: QueueEvents[] = [];
@@ -42,10 +42,14 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
   private _isLoading = false;
   private _isReady = false;
   private _isShuttingDown = false;
-  /** Bounds how long a SIGTERM/SIGINT shutdown waits for in-flight jobs before giving up. */
-  private static readonly SHUTDOWN_TIMEOUT_MS = Number(
-    process.env.INDEXER_SHUTDOWN_TIMEOUT_MS ?? 25_000,
-  );
+  /**
+   * Bounds how long a SIGTERM/SIGINT shutdown waits for in-flight jobs before
+   * giving up. Read at shutdown time (not class-load time) so tests and runtime
+   * config changes can override INDEXER_SHUTDOWN_TIMEOUT_MS per shutdown.
+   */
+  private get shutdownTimeoutMs(): number {
+    return Number(process.env.INDEXER_SHUTDOWN_TIMEOUT_MS ?? 25_000);
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -119,7 +123,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
     this._isShuttingDown = true;
     this._isReady = false;
     this.logger.log(
-      `Received shutdown signal — draining in-flight jobs (timeout ${IndexerWorker.SHUTDOWN_TIMEOUT_MS}ms)`,
+      `Received shutdown signal — draining in-flight jobs (timeout ${this.shutdownTimeoutMs}ms)`,
     );
     if (this.queueDepthTimer) clearInterval(this.queueDepthTimer);
 
@@ -129,7 +133,7 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
     ]);
     await this.withTimeout(
       closeAll,
-      IndexerWorker.SHUTDOWN_TIMEOUT_MS,
+      this.shutdownTimeoutMs,
       'Timed out waiting for indexer workers to drain in-flight jobs — forcing shutdown',
     );
 
@@ -862,6 +866,33 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
 
       const timestamp = d.timestamp ? new Date(d.timestamp) : new Date();
 
+      // Update the pool's price/tick/liquidity before persisting the swap so
+      // a brand-new pool (created for a swap that arrived before the
+      // pool.created event) exists for the swap row's FK. The placeholder uses
+      // UNKNOWN_TOKEN_ADDRESS; projectPoolCreated backfills the real token
+      // addresses and fee tier once the authoritative event is processed.
+      await this.prisma.pool.upsert({
+        where: { id: d.poolId },
+        update: {
+          currentSqrtPrice: d.sqrtPriceX96,
+          currentTick: d.tick,
+          liquidity: d.liquidity,
+          updatedAt: new Date(),
+        },
+        create: {
+          id: d.poolId,
+          token0Address: IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
+          token1Address: IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
+          feeTier: 0,
+          currentSqrtPrice: d.sqrtPriceX96,
+          currentTick: d.tick,
+          liquidity: d.liquidity,
+          tvl: '0',
+          volume24h: '0',
+          feeApr: '0',
+        },
+      });
+
       await this.prisma.swap.upsert({
         where: { eventId: d.eventId },
         update: {},
@@ -879,35 +910,6 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
           timestamp,
         },
       });
-
-      // Update the pool's price/tick/liquidity if the pool already exists.
-      // If the swap arrived before the pool.created event (out-of-order
-      // processing), we skip the pool state update rather than creating a
-      // placeholder with token0Address/token1Address = 'unknown'. The swap
-      // row is still persisted above. The pool.created event will create the
-      // pool with the correct token addresses, and subsequent swaps will
-      // update it normally.
-      const existingPool = await this.prisma.pool.findUnique({
-        where: { id: d.poolId },
-        select: { id: true },
-      });
-
-      if (existingPool) {
-        await this.prisma.pool.update({
-          where: { id: d.poolId },
-          data: {
-            currentSqrtPrice: d.sqrtPriceX96,
-            currentTick: d.tick,
-            liquidity: d.liquidity,
-            updatedAt: new Date(),
-          },
-        });
-      } else {
-        this.logger.warn(
-          `Swap ${d.eventId} references pool ${d.poolId} which does not exist yet. ` +
-            `Pool state update skipped — waiting for pool.created event.`,
-        );
-      }
     } catch (err) {
       this.logger.error(
         `Failed to project swap ${d.eventId}: ${err instanceof Error ? err.message : String(err)}`,

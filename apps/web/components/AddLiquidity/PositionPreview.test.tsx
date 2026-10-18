@@ -46,3 +46,28 @@ describe('PositionPreview - estimated fees APR', () => {
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
 });
+
+describe('PositionPreview - missing doc URL', () => {
+  it('omits the assumptions link when FEE_APR_DOC_URL is empty', async () => {
+    vi.resetModules();
+    await vi.doMock('@/lib/constants', () => ({
+      FEE_APR_DOC_URL: '',
+    }));
+
+    const { PositionPreview: PositionPreviewMock } = await import('./PositionPreview');
+
+    render(<PositionPreviewMock {...baseProps()} />);
+
+    expect(
+      screen.queryByLabelText('Fee APR calculation assumptions'),
+    ).not.toBeInTheDocument();
+
+    const anchors = document.querySelectorAll('a');
+    for (const anchor of anchors) {
+      const href = anchor.getAttribute('href');
+      expect(href).not.toBe('');
+      expect(href).not.toBe('undefined');
+      expect(href).not.toBeNull();
+    }
+  });
+});

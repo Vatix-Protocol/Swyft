@@ -100,6 +100,28 @@ fn test_get_twap_window_too_large() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn test_get_twap_stale_observation() {
+    let (env, oracle_id, _pool) = setup();
+    let client = OracleAdapterClient::new(&env, &oracle_id);
+
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+    client.write_observation(&Q96, &1_000u128);
+
+    env.ledger().with_mut(|l| l.timestamp = 2_000);
+    client.write_observation(&(Q96 / 2), &2_000u128);
+
+    assert_eq!(client.get_observation_count(), 2);
+
+    // Advance the ledger past the newest observation without writing a new
+    // one. The requested window ends at the current ledger time (3000), which
+    // is after the newest observation (2000), so the tail of the window has no
+    // covering observation and the contract must reject with StaleObservation.
+    env.ledger().with_mut(|l| l.timestamp = 3_000);
+    client.get_twap(&1_000);
+}
+
+#[test]
 fn test_write_observation_requires_registered_pool() {
     // No mock_all_auths: the caller must actually be the registered pool.
     let env = Env::default();

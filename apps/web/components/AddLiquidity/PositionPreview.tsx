@@ -45,8 +45,11 @@ interface RowProps {
   valueClassName?: string;
 }
 
-/** Info link pointing to the fee APR calculation doc, shown next to the "Est. APR" label. */
+/** Info link pointing to the fee APR calculation doc, shown next to the "Est. APR" label. Rendered only when the doc URL is configured. */
 function AprInfoLink() {
+  if (!FEE_APR_DOC_URL) {
+    return null;
+  }
   return (
     <a
       href={FEE_APR_DOC_URL}

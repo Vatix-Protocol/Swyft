@@ -383,7 +383,43 @@ describe('IndexerWorker Integration (test-db)', () => {
 
       const pool = db.pools.get('pool-integration-1') as PoolRow;
       expect(pool).toBeDefined();
+      expect(pool.token0Address).toBe(IndexerWorker.UNKNOWN_TOKEN_ADDRESS);
+      expect(pool.token1Address).toBe(IndexerWorker.UNKNOWN_TOKEN_ADDRESS);
       expect(pool.currentTick).toBe(100);
+    });
+
+    it('backfills placeholder tokens when pool.created arrives after a swap', async () => {
+      // Swap arrives first and creates a placeholder pool.
+      const swapHandler = getHandler(QUEUE_NAMES.SWAP_PROCESSED);
+      await swapHandler(makeJob(swapData));
+
+      const placeholderPool = db.pools.get(swapData.poolId) as PoolRow;
+      expect(placeholderPool.token0Address).toBe(
+        IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
+      );
+      expect(placeholderPool.token1Address).toBe(
+        IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
+      );
+
+      // The authoritative pool.created event must overwrite the placeholders.
+      const poolHandler = getHandler(QUEUE_NAMES.POOL_CREATED);
+      await poolHandler(
+        makeJob<PoolCreatedJobData>({
+          eventId: 'int-pool-backfill',
+          poolId: swapData.poolId,
+          tokenA: 'XLM',
+          tokenB: 'USDC',
+          fee: '3000',
+          sqrtPriceX96: swapData.sqrtPriceX96,
+          ledger: 1005,
+        }),
+      );
+
+      const pool = db.pools.get(swapData.poolId) as PoolRow;
+      expect(pool).toBeDefined();
+      expect(pool.token0Address).toBe('XLM');
+      expect(pool.token1Address).toBe('USDC');
+      expect(pool.feeTier).toBe(3000);
     });
 
     it('updates existing pool state on swap', async () => {
@@ -626,6 +662,33 @@ describe('IndexerWorker Integration (test-db)', () => {
       // Absolute pool state fields stay at the same projected values.
       expect(afterSecond.currentTick).toBe(afterFirst.currentTick);
       expect(afterSecond.liquidity).toBe(afterFirst.liquidity);
+    });
+  });
+
+  describe('graceful shutdown timeout', () => {
+    it('gives up and resolves when worker.close() never resolves', async () => {
+      const original = process.env.INDEXER_SHUTDOWN_TIMEOUT_MS;
+      process.env.INDEXER_SHUTDOWN_TIMEOUT_MS = '50';
+      // A stuck worker whose close() never resolves must not hang the process.
+      mockWorkerClose.mockReturnValueOnce(new Promise<void>(() => {}));
+
+      try {
+        const started = Date.now();
+        const destroyPromise = worker.onModuleDestroy();
+
+        // Shutdown is in-flight and the worker has not closed yet.
+        expect(worker.isShuttingDown).toBe(true);
+
+        await destroyPromise;
+        // Resolved within a small margin of the 50ms timeout.
+        expect(Date.now() - started).toBeLessThan(1_000);
+      } finally {
+        if (original === undefined) {
+          delete process.env.INDEXER_SHUTDOWN_TIMEOUT_MS;
+        } else {
+          process.env.INDEXER_SHUTDOWN_TIMEOUT_MS = original;
+        }
+      }
     });
   });
 });
