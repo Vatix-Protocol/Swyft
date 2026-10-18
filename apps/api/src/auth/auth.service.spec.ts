@@ -286,13 +286,15 @@ describe('AuthService', () => {
       );
     });
 
-    it('invalidates the nonce once MAX_NONCE_ATTEMPTS is reached', async () => {
+    it('invalidates the nonce once the default attempt limit is reached', async () => {
       const nonce = 'lockout-nonce';
       const { walletAddress } = makeSignedNonce(nonce);
       const badSig = Buffer.alloc(64).toString('base64');
 
       mockRedis.get.mockResolvedValueOnce(nonce);
-      mockRedis.incr.mockResolvedValueOnce(AuthService.MAX_NONCE_ATTEMPTS);
+      mockRedis.incr.mockResolvedValueOnce(
+        AuthService.DEFAULT_MAX_NONCE_ATTEMPTS,
+      );
 
       await expect(
         service.verifyWallet({ walletAddress, nonce, signature: badSig }),
@@ -302,6 +304,129 @@ describe('AuthService', () => {
         `${AuthService.NONCE_PREFIX}${walletAddress}`,
       );
     });
+  });
+
+  // ── #1205: attempt limit resolved through ConfigService ────────────────────
+
+  describe('verifyWallet — configurable attempt limit', () => {
+    const badSig = Buffer.alloc(64).toString('base64');
+
+    /** Minimal stateful Redis so successive attempts see each other's writes. */
+    function makeFakeRedis(): Record<string, jest.Mock> {
+      const store = new Map<string, string>();
+      return {
+        get: jest.fn(async (key: string) => store.get(key) ?? null),
+        incr: jest.fn(async (key: string) => {
+          const next = Number(store.get(key) ?? '0') + 1;
+          store.set(key, String(next));
+          return next;
+        }),
+        ttl: jest.fn(async () => 120),
+        expire: jest.fn(async () => 1),
+        del: jest.fn(async (key: string) => (store.delete(key) ? 1 : 0)),
+        set: jest.fn(async (key: string, value: string) => {
+          store.set(key, value);
+          return 'OK';
+        }),
+      };
+    }
+
+    function makeService(
+      limit: unknown,
+      redis: Record<string, jest.Mock> = mockRedis,
+    ): AuthService {
+      const config = {
+        get: jest.fn((key: string) =>
+          key === 'AUTH_MAX_NONCE_ATTEMPTS' ? limit : undefined,
+        ),
+      } as unknown as ConfigService;
+      return new AuthService(
+        redis as never,
+        mockJwtService as unknown as JwtService,
+        config,
+      );
+    }
+
+    afterEach(() => {
+      delete process.env.AUTH_MAX_NONCE_ATTEMPTS;
+    });
+
+    it('enforces a limit of 2 from ConfigService: the nonce is gone by the third failed attempt', async () => {
+      const nonce = 'configured-limit-nonce';
+      const { walletAddress } = makeSignedNonce(nonce);
+      const redis = makeFakeRedis();
+      const nonceKey = `${AuthService.NONCE_PREFIX}${walletAddress}`;
+      await redis.set(nonceKey, nonce);
+      const limited = makeService('2', redis);
+      const attempt = () =>
+        limited.verifyWallet({ walletAddress, nonce, signature: badSig });
+
+      // 1st failure: counted, nonce still valid.
+      await expect(attempt()).rejects.toThrow('Signature verification failed');
+      expect(await redis.get(nonceKey)).toBe(nonce);
+
+      // 2nd failure reaches the configured limit and invalidates the nonce.
+      await expect(attempt()).rejects.toThrow(
+        'Too many failed attempts; nonce invalidated',
+      );
+      expect(await redis.get(nonceKey)).toBeNull();
+
+      // 3rd failed attempt is rejected outright — the nonce no longer exists.
+      await expect(attempt()).rejects.toThrow(
+        'Nonce has expired or does not exist',
+      );
+    });
+
+    it('ignores process.env and uses the ConfigService value', async () => {
+      process.env.AUTH_MAX_NONCE_ATTEMPTS = '1';
+      const nonce = 'env-ignored-nonce';
+      const { walletAddress } = makeSignedNonce(nonce);
+
+      mockRedis.get.mockResolvedValueOnce(nonce);
+      mockRedis.incr.mockResolvedValueOnce(1);
+
+      await expect(
+        makeService(undefined).verifyWallet({
+          walletAddress,
+          nonce,
+          signature: badSig,
+        }),
+      ).rejects.toThrow('Signature verification failed');
+      expect(mockRedis.del).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['absent', undefined],
+      ['non-numeric', 'abc'],
+      ['zero', '0'],
+      ['negative', '-3'],
+    ])(
+      'falls back to the default of 5 when the value is %s',
+      async (_label, value) => {
+        expect(AuthService.DEFAULT_MAX_NONCE_ATTEMPTS).toBe(5);
+        const nonce = 'fallback-nonce';
+        const { walletAddress } = makeSignedNonce(nonce);
+        const svc = makeService(value);
+
+        // 4 failures: below the default, nonce survives.
+        mockRedis.get.mockResolvedValueOnce(nonce);
+        mockRedis.incr.mockResolvedValueOnce(4);
+        await expect(
+          svc.verifyWallet({ walletAddress, nonce, signature: badSig }),
+        ).rejects.toThrow('Signature verification failed');
+        expect(mockRedis.del).not.toHaveBeenCalled();
+
+        // 5th failure: default limit reached, nonce invalidated.
+        mockRedis.get.mockResolvedValueOnce(nonce);
+        mockRedis.incr.mockResolvedValueOnce(5);
+        await expect(
+          svc.verifyWallet({ walletAddress, nonce, signature: badSig }),
+        ).rejects.toThrow('Too many failed attempts; nonce invalidated');
+        expect(mockRedis.del).toHaveBeenCalledWith(
+          `${AuthService.NONCE_PREFIX}${walletAddress}`,
+        );
+      },
+    );
   });
 
   // ── Malformed address ──────────────────────────────────────────────────────
