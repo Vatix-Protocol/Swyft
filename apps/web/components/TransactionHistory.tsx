@@ -355,9 +355,6 @@ function SwapTable({
             <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
               Pair
             </th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
-              Route
-            </th>
             <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
               Input
             </th>
@@ -389,15 +386,6 @@ function SwapTable({
               >
                 <td className="py-3 px-4 text-sm text-zinc-900 dark:text-zinc-100">
                   {swap.token0Symbol}/{swap.token1Symbol}
-                </td>
-                <td className="py-3 px-4 text-sm text-zinc-700 dark:text-zinc-300">
-                  {swap.routeLeg && swap.routeLeg.length > 0 ? (
-                    <span className="font-mono text-xs">
-                      {swap.routeLeg.join(' → ')}
-                    </span>
-                  ) : (
-                    <span className="text-zinc-400 dark:text-zinc-500">—</span>
-                  )}
                 </td>
                 <td className="py-3 px-4 text-sm text-right text-zinc-900 dark:text-zinc-100 font-mono">
                   {swap.amount0}
