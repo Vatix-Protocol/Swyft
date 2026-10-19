@@ -1,24 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useWalletContext } from '@/context/WalletContext';
 import { WebhooksPanel } from '@/components/WebhooksPanel';
 import { WalletButton } from '@/components/WalletButton';
-
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('swyft_auth_token');
-}
+import { useAuthToken } from '@/hooks/useAuthToken';
 
 export default function SettingsPage() {
   const router = useRouter();
   const { address } = useWalletContext();
-  const [authToken, setAuthToken] = useState<string | null>(null);
-
-  useEffect(() => {
-    setAuthToken(getAuthToken());
-  }, [address]);
+  const authToken = useAuthToken();
 
   useEffect(() => {
     if (!address) {
