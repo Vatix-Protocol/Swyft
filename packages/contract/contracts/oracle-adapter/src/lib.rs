@@ -18,6 +18,8 @@ pub enum OracleError {
     /// The newest observation is older than the current ledger time, so the
     /// requested TWAP window extends beyond the available data.
     StaleObservation = 6,
+    /// The current ledger timestamp is earlier than the newest observation's.
+    NonMonotonicTimestamp = 7,
 }
 
 /// A single price observation stored in the circular buffer.
@@ -77,6 +79,16 @@ impl OracleAdapter {
     ///
     /// `sqrt_price_x96` — current pool sqrt price after the swap.
     /// `liquidity`      — current active liquidity after the swap.
+    ///
+    /// Timestamp rules, relative to the newest stored observation:
+    /// - `now > prev.timestamp`: a new observation is appended.
+    /// - `now == prev.timestamp`: no-op. A same-ledger write would add zero
+    ///   elapsed time, so its cumulative values would equal the previous
+    ///   observation's; skipping it (as Uniswap v3 does) avoids spending a
+    ///   buffer slot and keeps timestamps strictly increasing. It must not
+    ///   panic, since the pool writes on every swap and multiple swaps can land
+    ///   in one ledger.
+    /// - `now < prev.timestamp`: panics with `NonMonotonicTimestamp`.
     pub fn write_observation(env: Env, sqrt_price_x96: u128, liquidity: u128) {
         ensure_initialized(&env);
 
@@ -110,7 +122,13 @@ impl OracleAdapter {
                 .persistent()
                 .get(&DataKey::Obs(prev_idx))
                 .unwrap();
-            let elapsed = now.saturating_sub(prev.timestamp) as u128;
+            if now < prev.timestamp {
+                panic_oracle_error(&env, OracleError::NonMonotonicTimestamp);
+            }
+            if now == prev.timestamp {
+                return;
+            }
+            let elapsed = (now - prev.timestamp) as u128;
             (
                 prev.cumulative_sqrt_price
                     .saturating_add(sqrt_price_x96.saturating_mul(elapsed)),
