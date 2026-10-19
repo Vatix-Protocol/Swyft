@@ -87,13 +87,13 @@ export function usePoolId(
 ) {
   const [poolId, setPoolId] = useState<string | null>(null);
   const [poolExists, setPoolExists] = useState<boolean | null>(null);
-  const [feeTier, setFeeTier] = useState<number | null>(null);
+  const [resolvedFeeTier, setResolvedFeeTier] = useState<number | null>(null);
 
   useEffect(() => {
     if (!tokenInId || !tokenOutId) {
       setPoolId(null);
       setPoolExists(null);
-      setFeeTier(null);
+      setResolvedFeeTier(null);
       return;
     }
     let cancelled = false;
@@ -107,19 +107,20 @@ export function usePoolId(
           if (cancelled) return;
           const match = (data.items ?? []).find(
             (p) =>
-              (p.token0 === tokenInId && p.token1 === tokenOutId) ||
-              (p.token0 === tokenOutId && p.token1 === tokenInId)
+              ((p.token0 === tokenInId && p.token1 === tokenOutId) ||
+                (p.token0 === tokenOutId && p.token1 === tokenInId)) &&
+              (feeTier == null || p.feeTier === feeTier)
           );
           setPoolId(match?.id ?? null);
           setPoolExists(!!match);
-          setFeeTier(match?.feeTier ?? null);
+          setResolvedFeeTier(match?.feeTier ?? null);
         }
       )
       .catch(() => {
         if (!cancelled) {
           setPoolId(null);
           setPoolExists(null);
-          setFeeTier(null);
+          setResolvedFeeTier(null);
         }
       });
 
@@ -128,5 +129,5 @@ export function usePoolId(
     };
   }, [tokenInId, tokenOutId, feeTier]);
 
-  return { poolId, poolExists, feeTier };
+  return { poolId, poolExists, feeTier: resolvedFeeTier };
 }

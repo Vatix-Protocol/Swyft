@@ -17,12 +17,51 @@ export interface SwapSnapshot {
   txHash: string;
   walletAddress: string;
   timestamp: number;
-  routeLeg?: string[] | null;
 }
 
 export interface SwapsListResponse {
   items: SwapSnapshot[];
   total: number;
+}
+
+/**
+ * A single item as returned by `GET /swaps` (see `SwapResponse` in
+ * apps/api/src/swaps/swaps.service.ts). The API names the hash
+ * `transactionHash`; it is mapped to `txHash` on the client.
+ */
+interface ApiSwapItem {
+  id: string;
+  poolId: string;
+  token0Symbol: string;
+  token1Symbol: string;
+  amount0: string;
+  amount1: string;
+  priceAtSwap: string;
+  route?: string[];
+  transactionHash: string;
+  walletAddress: string;
+  timestamp: number;
+}
+
+interface ApiSwapsListResponse {
+  items?: ApiSwapItem[];
+  total?: number;
+}
+
+function toSwapSnapshot(item: ApiSwapItem): SwapSnapshot {
+  return {
+    id: item.id,
+    poolId: item.poolId,
+    token0Symbol: item.token0Symbol,
+    token1Symbol: item.token1Symbol,
+    amount0: item.amount0,
+    amount1: item.amount1,
+    priceAtSwap: item.priceAtSwap,
+    ...(Array.isArray(item.route) ? { route: item.route } : {}),
+    txHash: item.transactionHash,
+    walletAddress: item.walletAddress,
+    timestamp: item.timestamp,
+  };
 }
 
 export function useSwaps(walletAddress: string | null, page: number = 1, limit: number = 20) {
@@ -31,6 +70,7 @@ export function useSwaps(walletAddress: string | null, page: number = 1, limit: 
     queryFn: async (): Promise<SwapsListResponse> => {
       if (!walletAddress) return { items: [], total: 0 };
 
+      // `wallet`, `page` and `limit` match GetSwapsQueryDto on the API.
       const params = new URLSearchParams({
         wallet: walletAddress,
         page: page.toString(),
@@ -41,7 +81,11 @@ export function useSwaps(walletAddress: string | null, page: number = 1, limit: 
       if (!response.ok) {
         throw new Error('Failed to fetch swaps');
       }
-      return response.json();
+      const data = (await response.json()) as ApiSwapsListResponse;
+      return {
+        items: (data.items ?? []).map(toSwapSnapshot),
+        total: data.total ?? 0,
+      };
     },
     enabled: !!walletAddress,
     refetchInterval: 30000, // Auto-refresh every 30 seconds
