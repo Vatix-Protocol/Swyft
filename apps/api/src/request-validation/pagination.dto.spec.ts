@@ -60,4 +60,18 @@ describe('PaginationQueryDto', () => {
     const errors = await validate(dto);
     expect(errors.some((error) => error.property === 'sortOrder')).toBe(true);
   });
+
+  it('rejects a limit of 0', async () => {
+    const dto = build({ limit: 0 });
+
+    const errors = await validate(dto);
+    expect(errors.some((error) => error.property === 'limit')).toBe(true);
+  });
+
+  it('rejects a non-numeric limit value', async () => {
+    const dto = build({ limit: 'abc' });
+
+    const errors = await validate(dto);
+    expect(errors.some((error) => error.property === 'limit')).toBe(true);
+  });
 });
