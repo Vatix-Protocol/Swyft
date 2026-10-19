@@ -5,45 +5,21 @@ import { AnalyticsService } from './analytics.service';
 import { AnalyticsScheduler } from './analytics.scheduler';
 import { AdminAuditService } from './admin-audit.service';
 import { AdminAuditInterceptor } from './admin-audit.interceptor';
-import { TestnetRegistryController } from './testnet-registry.controller';
-import { TestnetRegistryService } from './testnet-registry.service';
-import { FactoryFeeTierController } from './factory-fee-tier.controller';
-import { FactoryFeeTierService } from './factory-fee-tier.service';
-import { TwapWindowController } from './twap-window.controller';
-import { TwapWindowService } from './twap-window.service';
-import { ProtocolFeeCapController } from './protocol-fee-cap.controller';
-import { ProtocolFeeCapService } from './protocol-fee-cap.service';
 import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
   imports: [PrismaModule],
-  controllers: [
-    AnalyticsController,
-    TestnetRegistryController,
-    FactoryFeeTierController,
-    TwapWindowController,
-    ProtocolFeeCapController,
-  ],
+  controllers: [AnalyticsController],
   providers: [
     AnalyticsService,
     AnalyticsScheduler,
     AdminAuditService,
     AdminAuditInterceptor,
-    TestnetRegistryService,
-    FactoryFeeTierService,
-    TwapWindowService,
-    ProtocolFeeCapService,
     {
       provide: APP_INTERCEPTOR,
       useExisting: AdminAuditInterceptor,
     },
   ],
-  exports: [
-    AdminAuditService,
-    TestnetRegistryService,
-    FactoryFeeTierService,
-    TwapWindowService,
-    ProtocolFeeCapService,
-  ],
+  exports: [AdminAuditService],
 })
 export class AdminModule {}

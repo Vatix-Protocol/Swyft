@@ -1,8 +1,17 @@
 import { Pool, Token } from '@prisma/client';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { SwapsService } from './swaps.service';
 import { SwapsRepository } from './swaps.repository';
-import { SwapErrorCode, SwapSnapshot } from './swap.types';
+import {
+  SLIPPAGE_BPS_DEFAULT,
+  SLIPPAGE_BPS_MAX,
+  SLIPPAGE_BPS_MIN,
+  SwapErrorCode,
+  SwapSnapshot,
+} from './swap.types';
+import { GetSwapQuoteQueryDto } from './dto/get-swap-quote-query.dto';
+import { SwapQuoteRequestDto } from './dto/swap-quote-request.dto';
 import { PoolDetail, PoolsService } from '../pools/pools.service';
 import {
   BusinessRuleViolationException,
@@ -37,6 +46,16 @@ const makePoolDetail = (overrides: Partial<PoolDetail> = {}): PoolDetail => ({
   feeApr: '0.15',
   creationTimestamp: 1_700_000_000,
   recentSwaps: [],
+  clPool: {
+    source: 'pool',
+    derived: true,
+    poolId: 'pool-1',
+    derivedAt: 1_700_000_000_000,
+    sqrtPriceX96: '79228162514264337593543950336000000',
+    tick: 0,
+    liquidity: '5000000000000000000000000',
+    tickSpacing: 60,
+  },
   ...overrides,
 });
 
@@ -373,6 +392,117 @@ describe('SwapsService', () => {
           timestamp: expect.any(Number),
         });
       });
+    });
+  });
+
+  // ── #1208: slippageBps unit + bounds ───────────────────────────────────────
+
+  describe('slippageBps validation', () => {
+    // Same options as the global pipe registered in app.setup.ts.
+    const pipe = new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+
+    const validQuery = {
+      tokenIn: 'CCUSDC',
+      tokenOut: 'CXLM',
+      amountIn: '100',
+    };
+    const validBody = {
+      poolId: 'pool-1',
+      tokenIn: '0xTokenA',
+      tokenOut: '0xTokenB',
+      amountIn: '100',
+    };
+
+    const cases: Array<[string, unknown, string]> = [
+      [
+        'a negative value',
+        SLIPPAGE_BPS_MIN - 1,
+        `slippageBps must be at least ${SLIPPAGE_BPS_MIN}`,
+      ],
+      [
+        'a value above the maximum',
+        SLIPPAGE_BPS_MAX + 1,
+        `slippageBps must not be greater than ${SLIPPAGE_BPS_MAX}`,
+      ],
+      ['a non-integer value', 12.5, 'slippageBps must be an integer number'],
+    ];
+
+    const expectRejected = async (
+      promise: Promise<unknown>,
+      message: string,
+    ) => {
+      const error = await promise.then(
+        () => {
+          throw new Error('expected validation to fail');
+        },
+        (err: unknown) => err,
+      );
+      expect(error).toBeInstanceOf(BadRequestException);
+      const exception = error as BadRequestException;
+      expect(exception.getStatus()).toBe(400);
+      expect(exception.getResponse()).toEqual({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: [message],
+      });
+    };
+
+    describe('GetSwapQuoteQueryDto', () => {
+      const parse = (raw: Record<string, unknown>) =>
+        pipe.transform(raw, { type: 'query', metatype: GetSwapQuoteQueryDto });
+
+      it.each(cases)(
+        'rejects %s with a 400',
+        async (_label, value, message) => {
+          await expectRejected(
+            parse({ ...validQuery, slippageBps: String(value) }),
+            message,
+          );
+        },
+      );
+
+      it.each([SLIPPAGE_BPS_MIN, SLIPPAGE_BPS_MAX])(
+        'accepts the inclusive bound %d',
+        async (value) => {
+          const dto = await parse({
+            ...validQuery,
+            slippageBps: String(value),
+          });
+          expect(dto.slippageBps).toBe(value);
+        },
+      );
+
+      it('defaults slippageBps when omitted', async () => {
+        const dto = await parse(validQuery);
+        expect(dto.slippageBps).toBe(SLIPPAGE_BPS_DEFAULT);
+      });
+    });
+
+    describe('SwapQuoteRequestDto', () => {
+      const parse = (raw: Record<string, unknown>) =>
+        pipe.transform(raw, { type: 'body', metatype: SwapQuoteRequestDto });
+
+      it.each(cases)(
+        'rejects %s with a 400',
+        async (_label, value, message) => {
+          await expectRejected(
+            parse({ ...validBody, slippageBps: value }),
+            message,
+          );
+        },
+      );
+
+      it.each([SLIPPAGE_BPS_MIN, SLIPPAGE_BPS_MAX])(
+        'accepts the inclusive bound %d',
+        async (value) => {
+          const dto = await parse({ ...validBody, slippageBps: value });
+          expect(dto.slippageBps).toBe(value);
+        },
+      );
     });
   });
 });

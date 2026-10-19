@@ -1,14 +1,7 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-  UseInterceptors,
-} from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { AnalyticsService } from './analytics.service';
 import { AdminAuditService } from './admin-audit.service';
-import { AdminAuditInterceptor } from './admin-audit.interceptor';
 import { InternalKeyGuard } from './internal-key.guard';
 import { TimeSeriesQueryDto } from './dto/analytics-query.dto';
 import { SWAGGER_TAGS } from '../swagger.constants';
@@ -20,7 +13,8 @@ class FeeAprQueryDto {
 @ApiTags(SWAGGER_TAGS.ADMIN)
 @Controller('admin')
 @UseGuards(InternalKeyGuard)
-@UseInterceptors(AdminAuditInterceptor)
+// Audited by AdminAuditInterceptor via the APP_INTERCEPTOR binding in
+// AdminModule; binding it here as well would audit every request twice.
 export class AnalyticsController {
   constructor(
     private readonly analytics: AnalyticsService,

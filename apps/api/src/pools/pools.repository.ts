@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { Pool } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { PoolListQuery, PoolListResult, PoolSnapshot, ClPoolView } from './pool.types';
+import {
+  PoolListQuery,
+  PoolListResult,
+  PoolSnapshot,
+  ClPoolView,
+} from './pool.types';
+import { deriveClPoolView } from './cl-pool-view';
 
 type PoolStatePatch = {
   currentPrice?: string;
@@ -76,19 +82,8 @@ export class PoolsRepository {
     if (!pool) {
       return null;
     }
-    return this.deriveClPoolView(pool);
-  }
-
-  private deriveClPoolView(pool: Pool): ClPoolView {
-    return {
-      poolId: pool.id,
-      // cl-pool fields are derived from the pool SoT; no parallel authority.
-      liquidity: pool.liquidity,
-      tickSpacing: pool.tickSpacing,
-      currentTick: pool.currentTick,
-      sqrtPriceX96: pool.sqrtPriceX96,
-      derivedFromPool: true,
-    };
+    // cl-pool fields are derived from the pool SoT; no parallel authority.
+    return deriveClPoolView(pool);
   }
 
   /**

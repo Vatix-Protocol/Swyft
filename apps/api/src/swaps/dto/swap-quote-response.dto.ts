@@ -9,9 +9,12 @@ export class SwapQuoteResponseDto {
 
   @ApiProperty({
     description:
-      'Estimated price impact in percent, computed from a tick-crossing ' +
+      'Estimated price impact as a percentage from 0 to 100 (e.g. 0.25 means ' +
+      '0.25%; not a 0–1 fraction), computed from a tick-crossing ' +
       "simulation of the pool's liquidity depth.",
     example: 0,
+    minimum: 0,
+    maximum: 100,
   })
   priceImpact: number;
 
@@ -22,7 +25,9 @@ export class SwapQuoteResponseDto {
   lpFee: string;
 
   @ApiProperty({
-    description: 'Minimum amount of tokenOut received after slippage tolerance',
+    description:
+      'Minimum amount of tokenOut received after the slippageBps tolerance ' +
+      '(basis points): amountOut * (10000 - slippageBps) / 10000',
     example: '248.507644',
   })
   minimumReceived: string;
