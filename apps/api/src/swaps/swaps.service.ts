@@ -30,6 +30,8 @@ interface SwapResponse {
   priceAtSwap: string;
   /** Fee charged for this swap (expressed in token0 units). */
   feeAmount: string;
+  /** Ordered pool IDs the swap routed through, when known (e.g. multi-hop). */
+  route?: string[];
   transactionHash: string;
   walletAddress: string;
   timestamp: number;
@@ -223,6 +225,7 @@ export class SwapsService {
       amount1: swap.amount1,
       priceAtSwap: swap.priceAtSwap,
       feeAmount: swap.feeAmount,
+      route: swap.route,
       transactionHash: swap.txHash,
       walletAddress: swap.walletAddress,
       timestamp: swap.timestamp,

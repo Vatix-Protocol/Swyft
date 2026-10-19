@@ -24,12 +24,14 @@ function makeSwap(id: string): SwapSnapshot {
   return {
     id,
     poolId: 'pool-1',
+    tokenPair: 'XLM/USDC',
     token0Symbol: 'XLM',
     token1Symbol: 'USDC',
     amount0: '100',
     amount1: '10',
     priceAtSwap: '0.1',
-    txHash: `hash-${id}`,
+    feeAmount: '0.3',
+    transactionHash: `hash-${id}`,
     walletAddress: 'GABC',
     timestamp: 1700000000,
   };
