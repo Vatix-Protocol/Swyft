@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsString, Matches, Max, Min, MinLength } from 'class-validator';
+import { SLIPPAGE_BPS_MAX, SLIPPAGE_BPS_MIN } from '../swap.types';
 
 const DECIMAL_AMOUNT_PATTERN = /^\d+(\.\d+)?$/;
 
@@ -39,14 +40,18 @@ export class SwapQuoteRequestDto {
   amountIn: string;
 
   @ApiProperty({
-    description: 'Slippage tolerance in basis points (0-10000)',
+    description: `Slippage tolerance in basis points (1 bps = 0.01%), an integer from ${SLIPPAGE_BPS_MIN} to ${SLIPPAGE_BPS_MAX} inclusive`,
     example: 50,
-    minimum: 0,
-    maximum: 10000,
+    minimum: SLIPPAGE_BPS_MIN,
+    maximum: SLIPPAGE_BPS_MAX,
   })
   @Type(() => Number)
   @IsInt({ message: 'slippageBps must be an integer number' })
-  @Min(0, { message: 'slippageBps must be at least 0' })
-  @Max(10000, { message: 'slippageBps must not be greater than 10000' })
+  @Min(SLIPPAGE_BPS_MIN, {
+    message: `slippageBps must be at least ${SLIPPAGE_BPS_MIN}`,
+  })
+  @Max(SLIPPAGE_BPS_MAX, {
+    message: `slippageBps must not be greater than ${SLIPPAGE_BPS_MAX}`,
+  })
   slippageBps: number;
 }

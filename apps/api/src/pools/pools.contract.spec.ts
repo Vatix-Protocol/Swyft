@@ -136,6 +136,9 @@ describe('GET /v1/pools — contract schema', () => {
         del: noop,
         publish: jest.fn().mockResolvedValue(true),
         setMaxNumber: jest.fn().mockResolvedValue(true),
+        acquireSingleflightLock: jest.fn().mockResolvedValue(true),
+        releaseSingleflightLock: noop,
+        waitForSingleflightLock: jest.fn().mockResolvedValue(true),
         invalidate: noop,
         invalidatePattern: noop,
         subscribe: jest.fn(),
@@ -214,5 +217,44 @@ describe('GET /v1/pools — contract schema', () => {
 
     expect(res.body.items).toEqual([]);
     expect(res.body.total).toBe(0);
+  });
+
+  // #1211 — GET /v1/pools/:id exposes concentrated-liquidity state only as a
+  // ClPoolView derived from the pool record.
+  describe('GET /v1/pools/:id — cl-pool derivation marker', () => {
+    it('wraps concentrated-liquidity fields in a ClPoolView derived from the pool', async () => {
+      prismaMock.pool.findUnique.mockResolvedValueOnce(poolRow);
+
+      const res = await request(app.getHttpServer())
+        .get(`/v1/pools/${poolRow.id}`)
+        .expect(200);
+
+      expect(res.body.clPool).toEqual({
+        source: 'pool',
+        derived: true,
+        poolId: poolRow.id,
+        derivedAt: expect.any(Number),
+        sqrtPriceX96: poolRow.currentSqrtPrice,
+        tick: poolRow.currentTick,
+        liquidity: poolRow.liquidity,
+        // Fee tier 30 is not a listed tier, so the contract default applies.
+        tickSpacing: 60,
+      });
+    });
+
+    it('always reports source "pool", derived true and the requested pool id', async () => {
+      const otherPool = { ...poolRow, id: 'pool-contract-2', feeTier: 500 };
+      prismaMock.pool.findUnique.mockResolvedValueOnce(otherPool);
+
+      const res = await request(app.getHttpServer())
+        .get(`/v1/pools/${otherPool.id}`)
+        .expect(200);
+
+      expect(res.body.clPool.source).toBe('pool');
+      expect(res.body.clPool.derived).toBe(true);
+      expect(res.body.clPool.poolId).toBe(otherPool.id);
+      expect(Number.isFinite(res.body.clPool.derivedAt)).toBe(true);
+      expect(res.body.clPool.tickSpacing).toBe(10);
+    });
   });
 });

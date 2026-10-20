@@ -5,6 +5,11 @@ import { PoolsService } from './pools.service';
 import { CacheService } from '../cache/cache.service';
 import { ApiKeyGuard } from '../auth/api-key.guard';
 import { GetPoolsQueryDto } from './dto/get-pools-query.dto';
+import { PoolsRepository } from './pools.repository';
+import {
+  mockPoolDetailData,
+  mockSwap,
+} from '../pools-unit-test/mock-factories';
 
 describe('PoolsController - list endpoint', () => {
   let controller: PoolsController;
@@ -151,5 +156,101 @@ describe('PoolsController - list endpoint', () => {
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith(mixed);
     });
+  });
+});
+
+// ── #1211: pool detail carries the cl-pool derivation marker ────────────────
+
+describe('PoolsController - detail endpoint cl-pool view', () => {
+  const poolId = 'cltest123456789012345678';
+  let controller: PoolsController;
+  let repo: { getPoolDetailById: jest.Mock; findClPoolView: jest.Mock };
+
+  beforeEach(async () => {
+    repo = {
+      getPoolDetailById: jest.fn().mockResolvedValue(
+        mockPoolDetailData({
+          pool: {
+            id: poolId,
+            feeTier: 3000,
+            currentSqrtPrice: '79228162514264337593543950336',
+            currentTick: 0,
+            liquidity: '1000000000000000000',
+          },
+          swaps: [mockSwap({ poolId })],
+        }),
+      ),
+      findClPoolView: jest.fn(),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [PoolsController],
+      providers: [
+        // Real service: the cl-pool view must be derived from the pool record.
+        PoolsService,
+        { provide: PoolsRepository, useValue: repo },
+        {
+          provide: CacheService,
+          useValue: {
+            get: jest.fn().mockResolvedValue(null),
+            set: jest.fn().mockResolvedValue(undefined),
+            acquireSingleflightLock: jest.fn().mockResolvedValue(true),
+            releaseSingleflightLock: jest.fn().mockResolvedValue(undefined),
+            waitForSingleflightLock: jest.fn().mockResolvedValue(true),
+          },
+        },
+      ],
+    })
+      .overrideGuard(ApiKeyGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
+
+    controller = module.get<PoolsController>(PoolsController);
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('wraps the concentrated-liquidity fields in a ClPoolView with source "pool"', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_767_225_600_000);
+
+    const detail = await controller.getPoolById(poolId);
+
+    expect(detail.clPool).toEqual({
+      source: 'pool',
+      derived: true,
+      poolId,
+      derivedAt: 1_767_225_600_000,
+      sqrtPriceX96: '79228162514264337593543950336',
+      tick: 0,
+      liquidity: '1000000000000000000',
+      tickSpacing: 60,
+    });
+  });
+
+  it('derives every cl-pool field from the pool record, not a parallel cl-pool read', async () => {
+    const detail = await controller.getPoolById(poolId);
+
+    expect(repo.getPoolDetailById).toHaveBeenCalledWith(poolId);
+    expect(repo.findClPoolView).not.toHaveBeenCalled();
+    expect(detail.clPool.poolId).toBe(detail.id);
+    expect(detail.clPool.sqrtPriceX96).toBe(detail.currentSqrtPrice);
+    expect(detail.clPool.tick).toBe(detail.currentTick);
+    expect(detail.clPool.liquidity).toBe(detail.totalLiquidity);
+    expect(typeof detail.clPool.derivedAt).toBe('number');
+  });
+
+  it.each([
+    [500, 10],
+    [3000, 60],
+    [10_000, 200],
+    [100, 60],
+  ])('maps fee tier %d to tick spacing %d', async (feeTier, tickSpacing) => {
+    repo.getPoolDetailById.mockResolvedValueOnce(
+      mockPoolDetailData({ pool: { id: poolId, feeTier } }),
+    );
+
+    const detail = await controller.getPoolById(poolId);
+
+    expect(detail.clPool.tickSpacing).toBe(tickSpacing);
   });
 });

@@ -390,7 +390,14 @@ export class PoolsController {
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Headers('x-correlation-id') correlationId: string | undefined,
   ): Promise<LiquidityMutationResult> {
-    return this.applyLiquidityMutation('mint', id, body, role, idempotencyKey, correlationId);
+    return this.applyLiquidityMutation(
+      'mint',
+      id,
+      body,
+      role,
+      idempotencyKey,
+      correlationId,
+    );
   }
 
   /**
@@ -439,7 +446,14 @@ export class PoolsController {
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Headers('x-correlation-id') correlationId: string | undefined,
   ): Promise<LiquidityMutationResult> {
-    return this.applyLiquidityMutation('burn', id, body, role, idempotencyKey, correlationId);
+    return this.applyLiquidityMutation(
+      'burn',
+      id,
+      body,
+      role,
+      idempotencyKey,
+      correlationId,
+    );
   }
 
   /**
@@ -521,7 +535,11 @@ export class PoolsController {
       );
     }
 
-    if (!body.amount || !/^\d+$/.test(body.amount) || BigInt(body.amount) <= 0n) {
+    if (
+      !body.amount ||
+      !/^\d+$/.test(body.amount) ||
+      BigInt(body.amount) <= 0n
+    ) {
       throw new LiquidityDomainError(
         LiquidityErrorCode.LP_INVALID_AMOUNT,
         'amount must be a positive integer string.',
@@ -606,6 +624,6 @@ export class PoolsController {
       );
     }
 
-    return this.poolsService.getTicks(id, query);
+    return this.poolsService.getPoolTicks(id, query.lowerTick, query.upperTick);
   }
 }
