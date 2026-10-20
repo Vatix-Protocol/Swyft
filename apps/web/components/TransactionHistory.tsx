@@ -355,9 +355,6 @@ function SwapTable({
             <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
               Pair
             </th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
-              Route
-            </th>
             <th className="text-right py-3 px-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
               Input
             </th>

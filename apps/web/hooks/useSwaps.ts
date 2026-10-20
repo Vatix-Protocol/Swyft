@@ -45,6 +45,18 @@ export interface SwapsApiItem {
   amount0: string;
   amount1: string;
   priceAtSwap: string;
+ * Wire shape of a single item returned by `GET /swaps`
+ * (see `SwapResponse` in apps/api/src/swaps/swaps.service.ts).
+ */
+export interface SwapsApiItem {
+  id: string;
+  poolId: string;
+  tokenPair: string;
+  token0Symbol: string;
+  token1Symbol: string;
+  amount0: string;
+  amount1: string;
+  priceAtSwap: string;
   feeAmount: string;
   route?: string[];
   transactionHash: string;
@@ -99,7 +111,7 @@ export function useSwaps(walletAddress: string | null, page: number = 1, limit: 
     queryFn: async (): Promise<SwapsListResponse> => {
       if (!walletAddress) return { items: [], total: 0 };
 
-      // `wallet` is the filter accepted by GetSwapsQueryDto on the API.
+      // `wallet`, `page` and `limit` match GetSwapsQueryDto on the API.
       const params = new URLSearchParams({
         wallet: walletAddress,
         page: page.toString(),

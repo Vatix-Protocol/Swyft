@@ -1,82 +1,51 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
+import { renderHook, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useSwaps } from '@/hooks/useSwaps';
+import { apiFetch } from '@/lib/api-fetch';
 import { API_BASE } from '@/lib/constants';
-import type { SwapsApiResponse } from '@/hooks/useSwaps';
-
-const mockApiFetch = vi.fn();
 
 vi.mock('@/lib/api-fetch', () => ({
-  apiFetch: (...args: unknown[]) => mockApiFetch(...args),
+  apiFetch: vi.fn(),
 }));
 
-import { useSwaps } from '@/hooks/useSwaps';
+const mockedApiFetch = vi.mocked(apiFetch);
 
-const WALLET = 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H';
+const WALLET = 'GBUQWP3BOUZX34ULNQG23RQ6F4PFXPUWX3BNRQNOBJGAZLMUUYJEZGPK';
 
-const apiBody: SwapsApiResponse = {
-  items: [
-    {
-      id: 'swap-1',
-      poolId: 'pool-xlm-usdc',
-      tokenPair: 'XLM/USDC',
-      token0Symbol: 'XLM',
-      token1Symbol: 'USDC',
-      amount0: '100',
-      amount1: '-10.5',
-      priceAtSwap: '0.105',
-      feeAmount: '0.3',
-      route: ['pool-xlm-usdc', 'pool-usdc-eurc'],
-      transactionHash: 'abc123',
-      walletAddress: WALLET,
-      timestamp: 1700000000,
-    },
-    {
-      id: 'swap-2',
-      poolId: 'pool-xlm-usdc',
-      tokenPair: 'XLM/USDC',
-      token0Symbol: 'XLM',
-      token1Symbol: 'USDC',
-      amount0: '-50',
-      amount1: '5',
-      priceAtSwap: '0.1',
-      feeAmount: '0.15',
-      transactionHash: 'def456',
-      walletAddress: WALLET,
-      timestamp: 1700000100,
-    },
-  ],
-  page: 2,
-  limit: 5,
-  total: 7,
-  totalPages: 2,
-};
+function jsonResponse(body: unknown, ok = true, status = 200) {
+  return {
+    ok,
+    status,
+    json: async () => body,
+  } as Response;
+}
+
+function wrapper({ children }: { children: React.ReactNode }) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
 
 describe('useSwaps', () => {
-  let queryClient: QueryClient;
-
   beforeEach(() => {
-    mockApiFetch.mockReset();
-    queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
+    mockedApiFetch.mockReset();
   });
 
-  function wrapper({ children }: { children: React.ReactNode }) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
-  }
+  it('requests the swaps list with the wallet, page and limit params the API accepts', async () => {
+    mockedApiFetch.mockResolvedValueOnce(jsonResponse({ items: [], total: 0 }));
 
-  it('requests GET /swaps with the wallet, page and limit params accepted by the API', async () => {
-    mockApiFetch.mockResolvedValueOnce({ ok: true, json: async () => apiBody });
+    const { result } = renderHook(() => useSwaps(WALLET, 3, 10), { wrapper });
 
-    const { result } = renderHook(() => useSwaps(WALLET, 2, 5), { wrapper });
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(mockApiFetch).toHaveBeenCalledTimes(1);
-    expect(mockApiFetch).toHaveBeenCalledWith(
-      `${API_BASE}/swaps?wallet=${WALLET}&page=2&limit=5`,
+    expect(mockedApiFetch).toHaveBeenCalledTimes(1);
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      `${API_BASE}/swaps?wallet=${WALLET}&page=3&limit=10`
     );
   });
 
@@ -86,6 +55,11 @@ describe('useSwaps', () => {
     const { result } = renderHook(() => useSwaps(WALLET, 2, 5), { wrapper });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(mockApiFetch).toHaveBeenCalledTimes(1);
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      `${API_BASE}/swaps?wallet=${WALLET}&page=2&limit=5`
+    );
 
     expect(result.current.data).toStrictEqual({
       items: [
