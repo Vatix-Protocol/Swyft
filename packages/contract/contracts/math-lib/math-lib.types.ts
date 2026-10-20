@@ -5,6 +5,28 @@
  * are used by the TypeScript integration layer (scripts, SDK, tests).
  *
  * Closes #204 — Improve TypeScript types in math-lib.
+ *
+ * ## Constructor contract
+ *
+ * Every branded primitive has exactly two constructors:
+ *
+ * - `toX(value)` — **throwing**. For trusted input that is already known to be
+ *   present. Rejects invalid input with a {@link MathError} whose `code` is a
+ *   {@link MathErrorCode}:
+ *   - `toSqrtPriceX96`: `value <= 0n` → `PriceOutOfBounds`
+ *   - `toTick`: non-integer or outside `[MIN_TICK, MAX_TICK]` → `InvalidTick`
+ *   - `toLiquidity`: `value < 0n` → `Underflow`
+ *   - `toTokenAmount`: `value < 0n` → `Underflow`
+ *
+ * - `safeToX(value)` — **non-throwing**. For untrusted or possibly-empty input
+ *   (network responses, stores, form fields). Accepts `null` / `undefined` and
+ *   never throws; returns a {@link MathLibResult}. It is `ok` exactly when the
+ *   value is present and `toX(value)` would succeed; otherwise `message` is the
+ *   helper's single {@link MATH_LIB_MESSAGES} entry (`missingPrice`,
+ *   `missingTick`, `missingLiquidity`, `missingAmount` respectively).
+ *
+ * `MathLibResult` is produced only by the `safe*` helpers; the `to*` helpers
+ * never return it.
  */
 
 // ── Branded primitives ────────────────────────────────────────────────────────
@@ -112,12 +134,12 @@ export function toTokenAmount(value: bigint): TokenAmount {
 // ── Empty-data handling ───────────────────────────────────────────────────────
 
 /**
- * Discriminated union returned by safe math helpers.
+ * Discriminated union returned by the `safeTo*` helpers.
  * Use `result.ok` to branch between the value and the human-readable message.
  *
  * @example
  * ```ts
- * const result = safeSqrtPriceX96(rawPrice);
+ * const result = safeToSqrtPriceX96(rawPrice);
  * if (!result.ok) {
  *   // Show result.message in the UI — it already explains the next step.
  *   return;
@@ -150,65 +172,81 @@ export function isEmpty(value: bigint | number | null | undefined): boolean {
 }
 
 /**
- * Safely wraps {@link toSqrtPriceX96}.
- * Returns a {@link MathLibResult} instead of throwing, so callers can display
- * the `.message` in the UI rather than catching exceptions.
+ * Runs a throwing constructor, converting a {@link MathError} into a failed
+ * {@link MathLibResult} carrying `message`.
  */
-export function safeSqrtPriceX96(value: bigint | null | undefined): MathLibResult<SqrtPriceX96> {
-  if (isEmpty(value)) {
-    return { ok: false, message: MATH_LIB_MESSAGES.missingPrice };
-  }
+function attempt<T>(construct: () => T, message: string): MathLibResult<T> {
   try {
-    return { ok: true, value: toSqrtPriceX96(value as bigint) };
-  } catch {
-    return { ok: false, message: MATH_LIB_MESSAGES.missingPrice };
+    return { ok: true, value: construct() };
+  } catch (err) {
+    // Match on `name` rather than `instanceof`: Error subclasses lose their
+    // prototype when compiled to ES5.
+    if ((err as Error | undefined)?.name === 'MathError') return { ok: false, message };
+    throw err;
   }
 }
 
 /**
- * Safely wraps {@link toTick}.
- * Returns a {@link MathLibResult} instead of throwing.
+ * Non-throwing {@link toSqrtPriceX96}. Fails with
+ * `MATH_LIB_MESSAGES.missingPrice` for `null`, `undefined`, `0n` or negatives.
  */
-export function safeTick(value: number | null | undefined): MathLibResult<Tick> {
+export function safeToSqrtPriceX96(
+  value: bigint | null | undefined
+): MathLibResult<SqrtPriceX96> {
+  if (value === null || value === undefined) {
+    return { ok: false, message: MATH_LIB_MESSAGES.missingPrice };
+  }
+  return attempt(() => toSqrtPriceX96(value), MATH_LIB_MESSAGES.missingPrice);
+}
+
+/**
+ * Non-throwing {@link toTick}. Fails with `MATH_LIB_MESSAGES.missingTick` for
+ * `null`, `undefined`, non-integers or values outside `[MIN_TICK, MAX_TICK]`.
+ */
+export function safeToTick(value: number | null | undefined): MathLibResult<Tick> {
   if (value === null || value === undefined) {
     return { ok: false, message: MATH_LIB_MESSAGES.missingTick };
   }
-  try {
-    return { ok: true, value: toTick(value) };
-  } catch {
-    return { ok: false, message: MATH_LIB_MESSAGES.missingTick };
-  }
+  return attempt(() => toTick(value), MATH_LIB_MESSAGES.missingTick);
 }
 
 /**
- * Safely wraps {@link toLiquidity}.
- * Returns a {@link MathLibResult} instead of throwing.
+ * Non-throwing {@link toLiquidity}. Fails with
+ * `MATH_LIB_MESSAGES.missingLiquidity` for `null`, `undefined` or negatives;
+ * `0n` is valid.
  */
-export function safeLiquidity(value: bigint | null | undefined): MathLibResult<Liquidity> {
+export function safeToLiquidity(value: bigint | null | undefined): MathLibResult<Liquidity> {
   if (value === null || value === undefined) {
     return { ok: false, message: MATH_LIB_MESSAGES.missingLiquidity };
   }
-  try {
-    return { ok: true, value: toLiquidity(value) };
-  } catch {
-    return { ok: false, message: MATH_LIB_MESSAGES.missingLiquidity };
-  }
+  return attempt(() => toLiquidity(value), MATH_LIB_MESSAGES.missingLiquidity);
 }
 
 /**
- * Safely wraps {@link toTokenAmount}.
- * Returns a {@link MathLibResult} instead of throwing.
+ * Non-throwing {@link toTokenAmount}. Fails with
+ * `MATH_LIB_MESSAGES.missingAmount` for `null`, `undefined` or negatives;
+ * `0n` is valid.
  */
-export function safeTokenAmount(value: bigint | null | undefined): MathLibResult<TokenAmount> {
+export function safeToTokenAmount(
+  value: bigint | null | undefined
+): MathLibResult<TokenAmount> {
   if (value === null || value === undefined) {
     return { ok: false, message: MATH_LIB_MESSAGES.missingAmount };
   }
-  try {
-    return { ok: true, value: toTokenAmount(value) };
-  } catch {
-    return { ok: false, message: MATH_LIB_MESSAGES.missingAmount };
-  }
+  return attempt(() => toTokenAmount(value), MATH_LIB_MESSAGES.missingAmount);
 }
+
+/** @deprecated Use {@link safeToSqrtPriceX96}. */
+export const safeSqrtPriceX96 = safeToSqrtPriceX96;
+
+/** @deprecated Use {@link safeToTick}. */
+export const safeTick = safeToTick;
+
+/** @deprecated Use {@link safeToLiquidity}. */
+export const safeLiquidity = safeToLiquidity;
+
+/** @deprecated Use {@link safeToTokenAmount}. */
+export const safeTokenAmount = safeToTokenAmount;
 
 /**
  * Validates all fields of an {@link AmountDeltaParams} object, returning a
@@ -220,16 +258,16 @@ export function safeTokenAmount(value: bigint | null | undefined): MathLibResult
 export function safeAmountDeltaParams(
   raw: Partial<Record<keyof AmountDeltaParams, bigint | null | undefined>>
 ): MathLibResult<AmountDeltaParams> {
-  const liquidity = safeLiquidity(raw.liquidity ?? null);
+  const liquidity = safeToLiquidity(raw.liquidity ?? null);
   if (!liquidity.ok) return liquidity;
 
-  const sqrtLower = safeSqrtPriceX96(raw.sqrtPriceLowerX96 ?? null);
+  const sqrtLower = safeToSqrtPriceX96(raw.sqrtPriceLowerX96 ?? null);
   if (!sqrtLower.ok) return sqrtLower;
 
-  const sqrtUpper = safeSqrtPriceX96(raw.sqrtPriceUpperX96 ?? null);
+  const sqrtUpper = safeToSqrtPriceX96(raw.sqrtPriceUpperX96 ?? null);
   if (!sqrtUpper.ok) return sqrtUpper;
 
-  const sqrtCurrent = safeSqrtPriceX96(raw.sqrtPriceCurrentX96 ?? null);
+  const sqrtCurrent = safeToSqrtPriceX96(raw.sqrtPriceCurrentX96 ?? null);
   if (!sqrtCurrent.ok) return sqrtCurrent;
 
   return {
