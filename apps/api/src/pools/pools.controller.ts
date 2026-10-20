@@ -10,7 +10,6 @@ import {
   Query,
   Req,
   Res,
-  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -28,20 +27,24 @@ import { ApiKeyGuard } from '../auth/api-key.guard';
 import { CacheService } from '../cache/cache.service';
 import { GetPoolsQueryDto } from './dto/get-pools-query.dto';
 import { GetTicksQueryDto } from './dto/get-ticks-query.dto';
+import {
+  LiquidityDomainError,
+  translateLiquidityError,
+} from './liquidity-error.map';
+import { LiquidityErrorCode } from './pool.types';
 import { PoolDetailDto } from './dto/pool-detail.dto';
 import { TickData } from './pools.repository';
 import { PoolsListResponse, PoolsService } from './pools.service';
 import { SWAGGER_TAGS } from '../swagger.constants';
 
 /**
- * Stable error codes for the LP mint/burn money path. Clients must branch on
- * these codes rather than on human-readable messages.
+ * Request-shape error codes for the LP mint/burn endpoints that have no
+ * LiquidityErrorCode equivalent (missing idempotency key, route/body pool id
+ * mismatch). Domain failures use LiquidityErrorCode, mapped to HTTP statuses
+ * by liquidity-error.map.ts.
  */
 export const POOL_LIQUIDITY_ERROR_CODES = {
-  UNAUTHORIZED: 'POOL_LIQUIDITY_UNAUTHORIZED',
   INVALID_REQUEST: 'POOL_LIQUIDITY_INVALID_REQUEST',
-  POOL_NOT_FOUND: 'POOL_LIQUIDITY_POOL_NOT_FOUND',
-  DEPENDENCY_UNAVAILABLE: 'POOL_LIQUIDITY_DEPENDENCY_UNAVAILABLE',
 } as const;
 
 export type PoolLiquidityErrorCode =
@@ -362,10 +365,24 @@ export class PoolsController {
     description: 'Client-supplied idempotency key for replay protection',
   })
   @ApiResponse({ status: 201, description: 'Liquidity minted successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized (deny-by-default)' })
-  @ApiResponse({ status: 400, description: 'Invalid request' })
-  @ApiResponse({ status: 404, description: 'Pool not found' })
-  @ApiResponse({ status: 503, description: 'Dependency unavailable (fail-closed)' })
+  @ApiResponse({
+    status: 403,
+    description: 'LP_UNAUTHORIZED (deny-by-default)',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid request (LP_INVALID_AMOUNT, LP_INVALID_TICK_RANGE)',
+  })
+  @ApiResponse({ status: 404, description: 'LP_POOL_NOT_FOUND' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'LP_POOL_INACTIVE, LP_INSUFFICIENT_LIQUIDITY, or LP_REPLAY_DETECTED (applied: false)',
+  })
+  @ApiResponse({
+    status: 503,
+    description: 'LP_DEPENDENCY_UNAVAILABLE (fail-closed)',
+  })
   async mintLiquidity(
     @Param('id') id: string,
     @Body() body: MintLiquidityDto,
@@ -397,10 +414,24 @@ export class PoolsController {
     description: 'Client-supplied idempotency key for replay protection',
   })
   @ApiResponse({ status: 201, description: 'Liquidity burned successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized (deny-by-default)' })
-  @ApiResponse({ status: 400, description: 'Invalid request' })
-  @ApiResponse({ status: 404, description: 'Pool not found' })
-  @ApiResponse({ status: 503, description: 'Dependency unavailable (fail-closed)' })
+  @ApiResponse({
+    status: 403,
+    description: 'LP_UNAUTHORIZED (deny-by-default)',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid request (LP_INVALID_AMOUNT, LP_INVALID_TICK_RANGE)',
+  })
+  @ApiResponse({ status: 404, description: 'LP_POOL_NOT_FOUND' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'LP_POOL_INACTIVE, LP_INSUFFICIENT_LIQUIDITY, or LP_REPLAY_DETECTED (applied: false)',
+  })
+  @ApiResponse({
+    status: 503,
+    description: 'LP_DEPENDENCY_UNAVAILABLE (fail-closed)',
+  })
   async burnLiquidity(
     @Param('id') id: string,
     @Body() body: BurnLiquidityDto,
@@ -416,7 +447,9 @@ export class PoolsController {
    *
    * Fail-closed ordering matters: authorization and input validation run before
    * any dependency is touched, and dependency failures surface as 503 rather
-   * than silently succeeding.
+   * than silently succeeding. Domain failures are LiquidityDomainErrors and are
+   * translated by translateLiquidityError (liquidity-error.map.ts) so each
+   * LiquidityErrorCode reaches AllExceptionsFilter with its mapped status.
    */
   private async applyLiquidityMutation(
     kind: 'mint' | 'burn',
@@ -428,13 +461,35 @@ export class PoolsController {
   ): Promise<LiquidityMutationResult> {
     const cid = correlationId?.trim() || `${kind}-${id}-${Date.now()}`;
 
+    try {
+      return await this.runLiquidityMutation(
+        kind,
+        id,
+        body,
+        role,
+        idempotencyKey,
+        cid,
+      );
+    } catch (err) {
+      throw translateLiquidityError(err, cid);
+    }
+  }
+
+  private async runLiquidityMutation(
+    kind: 'mint' | 'burn',
+    id: string,
+    body: MintLiquidityDto | BurnLiquidityDto,
+    role: string | undefined,
+    idempotencyKey: string | undefined,
+    cid: string,
+  ): Promise<LiquidityMutationResult> {
     // Deny-by-default authz: reject before any state is read or written.
     if (!role || !LP_MUTATION_ROLES.has(role)) {
-      throw new UnauthorizedException({
-        code: POOL_LIQUIDITY_ERROR_CODES.UNAUTHORIZED,
-        message: 'Caller is not authorized to mutate LP positions.',
-        correlationId: cid,
-      });
+      throw new LiquidityDomainError(
+        LiquidityErrorCode.LP_UNAUTHORIZED,
+        `Caller is not authorized to ${kind} LP positions.`,
+        cid,
+      );
     }
 
     const key = idempotencyKey?.trim() || body?.idempotencyKey?.trim();
@@ -459,28 +514,28 @@ export class PoolsController {
       !Number.isInteger(body.upperTick) ||
       body.lowerTick >= body.upperTick
     ) {
-      throw new BadRequestException({
-        code: POOL_LIQUIDITY_ERROR_CODES.INVALID_REQUEST,
-        message: 'lowerTick must be an integer strictly less than upperTick.',
-        correlationId: cid,
-      });
+      throw new LiquidityDomainError(
+        LiquidityErrorCode.LP_INVALID_TICK_RANGE,
+        'lowerTick must be an integer strictly less than upperTick.',
+        cid,
+      );
     }
 
     if (!body.amount || !/^\d+$/.test(body.amount) || BigInt(body.amount) <= 0n) {
-      throw new BadRequestException({
-        code: POOL_LIQUIDITY_ERROR_CODES.INVALID_REQUEST,
-        message: 'amount must be a positive integer string.',
-        correlationId: cid,
-      });
+      throw new LiquidityDomainError(
+        LiquidityErrorCode.LP_INVALID_AMOUNT,
+        'amount must be a positive integer string.',
+        cid,
+      );
     }
 
     const pool = await this.poolsService.findPoolById(id);
     if (!pool) {
-      throw new NotFoundException({
-        code: POOL_LIQUIDITY_ERROR_CODES.POOL_NOT_FOUND,
-        message: `Pool with ID "${id}" not found.`,
-        correlationId: cid,
-      });
+      throw new LiquidityDomainError(
+        LiquidityErrorCode.LP_POOL_NOT_FOUND,
+        `Pool with ID "${id}" not found.`,
+        cid,
+      );
     }
 
     // Invalidate cached pool detail so subsequent reads reflect the mutation.

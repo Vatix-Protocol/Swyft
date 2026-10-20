@@ -134,7 +134,7 @@ describe('GET /v1/pools — contract schema', () => {
         get: jest.fn().mockResolvedValue(null),
         set: noop,
         del: noop,
-        publish: noop,
+        publish: jest.fn().mockResolvedValue(true),
         setMaxNumber: jest.fn().mockResolvedValue(true),
         invalidate: noop,
         invalidatePattern: noop,

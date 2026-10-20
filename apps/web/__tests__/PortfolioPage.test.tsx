@@ -141,6 +141,7 @@ describe('PortfolioPage', () => {
     Object.defineProperty(window, 'localStorage', {
       value: { getItem: vi.fn(() => 'mock-token'), setItem: vi.fn(), removeItem: vi.fn() },
       writable: true,
+      configurable: true,
     });
   });
 
@@ -442,5 +443,39 @@ describe('PortfolioPage', () => {
     await waitFor(() => {
       expect(collectBtn).toBeDisabled();
     });
+  });
+
+  it('shows an authenticate prompt when collect is clicked without a token and does not redirect', async () => {
+    // Simulate no auth token
+    Object.defineProperty(window, 'localStorage', {
+      value: { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+
+    const position = makePosition({ id: 'pos-1' });
+    mockUsePortfolio.mockReturnValue({
+      active: [position],
+      closed: [],
+      loading: false,
+      refresh: mockRefresh,
+      totalValueUsd: 500,
+    });
+
+    const PortfolioPage = await importPage();
+    render(<PortfolioPage />);
+
+    const collectBtn = screen.getByTestId('collect-pos-1');
+    fireEvent.click(collectBtn);
+
+    // Assert the collect-specific authenticate prompt appears
+    await waitFor(() => {
+      expect(
+        screen.getByText('Authenticate your wallet to collect fees.')
+      ).toBeInTheDocument();
+    });
+
+    // Assert we were NOT redirected to home
+    expect(mockReplace).not.toHaveBeenCalledWith('/');
   });
 });

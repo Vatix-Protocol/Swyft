@@ -100,6 +100,28 @@ fn test_get_twap_window_too_large() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn test_get_twap_stale_observation() {
+    let (env, oracle_id, _pool) = setup();
+    let client = OracleAdapterClient::new(&env, &oracle_id);
+
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+    client.write_observation(&Q96, &1_000u128);
+
+    env.ledger().with_mut(|l| l.timestamp = 2_000);
+    client.write_observation(&(Q96 / 2), &2_000u128);
+
+    assert_eq!(client.get_observation_count(), 2);
+
+    // Advance the ledger past the newest observation without writing a new
+    // one. The requested window ends at the current ledger time (3000), which
+    // is after the newest observation (2000), so the tail of the window has no
+    // covering observation and the contract must reject with StaleObservation.
+    env.ledger().with_mut(|l| l.timestamp = 3_000);
+    client.get_twap(&1_000);
+}
+
+#[test]
 fn test_write_observation_requires_registered_pool() {
     // No mock_all_auths: the caller must actually be the registered pool.
     let env = Env::default();
@@ -130,4 +152,85 @@ fn test_write_observation_wraps_circular_buffer() {
     assert_eq!(client.get_observation_count(), 100);
     let latest = client.get_observation(&99);
     assert_eq!(latest.timestamp, 1_099);
+}
+
+#[test]
+fn test_first_observation_records_zero_cumulatives() {
+    let (env, oracle_id, _pool) = setup();
+    let client = OracleAdapterClient::new(&env, &oracle_id);
+
+    assert_eq!(client.get_observation_count(), 0);
+
+    env.ledger().with_mut(|l| l.timestamp = 5_000);
+    client.write_observation(&(Q96 * 3), &7_777u128);
+
+    // count == 0 before the write, so there is no previous observation to
+    // accumulate from regardless of the price and liquidity supplied.
+    assert_eq!(client.get_observation_count(), 1);
+    let obs = client.get_observation(&0);
+    assert_eq!(obs.timestamp, 5_000);
+    assert_eq!(obs.cumulative_sqrt_price, 0);
+    assert_eq!(obs.cumulative_liquidity, 0);
+}
+
+#[test]
+fn test_write_observation_same_timestamp_is_noop() {
+    let (env, oracle_id, _pool) = setup();
+    let client = OracleAdapterClient::new(&env, &oracle_id);
+
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+    client.write_observation(&Q96, &1_000u128);
+
+    env.ledger().with_mut(|l| l.timestamp = 1_010);
+    client.write_observation(&(Q96 / 2), &2_000u128);
+
+    // Second write in the same ledger: zero elapsed time, so it is skipped.
+    client.write_observation(&(Q96 * 4), &9_000u128);
+
+    assert_eq!(client.get_observation_count(), 2);
+
+    let latest = client.get_observation(&1);
+    assert_eq!(latest.timestamp, 1_010);
+    assert_eq!(latest.cumulative_sqrt_price, (Q96 / 2) * 10);
+    assert_eq!(latest.cumulative_liquidity, 2_000u128 * 10);
+
+    // The skipped write did not claim the next slot: the next distinct
+    // timestamp lands in slot 2 and accumulates from slot 1.
+    env.ledger().with_mut(|l| l.timestamp = 1_015);
+    client.write_observation(&Q96, &3_000u128);
+
+    assert_eq!(client.get_observation_count(), 3);
+    let next = client.get_observation(&2);
+    assert_eq!(next.timestamp, 1_015);
+    assert_eq!(next.cumulative_sqrt_price, (Q96 / 2) * 10 + Q96 * 5);
+    assert_eq!(next.cumulative_liquidity, 2_000u128 * 10 + 3_000u128 * 5);
+}
+
+#[test]
+fn test_first_two_writes_at_same_timestamp_keep_single_observation() {
+    let (env, oracle_id, _pool) = setup();
+    let client = OracleAdapterClient::new(&env, &oracle_id);
+
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+    client.write_observation(&Q96, &1_000u128);
+    client.write_observation(&(Q96 / 2), &2_000u128);
+
+    assert_eq!(client.get_observation_count(), 1);
+    let obs = client.get_observation(&0);
+    assert_eq!(obs.timestamp, 1_000);
+    assert_eq!(obs.cumulative_sqrt_price, 0);
+    assert_eq!(obs.cumulative_liquidity, 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #7)")]
+fn test_write_observation_decreasing_timestamp_panics() {
+    let (env, oracle_id, _pool) = setup();
+    let client = OracleAdapterClient::new(&env, &oracle_id);
+
+    env.ledger().with_mut(|l| l.timestamp = 2_000);
+    client.write_observation(&Q96, &1_000u128);
+
+    env.ledger().with_mut(|l| l.timestamp = 1_999);
+    client.write_observation(&Q96, &1_000u128);
 }

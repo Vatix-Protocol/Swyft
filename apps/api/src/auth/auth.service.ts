@@ -70,10 +70,8 @@ export class AuthService {
   static readonly NONCE_PREFIX = 'auth:nonce:';
   /** Redis key prefix for the per-nonce failed-attempt counter. */
   static readonly ATTEMPTS_PREFIX = 'auth:nonce:attempts:';
-  /** Failed signature/mismatch attempts allowed against a single nonce before it is invalidated. */
-  static readonly MAX_NONCE_ATTEMPTS = Number(
-    process.env.AUTH_MAX_NONCE_ATTEMPTS ?? '5',
-  );
+  /** Attempt limit applied when AUTH_MAX_NONCE_ATTEMPTS is absent or invalid. */
+  static readonly DEFAULT_MAX_NONCE_ATTEMPTS = 5;
 
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
@@ -189,6 +187,24 @@ export class AuthService {
 
   // ─── Private helpers ───────────────────────────────────────────────────────
 
+  /**
+   * Failed signature/mismatch attempts allowed against a single nonce before
+   * it is invalidated. Resolved through ConfigService at call time so values
+   * loaded by Nest (ConfigModule / .env) are honoured. Absent, non-numeric or
+   * non-positive values fall back to the default — a NaN limit would make
+   * `attempts >= limit` always false and silently disable lockout.
+   */
+  private get maxNonceAttempts(): number {
+    const raw = this.configService.get<string | number>(
+      'AUTH_MAX_NONCE_ATTEMPTS',
+    );
+    const parsed =
+      typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10);
+    return Number.isInteger(parsed) && parsed > 0
+      ? parsed
+      : AuthService.DEFAULT_MAX_NONCE_ATTEMPTS;
+  }
+
   /** Generates a short correlation id for tracing a single auth attempt. */
   private newCorrelationId(): string {
     return Math.random().toString(36).slice(2, 10);
@@ -218,7 +234,7 @@ export class AuthService {
 
   /**
    * Increments the failed-attempt counter for a nonce and invalidates the
-   * nonce once `MAX_NONCE_ATTEMPTS` is reached, preventing an attacker from
+   * nonce once `maxNonceAttempts` is reached, preventing an attacker from
    * hammering /auth/verify with bad signatures for the remainder of the
    * nonce's TTL.
    */
@@ -233,7 +249,7 @@ export class AuthService {
       await this.redis.expire(attemptsKey, nonceTtl > 0 ? nonceTtl : 120);
     }
 
-    if (attempts >= AuthService.MAX_NONCE_ATTEMPTS) {
+    if (attempts >= this.maxNonceAttempts) {
       await this.redis.del(nonceKey);
       await this.redis.del(attemptsKey);
       this.logger.warn(

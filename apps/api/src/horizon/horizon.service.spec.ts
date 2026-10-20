@@ -11,9 +11,17 @@ jest.mock('@prisma/client', () => ({
   Prisma: {},
 }));
 
+import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { CacheService } from '../cache/cache.service';
 import { IndexerCursorService } from '../indexer/indexer-cursor.service';
+import {
+  QUEUE_POOL_CREATED,
+  QUEUE_SWAP_PROCESSED,
+  QUEUE_POSITION_MINTED,
+  QUEUE_POSITION_BURNED,
+  QUEUE_FEES_COLLECTED,
+} from '../indexer/indexer.module';
 import { PoolsService } from '../pools/pools.service';
 import { PriceService } from '../price/price.service';
 import { HorizonService, HorizonTimeoutError } from './horizon.service';
@@ -444,5 +452,156 @@ describe('HorizonService — poller (Horizon mocked)', () => {
 
       expect(call).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * #1250 — Queue-token wiring. HorizonService is built through Nest DI with the
+ * exact queue tokens exported by IndexerModule, and each parsed event must be
+ * enqueued onto the queue bound to its token. A token renamed in
+ * indexer.module.ts but not in horizon.service.ts would fail module
+ * compilation here, surfacing at test time instead of at runtime.
+ *
+ * HorizonService enqueues jobs per ledger window through BullMQ's `addBulk`,
+ * so the enqueue path is asserted on `addBulk` for each queue.
+ */
+describe('HorizonService — queue token wiring via Nest DI (#1250)', () => {
+  let module: TestingModule;
+
+  afterEach(async () => {
+    await module?.close();
+  });
+
+  async function buildWiredService(records: object[]) {
+    const { server } = buildEffectsChain(records);
+    const config = {
+      get: jest.fn((key: string) =>
+        key === 'stellar'
+          ? {
+              horizonUrl: 'https://horizon.test',
+              poolContractId: 'GPOOL_CONTRACT',
+            }
+          : undefined,
+      ),
+    } as unknown as ConfigService;
+    const priceService = { broadcastPrice: jest.fn() } as unknown as PriceService;
+    const poolsService = {
+      handlePoolStateUpdate: jest.fn().mockResolvedValue(undefined),
+    } as unknown as PoolsService;
+    const cache = {
+      publish: jest.fn().mockResolvedValue(undefined),
+    } as unknown as CacheService;
+    const cursorService = {
+      getLastLedger: jest.fn().mockResolvedValue(0),
+      advanceLedger: jest.fn().mockResolvedValue(true),
+    } as unknown as IndexerCursorService;
+
+    const poolCreatedQueue = buildQueueMock();
+    const swapProcessedQueue = buildQueueMock();
+    const positionMintedQueue = buildQueueMock();
+    const positionBurnedQueue = buildQueueMock();
+    const feesCollectedQueue = buildQueueMock();
+
+    module = await Test.createTestingModule({
+      providers: [
+        HorizonService,
+        { provide: ConfigService, useValue: config },
+        { provide: PriceService, useValue: priceService },
+        { provide: PoolsService, useValue: poolsService },
+        { provide: CacheService, useValue: cache },
+        { provide: IndexerCursorService, useValue: cursorService },
+        // Queue tokens are imported from indexer.module.ts — the same tokens
+        // HorizonService injects — so a rename breaks this module compilation.
+        { provide: QUEUE_POOL_CREATED, useValue: poolCreatedQueue },
+        { provide: QUEUE_SWAP_PROCESSED, useValue: swapProcessedQueue },
+        { provide: QUEUE_POSITION_MINTED, useValue: positionMintedQueue },
+        { provide: QUEUE_POSITION_BURNED, useValue: positionBurnedQueue },
+        { provide: QUEUE_FEES_COLLECTED, useValue: feesCollectedQueue },
+      ],
+    }).compile();
+
+    const service = module.get(HorizonService);
+    // Inject stubbed Horizon server (bypasses real network)
+    (service as any).server = server;
+    // Track the legacy pool contract so the poller is active
+    (service as any).trackedAccounts.add('GPOOL_CONTRACT');
+    (service as any).cursors.set('GPOOL_CONTRACT', 'now');
+
+    return { service, poolCreatedQueue, swapProcessedQueue };
+  }
+
+  it('enqueues a pool_created event onto QUEUE_POOL_CREATED and a swap onto QUEUE_SWAP_PROCESSED', async () => {
+    const { service, poolCreatedQueue, swapProcessedQueue } =
+      await buildWiredService([
+        {
+          paging_token: 'cursor-di-pool',
+          ledger: 920,
+          created_at: '2026-06-24T12:00:00.000Z',
+          eventType: 'pool_created',
+          eventId: 'evt-di-pool-1',
+          poolId: 'pool-di-abc',
+          tokenA: 'TOKENA',
+          tokenB: 'TOKENB',
+          fee: '3000',
+          sqrtPrice: '79228162514264337593543950336',
+        },
+        {
+          paging_token: 'cursor-di-swap',
+          ledger: 921,
+          created_at: '2026-06-24T12:00:00.000Z',
+          eventType: 'swap_processed',
+          eventId: 'evt-di-swap-1',
+          poolId: 'pool-di-abc',
+          sender: 'GSENDER',
+          recipient: 'GRECIPIENT',
+          amount0: '1000',
+          amount1: '500',
+          sqrtPrice: '79228162514264337593543950336',
+          liquidity: '1000000',
+          tick: 42,
+          transactionHash: 'tx-di-swap-1',
+        },
+      ]);
+
+    await (service as any).poll();
+
+    expect(poolCreatedQueue.addBulk).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'evt-di-pool-1',
+          data: expect.objectContaining({
+            eventId: 'evt-di-pool-1',
+            poolId: 'pool-di-abc',
+            tokenA: 'TOKENA',
+            tokenB: 'TOKENB',
+            fee: '3000',
+            sqrtPriceX96: '79228162514264337593543950336',
+            ledger: 920,
+          }),
+        }),
+      ]),
+    );
+
+    expect(swapProcessedQueue.addBulk).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'evt-di-swap-1',
+          data: expect.objectContaining({
+            eventId: 'evt-di-swap-1',
+            poolId: 'pool-di-abc',
+            sender: 'GSENDER',
+            recipient: 'GRECIPIENT',
+            amount0: '1000',
+            amount1: '500',
+            sqrtPriceX96: '79228162514264337593543950336',
+            liquidity: '1000000',
+            tick: 42,
+            transactionHash: 'tx-di-swap-1',
+            timestamp: '2026-06-24T12:00:00.000Z',
+            ledger: 921,
+          }),
+        }),
+      ]),
+    );
   });
 });

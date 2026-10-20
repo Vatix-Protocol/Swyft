@@ -4,17 +4,25 @@ import { useQuery } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/constants';
 import { apiFetch } from '@/lib/api-fetch';
 
+/**
+ * One item of the API's `GET /swaps` list response (see `toResponse` in
+ * apps/api/src/swaps/swaps.service.ts). Field names must match that contract.
+ */
 export interface SwapSnapshot {
   id: string;
   poolId: string;
+  /** Normalized "TOKEN0/TOKEN1" label for the trading pair. */
+  tokenPair: string;
   token0Symbol: string;
   token1Symbol: string;
   amount0: string;
   amount1: string;
   priceAtSwap: string;
+  /** Fee charged for this swap (expressed in token0 units). */
+  feeAmount: string;
   /** Ordered pool IDs the swap routed through, when known (e.g. multi-hop). */
   route?: string[];
-  txHash: string;
+  transactionHash: string;
   walletAddress: string;
   timestamp: number;
 }
@@ -25,42 +33,75 @@ export interface SwapsListResponse {
 }
 
 /**
- * A single item as returned by `GET /swaps` (see `SwapResponse` in
- * apps/api/src/swaps/swaps.service.ts). The API names the hash
- * `transactionHash`; it is mapped to `txHash` on the client.
+ * Wire shape of a single item returned by `GET /swaps`
+ * (see `SwapResponse` in apps/api/src/swaps/swaps.service.ts).
  */
-interface ApiSwapItem {
+export interface SwapsApiItem {
   id: string;
   poolId: string;
+  tokenPair: string;
   token0Symbol: string;
   token1Symbol: string;
   amount0: string;
   amount1: string;
   priceAtSwap: string;
+ * Wire shape of a single item returned by `GET /swaps`
+ * (see `SwapResponse` in apps/api/src/swaps/swaps.service.ts).
+ */
+export interface SwapsApiItem {
+  id: string;
+  poolId: string;
+  tokenPair: string;
+  token0Symbol: string;
+  token1Symbol: string;
+  amount0: string;
+  amount1: string;
+  priceAtSwap: string;
+  feeAmount: string;
   route?: string[];
   transactionHash: string;
   walletAddress: string;
   timestamp: number;
 }
 
-interface ApiSwapsListResponse {
-  items?: ApiSwapItem[];
-  total?: number;
+/** Wire shape of `GET /swaps` (see `SwapsListResponse` in the API). */
+export interface SwapsApiResponse {
+  items: SwapsApiItem[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 }
 
-function toSwapSnapshot(item: ApiSwapItem): SwapSnapshot {
+/**
+ * Builds the `GET /swaps` URL. Query parameter names must match
+ * `GetSwapsQueryDto` (apps/api/src/swaps/dto/get-swaps-query.dto.ts).
+ */
+export function buildSwapsUrl(walletAddress: string, page: number, limit: number): string {
+  const params = new URLSearchParams({
+    wallet: walletAddress,
+    page: page.toString(),
+    limit: limit.toString(),
+  });
+  return `${API_BASE}/swaps?${params}`;
+}
+
+export function parseSwapsResponse(body: SwapsApiResponse): SwapsListResponse {
   return {
-    id: item.id,
-    poolId: item.poolId,
-    token0Symbol: item.token0Symbol,
-    token1Symbol: item.token1Symbol,
-    amount0: item.amount0,
-    amount1: item.amount1,
-    priceAtSwap: item.priceAtSwap,
-    ...(Array.isArray(item.route) ? { route: item.route } : {}),
-    txHash: item.transactionHash,
-    walletAddress: item.walletAddress,
-    timestamp: item.timestamp,
+    items: body.items.map((item) => ({
+      id: item.id,
+      poolId: item.poolId,
+      token0Symbol: item.token0Symbol,
+      token1Symbol: item.token1Symbol,
+      amount0: item.amount0,
+      amount1: item.amount1,
+      priceAtSwap: item.priceAtSwap,
+      ...(item.route ? { route: item.route } : {}),
+      txHash: item.transactionHash,
+      walletAddress: item.walletAddress,
+      timestamp: item.timestamp,
+    })),
+    total: body.total,
   };
 }
 
@@ -81,11 +122,7 @@ export function useSwaps(walletAddress: string | null, page: number = 1, limit: 
       if (!response.ok) {
         throw new Error('Failed to fetch swaps');
       }
-      const data = (await response.json()) as ApiSwapsListResponse;
-      return {
-        items: (data.items ?? []).map(toSwapSnapshot),
-        total: data.total ?? 0,
-      };
+      return parseSwapsResponse((await response.json()) as SwapsApiResponse);
     },
     enabled: !!walletAddress,
     refetchInterval: 30000, // Auto-refresh every 30 seconds

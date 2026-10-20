@@ -1,6 +1,7 @@
 import { Pool } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PoolsRepository } from './pools.repository';
+import { mockPool } from '../pools-unit-test/mock-factories';
 
 const makePool = (overrides: Partial<Pool> = {}): Pool => ({
   id: 'pool-1',
@@ -141,6 +142,22 @@ describe('PoolsRepository', () => {
     );
   });
 
+  it('applies the same active-only predicate using shared pool fixtures', async () => {
+    const active = mockPool({ id: 'pool-active', active: true, tvl: '1000' });
+    const inactive = mockPool({ id: 'pool-inactive', active: false, tvl: '0' });
+    prisma.pool.findMany.mockResolvedValue([active, inactive]);
+
+    await repository.listActivePools({
+      page: 1,
+      limit: 20,
+      orderBy: 'tvl',
+    });
+
+    expect(prisma.pool.findMany).toHaveBeenCalledWith({
+      where: { active: true },
+    });
+  });
+
   it('maps active flag from the database row', async () => {
     prisma.pool.findMany.mockResolvedValue([
       makePool({ id: 'inactive-pool', active: false }),
@@ -154,6 +171,73 @@ describe('PoolsRepository', () => {
     });
 
     expect(result.items[0].active).toBe(false);
+  });
+
+  // ── #1206: includeInactive ↔ active flag contract ───────────────────────
+
+  describe('includeInactive against a mixed active/inactive dataset', () => {
+    const seeded: Pool[] = [
+      makePool({ id: 'active-a', active: true, tvl: '300' }),
+      makePool({ id: 'inactive-a', active: false, tvl: '200' }),
+      makePool({ id: 'active-b', active: true, tvl: '100' }),
+      makePool({ id: 'inactive-b', active: false, tvl: '50' }),
+    ];
+
+    beforeEach(() => {
+      // Honour the `active` predicate the repository sends, as Postgres would,
+      // so the assertions cover the returned items rather than just the query.
+      prisma.pool.findMany.mockImplementation(
+        async ({ where }: { where: { active?: boolean } }) =>
+          seeded.filter(
+            (pool) => where.active === undefined || pool.active === where.active,
+          ),
+      );
+    });
+
+    afterEach(() => prisma.pool.findMany.mockReset());
+
+    it('returns zero items with active: false when includeInactive is omitted', async () => {
+      const result = await repository.listActivePools({
+        page: 1,
+        limit: 50,
+        orderBy: 'tvl',
+      });
+
+      expect(result.items.filter((p) => p.active === false)).toHaveLength(0);
+      expect(result.items.map((p) => p.id)).toEqual(['active-a', 'active-b']);
+      expect(result.total).toBe(2);
+    });
+
+    it('returns zero items with active: false when includeInactive is false', async () => {
+      const result = await repository.listActivePools({
+        page: 1,
+        limit: 50,
+        orderBy: 'tvl',
+        includeInactive: false,
+      });
+
+      expect(result.items.every((p) => p.active)).toBe(true);
+      expect(result.total).toBe(2);
+    });
+
+    it('returns active and inactive items with their correct active values when includeInactive is true', async () => {
+      const result = await repository.listActivePools({
+        page: 1,
+        limit: 50,
+        orderBy: 'tvl',
+        includeInactive: true,
+      });
+
+      expect(result.total).toBe(4);
+      expect(
+        Object.fromEntries(result.items.map((p) => [p.id, p.active])),
+      ).toEqual({
+        'active-a': true,
+        'inactive-a': false,
+        'active-b': true,
+        'inactive-b': false,
+      });
+    });
   });
 
   it('persists a valid price update through Prisma', async () => {

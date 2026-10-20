@@ -11,6 +11,7 @@ import { WebhookPayload } from './webhook.types';
 import {
   WEBHOOK_RETRY_ATTEMPTS,
   WEBHOOK_RETRY_BACKOFF_MS,
+  webhookBackoffDelayMs,
 } from './webhook-backoff';
 import {
   assertPublicWebhookUrl,
@@ -77,12 +78,26 @@ export class WebhookWorker implements OnModuleInit, OnModuleDestroy {
    * @returns Resolves once the job has been added to the delivery queue.
    */
   async dispatch(webhookId: string, payload: WebhookPayload): Promise<void> {
+    const maxAttempts = WEBHOOK_RETRY_ATTEMPTS;
+
+    // Derive the retry backoff from the shared helper so the processor's
+    // delivery loop stays in sync with the backoff curve: the helper is
+    // consulted once per retry attempt (attempts 2..maxAttempts) and returns
+    // null once the maximum attempt count is reached, at which point BullMQ
+    // stops scheduling further retries (attempts is capped at maxAttempts).
+    const retryDelays = Array.from(
+      { length: Math.max(0, maxAttempts - 1) },
+      (_, i) =>
+        webhookBackoffDelayMs(i + 2, WEBHOOK_RETRY_BACKOFF_MS, maxAttempts),
+    );
+    const firstRetryDelayMs = retryDelays[0] ?? WEBHOOK_RETRY_BACKOFF_MS;
+
     await this.queue.add(
       'deliver',
       { webhookId, payload },
       {
-        attempts: WEBHOOK_RETRY_ATTEMPTS,
-        backoff: { type: 'exponential', delay: WEBHOOK_RETRY_BACKOFF_MS },
+        attempts: maxAttempts,
+        backoff: { type: 'exponential', delay: firstRetryDelayMs },
       },
     );
   }

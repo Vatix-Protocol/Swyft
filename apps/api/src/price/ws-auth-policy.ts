@@ -218,7 +218,10 @@ type WsAuthOutcome =
   | 'rejected_auth_expired'
   | 'rejected_invalid_request'
   | 'forbidden_action'
-  | 'subscription_limit';
+  | 'subscription_limit'
+  | 'oversized_frame'
+  | 'malformed_frame'
+  | 'invalid_action';
 
 export const wsPoolUpdatesAuthOutcomes = new BoundedCounter<WsAuthOutcome>(
   'ws_pool_updates_auth_outcomes',
@@ -231,6 +234,9 @@ export const wsPoolUpdatesAuthOutcomes = new BoundedCounter<WsAuthOutcome>(
     'rejected_invalid_request',
     'forbidden_action',
     'subscription_limit',
+    'oversized_frame',
+    'malformed_frame',
+    'invalid_action',
   ],
 );
 

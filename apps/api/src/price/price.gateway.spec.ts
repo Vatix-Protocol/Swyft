@@ -4,6 +4,7 @@ import {
   WS_ERROR_CODES,
   WsAuthPolicy,
   WsPrincipal,
+  wsPoolUpdatesAuthOutcomes,
 } from './ws-auth-policy';
 
 /** Inbound frames larger than this are ignored (griefing guard). */
@@ -131,6 +132,86 @@ describe('PriceGateway MAX_MESSAGE_BYTES griefing guard', () => {
         event: 'error',
         code: WS_ERROR_CODES.SUBSCRIPTION_LIMIT,
         poolId,
+      }),
+    );
+  });
+});
+
+describe('PriceGateway malformed-frame handling', () => {
+  const poolId = '0x' + 'a'.repeat(64);
+
+  function setup() {
+    const priceService = {
+      subscribe: jest.fn(),
+      unsubscribe: jest.fn(),
+      removeClient: jest.fn(),
+      getSubscriptionCount: jest.fn().mockReturnValue(0),
+      invalidatePairCache: jest.fn().mockResolvedValue(undefined),
+    } as unknown as PriceService;
+    const gateway = new PriceGateway(priceService);
+    const { client, sent } = createFakeClient();
+    const principal = createPrincipal();
+    const handle = (raw: Buffer) =>
+      (
+        gateway as unknown as {
+          handleMessage: (
+            c: unknown,
+            r: Buffer,
+            p: WsPrincipal,
+            cid: string,
+            max: number,
+          ) => void;
+        }
+      ).handleMessage(client, raw, principal, 'cid-1', 10);
+    return { priceService, client, sent, handle };
+  }
+
+  /** Net increase of a single outcome counter around `fn`. */
+  function outcomeDelta(label: string, fn: () => void): number {
+    const before = wsPoolUpdatesAuthOutcomes.snapshot()[label] ?? 0;
+    fn();
+    const after = wsPoolUpdatesAuthOutcomes.snapshot()[label] ?? 0;
+    return after - before;
+  }
+
+  it('counts oversized frames and stays silent', () => {
+    const { priceService, sent, handle } = setup();
+    const delta = outcomeDelta('oversized_frame', () =>
+      handle(frameOfSize(MAX_MESSAGE_BYTES + 1, poolId)),
+    );
+    expect(delta).toBe(1);
+    expect(priceService.subscribe).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(0);
+  });
+
+  it('counts unparseable frames and stays silent', () => {
+    const { sent, handle } = setup();
+    const delta = outcomeDelta('malformed_frame', () =>
+      handle(Buffer.from('not-json')),
+    );
+    expect(delta).toBe(1);
+    expect(sent).toHaveLength(0);
+  });
+
+  it('counts non-object frames and stays silent', () => {
+    const { sent, handle } = setup();
+    const delta = outcomeDelta('malformed_frame', () =>
+      handle(Buffer.from(JSON.stringify('just-a-string'))),
+    );
+    expect(delta).toBe(1);
+    expect(sent).toHaveLength(0);
+  });
+
+  it('counts invalid actions and sends an INVALID_REQUEST error frame', () => {
+    const { sent, handle } = setup();
+    const delta = outcomeDelta('invalid_action', () =>
+      handle(Buffer.from(JSON.stringify({ action: 'not-an-action', poolId }))),
+    );
+    expect(delta).toBe(1);
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        event: 'error',
+        code: WS_ERROR_CODES.INVALID_REQUEST,
       }),
     );
   });

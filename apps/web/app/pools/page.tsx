@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { TokenLogo } from '@swyft/ui';
 import { usePools, PoolOrderBy, PoolListItem } from '@/hooks/usePools';
 import { useSearchDebounce } from '@/hooks/useSearchDebounce';
-import type { Token } from '@swyft/ui';
+import { tokenFromAddress } from '@/lib/token-display';
 import { formatFeeApr } from '@/lib/fee-apr';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -19,11 +19,6 @@ function fmt(n: number, prefix = '$') {
 function fmtFee(feeTier: string) {
   const bps = Number(feeTier);
   return `${(bps / 10_000).toFixed(2)}%`;
-}
-
-function tokenFromAddress(address: string): Token {
-  const symbol = address.length > 8 ? `${address.slice(0, 4)}…` : address;
-  return { id: address, symbol, name: address, logoUrl: null };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

@@ -682,8 +682,6 @@ describe('IndexerWorker', () => {
     });
 
     it('projects a swap into the canonical Swap and Pool tables when pool exists', async () => {
-      mockPrismaClient.pool.findUnique.mockResolvedValueOnce({ id: data.poolId });
-
       const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
       await handler(makeJob(data));
 
@@ -696,10 +694,10 @@ describe('IndexerWorker', () => {
           }),
         }),
       );
-      expect(mockPrismaClient.pool.update).toHaveBeenCalledWith(
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: data.poolId },
-          data: expect.objectContaining({
+          update: expect.objectContaining({
             currentSqrtPrice: data.sqrtPriceX96,
             currentTick: data.tick,
             liquidity: data.liquidity,
@@ -708,24 +706,61 @@ describe('IndexerWorker', () => {
       );
     });
 
-    it('skips pool state update when swap arrives before pool.created event', async () => {
-      // pool.findUnique returns null — pool does not exist yet
-      mockPrismaClient.pool.findUnique.mockResolvedValueOnce(null);
-
+    it('creates a placeholder pool when the swap arrives before pool.created', async () => {
       const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
       await handler(makeJob(data));
 
       // Swap row should still be persisted
       expect(mockPrismaClient.swap.upsert).toHaveBeenCalled();
-      // Pool should NOT be created with unknown token addresses
+      // A placeholder pool is created so the swap's FK stays valid until the
+      // authoritative pool.created event backfills the real token addresses.
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: data.poolId },
+          create: expect.objectContaining({
+            token0Address: IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
+            token1Address: IndexerWorker.UNKNOWN_TOKEN_ADDRESS,
+            currentTick: data.tick,
+          }),
+        }),
+      );
+      // The create path is used for a brand-new pool, not pool.update.
       expect(mockPrismaClient.pool.update).not.toHaveBeenCalled();
     });
 
     it('does not throw when the pool does not exist yet', async () => {
-      mockPrismaClient.pool.findUnique.mockResolvedValueOnce(null);
-
       const handler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
       await expect(handler(makeJob(data))).resolves.not.toThrow();
+    });
+
+    it('backfills the placeholder token addresses when the pool.created event arrives', async () => {
+      // Swap arrives first, creating a placeholder pool.
+      const swapHandler = getHandlerForQueue(QUEUE_NAMES.SWAP_PROCESSED);
+      await swapHandler(makeJob(data));
+
+      // The authoritative pool.created event then arrives and must overwrite
+      // the placeholder token addresses with the real values.
+      const poolHandler = getHandlerForQueue(QUEUE_NAMES.POOL_CREATED);
+      await poolHandler(
+        makeJob<PoolCreatedJobData>({
+          eventId: 'evt-pool-backfill',
+          poolId: data.poolId,
+          tokenA: 'XLM',
+          tokenB: 'USDC',
+          fee: '30',
+          sqrtPriceX96: data.sqrtPriceX96,
+        }),
+      );
+
+      expect(mockPrismaClient.pool.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: data.poolId },
+          update: expect.objectContaining({
+            token0Address: 'XLM',
+            token1Address: 'USDC',
+          }),
+        }),
+      );
     });
 
     it('dispatches a swap.large webhook after successful write', async () => {

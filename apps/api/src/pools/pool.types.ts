@@ -84,16 +84,24 @@ export interface ClPoolView extends ClPoolDerivation {
 /**
  * Stable error codes for LP mint/burn liquidity position operations.
  * Deny-by-default: unknown/unauthorized callers map to LP_UNAUTHORIZED.
+ *
+ * Declared as a const object (not a bare union) so the members can be
+ * enumerated at runtime; every member must have an HTTP mapping in
+ * liquidity-error.map.ts.
  */
+export const LiquidityErrorCode = {
+  LP_UNAUTHORIZED: 'LP_UNAUTHORIZED',
+  LP_INVALID_AMOUNT: 'LP_INVALID_AMOUNT',
+  LP_INVALID_TICK_RANGE: 'LP_INVALID_TICK_RANGE',
+  LP_POOL_NOT_FOUND: 'LP_POOL_NOT_FOUND',
+  LP_POOL_INACTIVE: 'LP_POOL_INACTIVE',
+  LP_INSUFFICIENT_LIQUIDITY: 'LP_INSUFFICIENT_LIQUIDITY',
+  LP_DEPENDENCY_UNAVAILABLE: 'LP_DEPENDENCY_UNAVAILABLE',
+  LP_REPLAY_DETECTED: 'LP_REPLAY_DETECTED',
+} as const;
+
 export type LiquidityErrorCode =
-  | 'LP_UNAUTHORIZED'
-  | 'LP_INVALID_AMOUNT'
-  | 'LP_INVALID_TICK_RANGE'
-  | 'LP_POOL_NOT_FOUND'
-  | 'LP_POOL_INACTIVE'
-  | 'LP_INSUFFICIENT_LIQUIDITY'
-  | 'LP_DEPENDENCY_UNAVAILABLE'
-  | 'LP_REPLAY_DETECTED';
+  (typeof LiquidityErrorCode)[keyof typeof LiquidityErrorCode];
 
 /**
  * Roles permitted to mutate liquidity positions. Deny-by-default: any role
