@@ -7,6 +7,7 @@ import { TransactionStatusProvider } from '@/context/TransactionStatusContext';
 import { QueryProvider } from '@/context/QueryProvider';
 import { Navbar } from '@/components/Navbar';
 import { Providers } from './providers';
+import { INITIAL_THEME_SCRIPT } from '@/lib/theme-script';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -42,7 +43,7 @@ export default function RootLayout({
             preventing a flash of unstyled content in dark mode. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{if(window.matchMedia('(prefers-color-scheme: dark)').matches){document.documentElement.classList.add('dark');}}catch(e){}})();`,
+            __html: INITIAL_THEME_SCRIPT,
           }}
         />
       </head>

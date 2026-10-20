@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 
 import { RedisModule } from '../redis/redis.module';
+import { ApiKeyGuard } from './api-key.guard';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -52,10 +53,12 @@ export function resolveJwtSecret(config: ConfigService): string {
     RedisModule,
   ],
   controllers: [AuthController, NonceController],
-  providers: [AuthService, JwtAuthGuard],
+  providers: [AuthService, JwtAuthGuard, ApiKeyGuard],
   // Export AuthService so other modules (e.g. a Guards module) can reuse it.
   // Export JwtAuthGuard so feature modules can apply the hardened guard
   // (fail-closed, deny-by-default) without re-registering JWT options.
-  exports: [AuthService, JwtAuthGuard, JwtModule],
+  // Export ApiKeyGuard so feature modules share one guard instance instead of
+  // re-registering it per module (issue #1226).
+  exports: [AuthService, JwtAuthGuard, ApiKeyGuard, JwtModule],
 })
 export class AuthModule {}

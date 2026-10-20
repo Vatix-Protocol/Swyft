@@ -176,12 +176,21 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Publish a message to a Redis pub/sub channel. */
-  async publish(channel: string, message: string): Promise<void> {
-    if (!this.available) return;
+  async publish(channel: string, message: string): Promise<boolean> {
+    if (!this.available) {
+      this.logger.debug(
+        `Cache publish skipped: Redis unavailable channel=${channel}`,
+      );
+      return false;
+    }
     try {
       await this.client!.publish(channel, message);
-    } catch {
-      /* degrade gracefully */
+      return true;
+    } catch (err) {
+      this.logger.warn(
+        `Cache publish failed channel=${channel} error=${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
     }
   }
 

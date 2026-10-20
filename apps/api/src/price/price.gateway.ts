@@ -115,15 +115,22 @@ export class PriceGateway implements OnGatewayDisconnect {
     correlationId: string,
     maxSubscriptions: number,
   ): void {
-    if (raw.length > MAX_MESSAGE_BYTES) return;
+    if (raw.length > MAX_MESSAGE_BYTES) {
+      wsPoolUpdatesAuthOutcomes.inc('oversized_frame');
+      return;
+    }
 
     let msg: IncomingMessage;
     try {
       msg = JSON.parse(raw.toString()) as IncomingMessage;
     } catch {
+      wsPoolUpdatesAuthOutcomes.inc('malformed_frame');
       return;
     }
-    if (!msg || typeof msg !== 'object') return;
+    if (!msg || typeof msg !== 'object') {
+      wsPoolUpdatesAuthOutcomes.inc('malformed_frame');
+      return;
+    }
 
     const reject = (code: WsErrorCode, message: string, poolId?: string) =>
       this.send(client, {
@@ -134,7 +141,11 @@ export class PriceGateway implements OnGatewayDisconnect {
         ...(poolId ? { poolId } : {}),
       });
 
-    if (typeof msg.action !== 'string' || !ACTIONS.has(msg.action)) return;
+    if (typeof msg.action !== 'string' || !ACTIONS.has(msg.action)) {
+      wsPoolUpdatesAuthOutcomes.inc('invalid_action');
+      reject(WS_ERROR_CODES.INVALID_REQUEST, 'Invalid action');
+      return;
+    }
     const action = msg.action as WsAction;
 
     if (!isValidPoolId(msg.poolId)) {

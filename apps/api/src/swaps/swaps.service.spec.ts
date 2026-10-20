@@ -124,6 +124,18 @@ describe('SwapsService', () => {
       expect(result.items[0].token1Symbol).toBe('XLM');
     });
 
+    it('exposes route as the single route field on each response item', async () => {
+      repo.listSwaps.mockResolvedValue({
+        items: [makeSnapshot({ route: ['pool-1', 'pool-2'] })],
+        total: 1,
+      });
+
+      const result = await service.getSwaps({ page: 1, limit: 10 });
+
+      expect(result.items[0].route).toEqual(['pool-1', 'pool-2']);
+      expect(result.items[0]).not.toHaveProperty('routeLeg');
+    });
+
     it('computes correct totalPages', async () => {
       repo.listSwaps.mockResolvedValue({ items: [], total: 35 });
 

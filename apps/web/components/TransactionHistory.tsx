@@ -220,7 +220,7 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
             getExplorerUrl={getExplorerUrl}
             formatDate={formatDate}
             truncateHash={truncateHash}
-            cols={7}
+            cols={6}
             page={page}
             onBackToFirstPage={() => setPage(1)}
           />
@@ -317,7 +317,7 @@ function SwapTable({
   getExplorerUrl,
   formatDate,
   truncateHash,
-  cols = 7,
+  cols = 6,
   page,
   onBackToFirstPage,
 }: SwapTableProps) {
@@ -407,12 +407,12 @@ function SwapTable({
                 </td>
                 <td className="py-3 px-4 text-sm">
                   <a
-                    href={getExplorerUrl(swap.txHash)}
+                    href={getExplorerUrl(swap.transactionHash)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 font-mono"
                   >
-                    {truncateHash(swap.txHash)}
+                    {truncateHash(swap.transactionHash)}
                   </a>
                 </td>
                 <td className="py-3 px-4 text-sm text-zinc-600 dark:text-zinc-400">

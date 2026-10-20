@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { spawnSync } from 'child_process';
 import { computeWasmHash, detectDrift, manifestKeysByContract } from '../check-address-drift.js';
 
 const FIXTURE_DIR = path.resolve(__dirname, 'fixtures');
@@ -72,5 +73,115 @@ describe('manifestKeysByContract', () => {
       'oracleAdapter',
       'clPoolOracleAdapter',
     ]);
+  });
+});
+
+describe('check-address-drift CLI', () => {
+  const SCRIPT = path.resolve(__dirname, '..', 'check-address-drift.js');
+
+  function writeWasm(dir: string, name: string, bytes: Buffer): string {
+    const wasmPath = path.join(dir, `${name}.wasm`);
+    fs.writeFileSync(wasmPath, bytes);
+    return wasmPath;
+  }
+
+  function hashOf(bytes: Buffer): string {
+    return crypto.createHash('sha256').update(bytes).digest('hex');
+  }
+
+  function spawnCli(manifestPath: string, wasmDir: string) {
+    return spawnSync(process.execPath, [SCRIPT, manifestPath, wasmDir], {
+      encoding: 'utf8',
+    });
+  }
+
+  it('exits 0 and reports no drift when recorded and fresh hashes match', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'swyft-drift-clean-'));
+    const poolBytes = Buffer.from('pool-wasm-bytes');
+    const routerBytes = Buffer.from('router-wasm-bytes');
+    writeWasm(tmp, 'pool', poolBytes);
+    writeWasm(tmp, 'router', routerBytes);
+
+    const manifestPath = path.join(tmp, 'manifest.json');
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        network: 'testnet',
+        contracts: { pool: 'CPOOL', router: 'CROUTER' },
+        wasmHashes: { pool: hashOf(poolBytes), router: hashOf(routerBytes) },
+      })
+    );
+
+    try {
+      const result = spawnCli(manifestPath, tmp);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('No address drift detected');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('exits 1 and prints the drifted key when a recorded hash is stale', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'swyft-drift-drifted-'));
+    const poolBytes = Buffer.from('pool-wasm-bytes');
+    const routerBytes = Buffer.from('router-wasm-bytes');
+    writeWasm(tmp, 'pool', poolBytes);
+    writeWasm(tmp, 'router', routerBytes);
+
+    const manifestPath = path.join(tmp, 'manifest.json');
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        network: 'testnet',
+        contracts: { pool: 'CPOOL', router: 'CROUTER' },
+        wasmHashes: { pool: 'stale-hash', router: hashOf(routerBytes) },
+      })
+    );
+
+    try {
+      const result = spawnCli(manifestPath, tmp);
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain('pool');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('exits 1 with a descriptive message for a malformed manifest', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'swyft-drift-malformed-'));
+    const manifestPath = path.join(tmp, 'manifest.json');
+    fs.writeFileSync(manifestPath, JSON.stringify({ contracts: 'x' }));
+
+    try {
+      const result = spawnCli(manifestPath, tmp);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('invalid manifest');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('detectDrift manifest validation', () => {
+  it('throws on a null manifest', () => {
+    expect(() => detectDrift(null, {})).toThrow(
+      'invalid manifest: manifest must be a plain object'
+    );
+  });
+
+  it('throws on an array manifest', () => {
+    expect(() => detectDrift([], {})).toThrow('invalid manifest: manifest must be a plain object');
+  });
+
+  it('throws when contracts is not an object', () => {
+    expect(() => detectDrift({ contracts: 'x', wasmHashes: {} }, {})).toThrow(
+      'invalid manifest: contracts must be a plain object'
+    );
+  });
+
+  it('throws when wasmHashes is not an object', () => {
+    expect(() => detectDrift({ contracts: {}, wasmHashes: 'x' }, {})).toThrow(
+      'invalid manifest: wasmHashes must be a plain object'
+    );
   });
 });

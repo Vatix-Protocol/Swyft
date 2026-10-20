@@ -3,29 +3,10 @@
 import Link from 'next/link';
 import { PositionRangeBadge } from '@swyft/ui';
 import type { PositionSnapshot } from '@swyft/ui';
-
-function rangeStatus(p: PositionSnapshot): 'in-range' | 'out-of-range' | 'closed' {
-  if (p.status === 'closed') return 'closed';
-  const lower = Math.pow(1.0001, p.lowerTick);
-  const upper = Math.pow(1.0001, p.upperTick);
-  return p.poolCurrentPrice >= lower && p.poolCurrentPrice <= upper ? 'in-range' : 'out-of-range';
-}
+import { estimateImpermanentLoss, rangeStatus, tickToPrice } from '@/lib/position-range';
 
 function shortSymbol(id: string) {
   return id.length > 8 ? `${id.slice(0, 4)}…` : id;
-}
-
-/**
- * Rough impermanent-loss estimate vs a hold-at-deposit baseline, using the
- * range midpoint price as a proxy for the deposit price (constant-product
- * approximation). Returned as a fraction (e.g. -0.012 = -1.2%).
- */
-function estimateImpermanentLoss(p: PositionSnapshot): number {
-  const lower = Math.pow(1.0001, p.lowerTick);
-  const upper = Math.pow(1.0001, p.upperTick);
-  const depositPrice = Math.sqrt(lower * upper);
-  const priceRatio = p.poolCurrentPrice / depositPrice;
-  return (2 * Math.sqrt(priceRatio)) / (1 + priceRatio) - 1;
 }
 
 interface Props {
@@ -40,8 +21,8 @@ export function PositionCard({ position: p, onCollectFees, collecting, loading =
   const rs = rangeStatus(p);
   const t0 = shortSymbol(p.token0);
   const t1 = shortSymbol(p.token1);
-  const lowerPrice = Math.pow(1.0001, p.lowerTick).toFixed(6);
-  const upperPrice = Math.pow(1.0001, p.upperTick).toFixed(6);
+  const lowerPrice = tickToPrice(p.lowerTick).toFixed(6);
+  const upperPrice = tickToPrice(p.upperTick).toFixed(6);
   const fees0 = parseFloat(p.uncollectedFeesToken0);
   const fees1 = parseFloat(p.uncollectedFeesToken1);
   const hasFees = fees0 > 0 || fees1 > 0;

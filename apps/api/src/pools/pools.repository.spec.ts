@@ -1,6 +1,7 @@
 import { Pool } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PoolsRepository } from './pools.repository';
+import { mockPool } from '../pools-unit-test/mock-factories';
 
 const makePool = (overrides: Partial<Pool> = {}): Pool => ({
   id: 'pool-1',
@@ -139,6 +140,22 @@ describe('PoolsRepository', () => {
     expect(result.items.find((p) => p.id === 'inactive-pool')?.active).toBe(
       false,
     );
+  });
+
+  it('applies the same active-only predicate using shared pool fixtures', async () => {
+    const active = mockPool({ id: 'pool-active', active: true, tvl: '1000' });
+    const inactive = mockPool({ id: 'pool-inactive', active: false, tvl: '0' });
+    prisma.pool.findMany.mockResolvedValue([active, inactive]);
+
+    await repository.listActivePools({
+      page: 1,
+      limit: 20,
+      orderBy: 'tvl',
+    });
+
+    expect(prisma.pool.findMany).toHaveBeenCalledWith({
+      where: { active: true },
+    });
   });
 
   it('maps active flag from the database row', async () => {

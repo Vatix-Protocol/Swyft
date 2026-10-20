@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, ReactNode, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   NETWORK_STORAGE_KEY,
@@ -34,6 +34,10 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
   const [network, setNetworkState] = useState<StellarNetwork>(SWYFT_NETWORK);
   const [ready, setReady] = useState(false);
   const queryClient = useQueryClient();
+  // Network a setNetwork call is switching to, awaiting commit. Invalidation is
+  // deferred until the provider has re-rendered with that network so every
+  // refetch it triggers reads the new apiBase rather than the previous one.
+  const pendingSwitch = useRef<StellarNetwork | null>(null);
 
   // Restore a persisted selection on mount. An unset or corrupted value
   // (e.g. edited manually, or written by a future/older app version) is
@@ -48,16 +52,21 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
     setReady(true);
   }, []);
 
-  const setNetwork = useCallback(
-    (next: StellarNetwork) => {
-      setNetworkState(next);
-      setReady(true);
-      localStorage.setItem(NETWORK_STORAGE_KEY, next);
-      // Invalidate all cached queries so hooks refetch against the new API.
-      queryClient.invalidateQueries();
-    },
-    [queryClient],
-  );
+  // Runs after the commit that applied the switch. Consumers' effects run
+  // before this parent effect, so their queries already hold the new apiBase.
+  useEffect(() => {
+    if (!ready || pendingSwitch.current !== network) return;
+    pendingSwitch.current = null;
+    // Invalidate all cached queries so hooks refetch against the new API.
+    queryClient.invalidateQueries();
+  }, [network, ready, queryClient]);
+
+  const setNetwork = useCallback((next: StellarNetwork) => {
+    pendingSwitch.current = next;
+    setNetworkState(next);
+    setReady(true);
+    localStorage.setItem(NETWORK_STORAGE_KEY, next);
+  }, []);
 
   const apiBase = getApiBase(network);
 
