@@ -1,5 +1,9 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 
+// Buffer.from(x, 'hex') silently stops at the first invalid character, so the
+// format has to be checked before decoding.
+const SHA256_HEX_PATTERN = /^[0-9a-fA-F]{64}$/;
+
 /**
  * Verify that a received webhook payload matches the HMAC-SHA256 signature
  * sent in the `X-Swyft-Signature` header. Returns false for any invalid input.
@@ -10,6 +14,7 @@ export function verifyWebhookSignature(
   secret: string,
 ): boolean {
   if (!signature || !secret) return false;
+  if (!SHA256_HEX_PATTERN.test(signature)) return false;
   try {
     const expected = createHmac('sha256', secret).update(body).digest('hex');
     const sigBuf = Buffer.from(signature, 'hex');
