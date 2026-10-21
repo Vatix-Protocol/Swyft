@@ -88,6 +88,52 @@ describe('SearchService', () => {
     expect(prisma.$queryRawUnsafe.mock.calls[1].slice(-2)).toEqual([50, 20]);
   });
 
+  it.each([
+    ['the maximum limit', 50, 50],
+    ['a limit just over the maximum', 51, 50],
+    ['an infinite limit', Infinity, 50],
+    ['the minimum limit', 1, 1],
+    ['a zero limit, which falls back to the default', 0, 10],
+    ['a negative limit', -5, 1],
+    ['a NaN limit, which falls back to the default', NaN, 10],
+    ['a fractional limit, which is truncated', 2.9, 2],
+  ])('clamps %s', async (_label, rawLimit, expectedLimit) => {
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const service = new SearchService(prisma as never);
+
+    await service.search('usd', rawLimit);
+
+    expect(prisma.$queryRawUnsafe.mock.calls[0].slice(-2)).toEqual([
+      expectedLimit,
+      0,
+    ]);
+    expect(prisma.$queryRawUnsafe.mock.calls[1].slice(-2)).toEqual([
+      expectedLimit,
+      0,
+    ]);
+  });
+
+  it.each([
+    ['a negative offset', -3, 0],
+    ['a NaN offset', NaN, 0],
+    ['a fractional offset, which is truncated', 4.7, 4],
+    ['a large offset, which is not capped', 5000, 5000],
+  ])('clamps %s', async (_label, rawOffset, expectedOffset) => {
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const service = new SearchService(prisma as never);
+
+    await service.search('usd', 10, rawOffset);
+
+    expect(prisma.$queryRawUnsafe.mock.calls[0].slice(-2)).toEqual([
+      10,
+      expectedOffset,
+    ]);
+    expect(prisma.$queryRawUnsafe.mock.calls[1].slice(-2)).toEqual([
+      10,
+      expectedOffset,
+    ]);
+  });
+
   it('returns empty arrays when no matches are found', async () => {
     prisma.$queryRawUnsafe.mockResolvedValue([]);
     const service = new SearchService(prisma as never);
