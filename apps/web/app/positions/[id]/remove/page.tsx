@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePosition } from '@/hooks/usePositions';
 import { RemoveLiquidityPanel } from '@/components/RemoveLiquidityPanel';
 import { useWalletContext } from '@/context/WalletContext';
-import { getAuthToken, authenticateWallet } from '@/lib/auth';
+import { getAuthToken, authenticateWallet, AUTH_TOKEN_STORAGE_KEY } from '@/lib/auth';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -20,7 +20,14 @@ export default function RemoveLiquidityPage({ params }: PageProps) {
   const { position, loading, error } = usePosition(id, authToken);
 
   useEffect(() => {
-    setAuthToken(getAuthToken());
+    const syncToken = () => setAuthToken(getAuthToken());
+    syncToken();
+    // Pick up logins, logouts, and token rotations from other tabs.
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === AUTH_TOKEN_STORAGE_KEY) syncToken();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, [address]);
 
   const handleAuthenticate = useCallback(async () => {
