@@ -57,11 +57,21 @@ export default function RerangeLiquidityPage({ params }: PageProps) {
   const [newLowerPrice, setNewLowerPrice] = useState('');
   const [newUpperPrice, setNewUpperPrice] = useState('');
 
+  // Tick spacing is derived from the position's pool fee tier via
+  // feeToTickSpacing. Falls back to the 0.30% tier (spacing 60) when the
+  // position carries no fee tier.
+  const positionFeeTier =
+    position != null
+      ? (position as unknown as { feeTier?: unknown }).feeTier
+      : undefined;
+  const tickSpacing = feeToTickSpacing(
+    typeof positionFeeTier === 'string' ? positionFeeTier : '0.30%',
+  );
+
   // Initialize tick range from position when loaded
   useEffect(() => {
     if (position) {
       // Default to current range but slightly wider
-      const tickSpacing = 60; // Will be derived from pool fee tier
       const lower = nearestUsableTick(position.lowerTick - tickSpacing * 5, tickSpacing);
       const upper = nearestUsableTick(position.upperTick + tickSpacing * 5, tickSpacing);
       setNewLowerTick(lower);
@@ -69,7 +79,7 @@ export default function RerangeLiquidityPage({ params }: PageProps) {
       setNewLowerPrice(tickToPrice(lower).toFixed(6));
       setNewUpperPrice(tickToPrice(upper).toFixed(6));
     }
-  }, [position]);
+  }, [position, tickSpacing]);
 
   if (loading) {
     return (
@@ -123,7 +133,7 @@ export default function RerangeLiquidityPage({ params }: PageProps) {
     setNewLowerPrice(price);
     const p = parseFloat(price);
     if (!isNaN(p) && p > 0) {
-      setNewLowerTick(nearestUsableTick(priceToTick(p), 60));
+      setNewLowerTick(nearestUsableTick(priceToTick(p), tickSpacing));
     }
   }
 
@@ -131,7 +141,7 @@ export default function RerangeLiquidityPage({ params }: PageProps) {
     setNewUpperPrice(price);
     const p = parseFloat(price);
     if (!isNaN(p) && p > 0) {
-      setNewUpperTick(nearestUsableTick(priceToTick(p), 60));
+      setNewUpperTick(nearestUsableTick(priceToTick(p), tickSpacing));
     }
   }
 
