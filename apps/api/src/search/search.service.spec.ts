@@ -88,6 +88,56 @@ describe('SearchService', () => {
     expect(prisma.$queryRawUnsafe.mock.calls[1].slice(-2)).toEqual([50, 20]);
   });
 
+  it('defaults a zero limit to 10', async () => {
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const service = new SearchService(prisma as never);
+
+    await service.search('usd', 0, 0);
+
+    expect(prisma.$queryRawUnsafe.mock.calls[0].slice(-2)).toEqual([10, 0]);
+    expect(prisma.$queryRawUnsafe.mock.calls[1].slice(-2)).toEqual([10, 0]);
+  });
+
+  it('clamps a negative limit up to 1', async () => {
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const service = new SearchService(prisma as never);
+
+    await service.search('usd', -5, 0);
+
+    expect(prisma.$queryRawUnsafe.mock.calls[0].slice(-2)).toEqual([1, 0]);
+    expect(prisma.$queryRawUnsafe.mock.calls[1].slice(-2)).toEqual([1, 0]);
+  });
+
+  it('clamps an oversized limit down to 50', async () => {
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const service = new SearchService(prisma as never);
+
+    await service.search('usd', 1000, 0);
+
+    expect(prisma.$queryRawUnsafe.mock.calls[0].slice(-2)).toEqual([50, 0]);
+    expect(prisma.$queryRawUnsafe.mock.calls[1].slice(-2)).toEqual([50, 0]);
+  });
+
+  it('clamps a negative offset up to 0', async () => {
+    prisma.$queryRawUnsafe.mockResolvedValue([]);
+    const service = new SearchService(prisma as never);
+
+    await service.search('usd', 10, -1);
+
+    expect(prisma.$queryRawUnsafe.mock.calls[0].slice(-2)).toEqual([10, 0]);
+    expect(prisma.$queryRawUnsafe.mock.calls[1].slice(-2)).toEqual([10, 0]);
+  });
+
+  it('returns empty results for a single-character query without hitting the database', async () => {
+    const service = new SearchService(prisma as never);
+
+    await expect(service.search('a')).resolves.toEqual({
+      tokens: [],
+      pools: [],
+    });
+    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
   it('returns empty arrays when no matches are found', async () => {
     prisma.$queryRawUnsafe.mockResolvedValue([]);
     const service = new SearchService(prisma as never);

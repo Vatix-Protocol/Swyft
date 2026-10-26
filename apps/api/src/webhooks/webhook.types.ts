@@ -10,6 +10,10 @@ export function verifyWebhookSignature(
   secret: string,
 ): boolean {
   if (!signature || !secret) return false;
+  // Reject malformed signatures outright: Node's hex decoder silently
+  // truncates at the first invalid character, so only an exact 64-char hex
+  // digest (32 bytes) may proceed to the timing-safe comparison.
+  if (!/^[0-9a-fA-F]{64}$/.test(signature)) return false;
   try {
     const expected = createHmac('sha256', secret).update(body).digest('hex');
     const sigBuf = Buffer.from(signature, 'hex');
