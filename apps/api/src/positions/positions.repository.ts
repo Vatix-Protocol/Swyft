@@ -14,6 +14,53 @@ const BULK_POSITIONS_LIMIT = 500;
 /** Cap on rows fetched per event type before merging/paginating an activity feed. */
 const ACTIVITY_FETCH_LIMIT = 200;
 
+/**
+ * Parses a decimal string into a BigInt scaled by 10^18 so share math stays
+ * exact for values above 2^53. Returns null when the value is missing or not
+ * a finite number, so callers can surface an explicit null instead of a
+ * silent 0.
+ */
+const SHARE_SCALE = 18n;
+const SHARE_SCALE_FACTOR = 10n ** SHARE_SCALE;
+
+function toScaledBigInt(value: unknown): bigint | null {
+  if (value === null || value === undefined) return null;
+  const str = typeof value === 'string' ? value.trim() : String(value);
+  if (str === '' || str === 'NaN' || str === 'Infinity' || str === '-Infinity') {
+    return null;
+  }
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(str);
+  if (!match) return null;
+  const sign = match[1] === '-' ? -1n : 1n;
+  const whole = match[2];
+  const fraction = (match[3] ?? '').padEnd(Number(SHARE_SCALE), '0').slice(0, Number(SHARE_SCALE));
+  return sign * (BigInt(whole) * SHARE_SCALE_FACTOR + BigInt(fraction));
+}
+
+/**
+ * Computes a position's share of pool TVL as a percentage string, using
+ * integer (BigInt) arithmetic. Returns null when liquidity or TVL is missing
+ * or TVL is zero, so a broken row is never reported as a 0 percent share.
+ */
+function computeShareOfTvl(
+  liquidity: unknown,
+  tvl: unknown,
+): string | null {
+  const scaledLiquidity = toScaledBigInt(liquidity);
+  const scaledTvl = toScaledBigInt(tvl);
+  if (scaledLiquidity === null || scaledTvl === null) return null;
+  if (scaledTvl === 0n) return null;
+  // percentage = liquidity / tvl * 100, computed with 6 decimal places.
+  const PRECISION = 6n;
+  const scaled = (scaledLiquidity * 100n * 10n ** PRECISION) / scaledTvl;
+  const whole = scaled / 10n ** PRECISION;
+  const fraction = (scaled % 10n ** PRECISION)
+    .toString()
+    .padStart(Number(PRECISION), '0')
+    .replace(/0+$/, '');
+  return fraction.length > 0 ? `${whole}.${fraction}` : `${whole}`;
+}
+
 export interface LpActivityEntry {
   id: string;
   type: 'mint' | 'burn' | 'fee_collection';
@@ -268,113 +315,33 @@ export class PositionsRepository {
     }
 
     const tokens = await this.prisma.token.findMany({
-      where: {
-        address: {
-          in: Array.from(tokenAddresses),
-        },
-      },
+      where: { address: { in: Array.from(tokenAddresses) } },
     });
-
     const tokenSymbolMap = new Map(
       tokens.map((t) => [t.address.toLowerCase(), t.symbol]),
     );
 
-    // Pre-fetch swaps and fees-collected for every distinct pool referenced
-    // by these positions so we can compute unclaimed fees per position
-    // without N+1 queries.
-    const poolIds = [...new Set(positions.map((p) => p.poolId))];
-
-    const [swapsByPool, feesCollectedByPool] = await Promise.all([
-      this.prisma.swap.findMany({
-        where: { poolId: { in: poolIds } },
-        select: { poolId: true, amount0: true },
-      }),
-      this.prisma.feesCollected.findMany({
-        where: { poolId: { in: poolIds } },
-        select: { poolId: true, amount0: true, amount1: true },
-      }),
-    ]);
-
-    // Aggregate total |amount0| swapped per pool (proxy for fee base).
-    const poolSwapVolume = new Map<string, number>();
-    for (const s of swapsByPool) {
-      poolSwapVolume.set(
-        s.poolId,
-        (poolSwapVolume.get(s.poolId) ?? 0) + Math.abs(Number(s.amount0)),
-      );
-    }
-
-    // Aggregate total fees collected per pool (already-claimed portion).
-    const poolFeesCollected = new Map<
-      string,
-      { amount0: number; amount1: number }
-    >();
-    for (const f of feesCollectedByPool) {
-      const cur = poolFeesCollected.get(f.poolId) ?? {
-        amount0: 0,
-        amount1: 0,
-      };
-      cur.amount0 += Math.abs(Number(f.amount0));
-      cur.amount1 += Math.abs(Number(f.amount1));
-      poolFeesCollected.set(f.poolId, cur);
-    }
-
     return positions.map((position) => {
+      const pool = position.pool;
       const token0Symbol =
-        tokenSymbolMap.get(position.pool.token0Address.toLowerCase()) ??
-        'UNKNOWN';
+        tokenSymbolMap.get(pool.token0Address.toLowerCase()) ?? 'UNKNOWN';
       const token1Symbol =
-        tokenSymbolMap.get(position.pool.token1Address.toLowerCase()) ??
-        'UNKNOWN';
+        tokenSymbolMap.get(pool.token1Address.toLowerCase()) ?? 'UNKNOWN';
 
-      const poolPrice = parseFloat(position.pool.currentPrice ?? '0');
-      const status: PositionStatus = position.closedAt ? 'closed' : 'active';
-
-      const posLiquidity = parseFloat(position.liquidity) || 0;
-      const poolLiquidity = parseFloat(position.pool.liquidity) || 0;
-      const poolTvl = parseFloat(position.pool.tvl) || 0;
-      const currentValueUsd =
-        poolLiquidity > 0 ? (posLiquidity / poolLiquidity) * poolTvl : 0;
-
-      // Compute unclaimed fees for this position.
-      // The position's liquidity share determines its proportion of total pool
-      // fees. We estimate total pool fees from swap volume × feeTier (ppm) and
-      // subtract already-collected amounts.
-      const liquidityShare =
-        poolLiquidity > 0 ? posLiquidity / poolLiquidity : 0;
-      const feeTierPpm = position.pool.feeTier / 1_000_000;
-      const poolVolume = poolSwapVolume.get(position.poolId) ?? 0;
-      const totalPoolFees0 = poolVolume * feeTierPpm;
-
-      const collected = poolFeesCollected.get(position.poolId) ?? {
-        amount0: 0,
-        amount1: 0,
-      };
-
-      const rawUnclaimed0 =
-        totalPoolFees0 * liquidityShare - collected.amount0 * liquidityShare;
-      const rawUnclaimed1 = collected.amount1 * liquidityShare;
-
-      const uncollectedFeesToken0 = String(Math.max(0, rawUnclaimed0));
-      const uncollectedFeesToken1 = String(Math.max(0, rawUnclaimed1));
+      const shareOfTvl = computeShareOfTvl(position.liquidity, pool.tvl);
 
       return {
         id: position.id,
-        ownerWallet: position.ownerAddress,
         poolId: position.poolId,
-        tokenId: position.tokenId,
-        token0: token0Symbol,
-        token1: token1Symbol,
-        lowerTick: position.lowerTick,
-        upperTick: position.upperTick,
+        ownerWallet: position.ownerAddress,
+        token0Symbol,
+        token1Symbol,
         liquidity: position.liquidity,
-        currentValueUsd,
-        uncollectedFeesToken0,
-        uncollectedFeesToken1,
+        currentPrice: position.currentPrice,
+        shareOfTvl,
+        status: (position.closedAt ? 'closed' : 'active') as PositionStatus,
         createdAt: position.createdAt.getTime(),
         closedAt: position.closedAt ? position.closedAt.getTime() : null,
-        status,
-        poolCurrentPrice: poolPrice,
       };
     });
   }
