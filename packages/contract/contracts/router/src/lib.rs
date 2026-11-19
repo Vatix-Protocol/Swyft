@@ -243,47 +243,18 @@ impl Router {
     /// than a missing-method error: it always reverts with
     /// `RouterError::ExactOutputUnsupported` and performs no swap, no auth check,
     /// and emits no event.
-    pub fn exact_output_single(_env: Env, _params: ExactOutputSingleParams) -> SwapResult {
-        panic_router(&_env, RouterError::ExactOutputUnsupported);
+    pub fn exact_output_single(env: Env, _params: ExactOutputSingleParams) -> SwapResult {
+        panic_router(&env, RouterError::ExactOutputUnsupported);
     }
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Resolve the pool address for the ordered pair `(token_in, token_out)` and
-/// `fee` by querying the configured factory.
+/// Resolve the swap direction from the pool's canonical token ordering.
 ///
-/// The factory stores pools keyed by the canonical `(token_0, token_1, fee)`
-/// tuple, so the pair is sorted the same way the factory sorts it before the
-/// lookup. A missing pool reverts with `RouterError::PoolNotFound` so unknown
-/// pairs fail before `execute_swap` is reached.
-fn get_pool(env: &Env, token_in: &Address, token_out: &Address, fee: u32) -> Address {
-    let factory = env
-        .storage()
-        .instance()
-        .get::<DataKey, Address>(&DataKey::Factory)
-        .unwrap_or_else(|| panic_router(env, RouterError::NotInitialized));
-
-    // Canonicalize the pair the same way the factory stores it: token_0 is the
-    // lexicographically smaller address. This keeps the lookup stable regardless
-    // of the caller's argument order.
-    let (token_0, token_1) = if token_in < token_out {
-        (token_in.clone(), token_out.clone())
-    } else {
-        (token_out.clone(), token_in.clone())
-    };
-
-    let pool: Address = env.invoke_contract(
-        &factory,
-        &Symbol::new(env, "get_pool"),
-        (token_0, token_1, fee).into_val(env),
-    );
-
-    pool
-}
-
-/// Resolve whether the swap is `token_0 -> token_1` (`zero_for_one`) by reading
-/// the pool's own token ordering.
+/// Reads the pool's `token_0`/`token_1` and returns `true` when `token_in`
+/// matches `token_0` (i.e. the swap moves `token_0 -> token_1`). Panics with
+/// `RouterError::InvalidPair` when the supplied tokens do not match the pool.
 fn resolve_zero_for_one(
     env: &Env,
     pool: &Address,
@@ -293,18 +264,23 @@ fn resolve_zero_for_one(
     let state: PoolState = env.invoke_contract(
         pool,
         &Symbol::new(env, "get_state"),
-        ().into_val(env),
+        soroban_sdk::vec![env],
     );
-    if state.token_0 == *token_in && state.token_1 == *token_out {
+    if token_in == &state.token_0 && token_out == &state.token_1 {
         true
-    } else if state.token_0 == *token_out && state.token_1 == *token_in {
+    } else if token_in == &state.token_1 && token_out == &state.token_0 {
         false
     } else {
         panic_router(env, RouterError::InvalidPair);
     }
 }
 
-/// Execute the swap against the resolved pool.
+/// Execute the swap against the pool and return the pool's actual
+/// `(amount_in, amount_out)`.
+///
+/// Calls the pool's `swap` entrypoint with the resolved direction and returns
+/// the amounts reported by the pool. Slippage is checked by the caller only
+/// after this returns.
 fn execute_swap(
     env: &Env,
     pool: &Address,
@@ -315,39 +291,55 @@ fn execute_swap(
     amount_in: u128,
     sqrt_price_limit_x96: u128,
 ) -> (u128, u128) {
-    let result: SwapResult = env.invoke_contract(
+    let result: (u128, u128) = env.invoke_contract(
         pool,
         &Symbol::new(env, "swap"),
-        (
-            recipient.clone(),
-            zero_for_one,
-            amount_in,
-            sqrt_price_limit_x96,
-            token_in.clone(),
-            token_out.clone(),
-        )
-            .into_val(env),
+        soroban_sdk::vec![
+            env,
+            recipient.into_val(env),
+            token_in.into_val(env),
+            token_out.into_val(env),
+            zero_for_one.into_val(env),
+            amount_in.into_val(env),
+            sqrt_price_limit_x96.into_val(env),
+        ],
     );
-    (result.amount_in, result.amount_out)
+    result
 }
 
-/// Enforce that `deadline` is in the future and within the router's max TTL.
+fn is_contract(env: &Env, addr: &Address) -> bool {
+    env.deployer().get_contract_id(addr).is_some()
+}
+
+fn get_pool(env: &Env, token_in: &Address, token_out: &Address, fee: u32) -> Address {
+    let factory = env
+        .storage()
+        .instance()
+        .get(&DataKey::Factory)
+        .unwrap_or_else(|| panic_router(env, RouterError::NotInitialized));
+    let pool: Address = env.invoke_contract(
+        &factory,
+        &Symbol::new(env, "get_pool"),
+        soroban_sdk::vec![
+            env,
+            token_in.into_val(env),
+            token_out.into_val(env),
+            fee.into_val(env),
+        ],
+    );
+    pool
+}
+
 fn check_deadline(env: &Env, deadline: u64) {
     let now = env.ledger().timestamp();
     if deadline < now {
         panic_router(env, RouterError::DeadlineExpired);
     }
-    if deadline - now > MAX_SWAP_DEADLINE_SECONDS {
+    if deadline > now + MAX_SWAP_DEADLINE_SECONDS {
         panic_router(env, RouterError::DeadlineTooFar);
     }
 }
 
-/// Return whether `addr` is a deployed contract.
-fn is_contract(env: &Env, addr: &Address) -> bool {
-    env.deployer().get_contract_id(addr).is_some()
-}
-
-/// Revert with a typed router error.
 fn panic_router(env: &Env, err: RouterError) -> ! {
     env.panic_with_error(err)
 }
