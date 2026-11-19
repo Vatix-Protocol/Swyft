@@ -174,3 +174,6 @@ compose files must read credentials from environment variables or local
 
 <!-- handsoff-issue-1338 -->
 - #1338: Add a test that pool mint pulls token0 and token1 from the sender
+
+<!-- handsoff-issue-1339 -->
+- #1339: Add a test that burn returns tokens to the sender
