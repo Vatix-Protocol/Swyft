@@ -286,6 +286,23 @@ fn require_minter(env: &Env) {
     let minter: Address = env
         .storage()
         .instance()
+        .get(&Data
+    /// # Panics
+    /// Panics if `token_id` does not exist (`"token not found"`).
+    pub fn get_position(env: Env, token_id: u64) -> PositionMetadata {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Position(token_id))
+            .expect("token not found")
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn require_minter(env: &Env) {
+    let minter: Address = env
+        .storage()
+        .instance()
         .get(&DataKey::Minter)
         .expect("not initialized");
     minter.require_auth();

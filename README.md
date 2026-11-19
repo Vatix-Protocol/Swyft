@@ -172,6 +172,12 @@ compose files must read credentials from environment variables or local
 
 ## Handsoff notes
 
+<!-- handsoff-issue-1327 -->
+- #1327: Document that pool fee growth divides by liquidity and drops the remainder
+
+<!-- handsoff-issue-1329 -->
+- #1329: Add a test that mint rejects an inverted tick range
+
 <!-- handsoff-issue-1306 -->
 - #1306: pool::swap ignores token_out and exact_input
 
