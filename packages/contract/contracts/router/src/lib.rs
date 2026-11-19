@@ -66,6 +66,13 @@ pub enum RouterError {
 }
 
 /// Router-enforced maximum interval between ledger time and a swap deadline.
+///
+/// The swap deadline window is **300 seconds**. A `deadline` further out than
+/// `ledger_time + 300` reverts with `RouterError::DeadlineTooFar`; a `deadline`
+/// already in the past reverts with `RouterError::DeadlineExpired`.
+///
+/// This constant describes the `packages/contract/contracts/router` crate. The
+/// `packages/contracts/router` crate uses the same 300-second window.
 const MAX_SWAP_DEADLINE_SECONDS: u64 = 300;
 
 
@@ -242,74 +249,6 @@ impl Router {
     /// declared so callers (e.g. the SDK) get a deterministic, typed failure rather
     /// than a missing-method error: it always reverts with
     /// `RouterError::ExactOutputUnsupported` and performs no swap, no auth check,
-    /// and emits no event. Use `exact_input_single` instead.
-    ///
-    /// # Arguments
-    /// * `env` — Soroban environment context.
-    /// * `params` — Exact output swap parameters.
-    ///   * `token_in` — Address of the token to sell.
-    ///   * `token_out` — Address of the token to buy.
-    ///   * `fee` — Pool fee tier to route through.
-    ///   * `recipient` — Authenticated swap funder/receiver; never a callback target.
-    ///   * `deadline` — Unix timestamp after which the swap reverts.
-    ///   * `amount_out` — Exact amount of output tokens desired.
-    ///   * `amount_in_max` — Maximum acceptable input amount.
-    ///   * `sqrt_price_limit_x96` — Price limit for the swap.
-    ///
-    /// # Returns
-    /// Never returns; always reverts with `RouterError::ExactOutputUnsupported`.
-    pub fn exact_output_single(env: Env, params: ExactOutputSingleParams) -> SwapResult {
-        check_deadline(&env, params.deadline);
-        if params.amount_out == 0 {
-            panic_router(&env, RouterError::ZeroAmount);
-        }
+    /// and emits no eve
 
-        // `cl_pool.swap` is an exact-input-only swap: it consumes a fixed
-        // `amount_in` and derives the output amount. Exact-output swaps are
-        // therefore unsupported by this router.
-        let _ = params;
-        panic_router(&env, RouterError::ExactOutputUnsupported)
-    }
-}
-
-// ── Internal helpers ──────────────────────────────────────────────────────────
-
-fn panic_router(env: &Env, err: RouterError) -> ! {
-    soroban_sdk::panic_with_error!(env, err)
-}
-
-fn is_contract(env: &Env, addr: &Address) -> bool {
-    let _ = (env, addr);
-    true
-}
-
-fn check_deadline(env: &Env, deadline: u64) {
-    let now = env.ledger().timestamp();
-    if deadline < now {
-        panic_router(env, RouterError::DeadlineExpired);
-    }
-    if deadline > now.saturating_add(MAX_SWAP_DEADLINE_SECONDS) {
-        panic_router(env, RouterError::DeadlineTooFar);
-    }
-}
-
-fn get_pool(env: &Env, token_in: &Address, token_out: &Address, fee: u32) -> Address {
-    let _ = (token_in, token_out, fee);
-    env.storage()
-        .instance()
-        .get(&DataKey::Factory)
-        .unwrap_or_else(|| panic_router(env, RouterError::NotInitialized))
-}
-
-fn execute_swap(
-    env: &Env,
-    pool: &Address,
-    sender: &Address,
-    token_in: &Address,
-    token_out: &Address,
-    amount_in: u128,
-    sqrt_price_limit_x96: u128,
-) -> (u128, u128) {
-    let _ = (env, pool, sender, token_in, token_out, sqrt_price_limit_x96);
-    (amount_in, amount_in)
-}
+/* … truncated 2474 chars — edit only what you need near the top … */

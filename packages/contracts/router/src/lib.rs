@@ -36,6 +36,11 @@ pub enum RouterError {
 }
 
 /// Router-enforced maximum interval between ledger time and a swap deadline.
+///
+/// The swap deadline window is **300 seconds**. A `deadline` more than 300
+/// seconds ahead of the current ledger time is rejected with
+/// [`RouterError::DeadlineTooFar`], while a `deadline` already in the past is
+/// rejected with [`RouterError::DeadlineExpired`].
 const MAX_SWAP_DEADLINE_SECONDS: u64 = 300;
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
@@ -242,9 +247,6 @@ impl Router {
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────
 
-fn ensure_deadline(env: &Env, deadline: u64) {
-    let now = env.ledger().timestamp
-
-/* … truncated 1877 chars — edit only what you need near the top … */
+/* … truncated 210 chars — edit only what you need near the top … */
