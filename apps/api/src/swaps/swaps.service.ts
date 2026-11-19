@@ -173,13 +173,33 @@ export class SwapsService {
     };
   }
 
-  /** Converts a decimal string amount into an integer base-units bigint. */
+  /**
+   * Converts a decimal string amount into an integer base-units bigint.
+   *
+   * Only plain non-negative decimal strings are accepted: signs, exponents,
+   * more than one dot, or more fractional digits than `decimals` are rejected
+   * with a 400 rather than silently truncated. Conversion uses integer math
+   * only (no `Number`/`parseFloat`).
+   */
   private toBaseUnits(amount: string, decimals: number): bigint {
-    const [whole, frac = ''] = amount.split('.');
-    const paddedFrac = (frac + '0'.repeat(decimals)).slice(0, decimals);
-    return (
-      BigInt(whole || '0') * 10n ** BigInt(decimals) + BigInt(paddedFrac || '0')
-    );
+    const trimmed = amount?.trim() ?? '';
+    const match = /^(\d+)(?:\.(\d+))?$/.exec(trimmed);
+    if (!match) {
+      throw new InvalidInputException(
+        `amountIn must be a plain non-negative decimal string`,
+      );
+    }
+
+    const whole = match[1];
+    const frac = match[2] ?? '';
+    if (frac.length > decimals) {
+      throw new InvalidInputException(
+        `amountIn has more than ${decimals} fractional digits`,
+      );
+    }
+
+    const paddedFrac = frac.padEnd(decimals, '0');
+    return BigInt(whole) * 10n ** BigInt(decimals) + BigInt(paddedFrac || '0');
   }
 
   /** Converts an integer base-units bigint into a decimal string amount. */
