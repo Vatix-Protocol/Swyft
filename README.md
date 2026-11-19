@@ -177,3 +177,6 @@ compose files must read credentials from environment variables or local
 
 <!-- handsoff-issue-1307 -->
 - #1307: pool::swap updates the price without moving tokens
+
+<!-- handsoff-issue-1308 -->
+- #1308: A price-limited pool swap still reports the full amount_in
