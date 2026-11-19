@@ -174,3 +174,6 @@ compose files must read credentials from environment variables or local
 
 <!-- handsoff-issue-1306 -->
 - #1306: pool::swap ignores token_out and exact_input
+
+<!-- handsoff-issue-1307 -->
+- #1307: pool::swap updates the price without moving tokens
