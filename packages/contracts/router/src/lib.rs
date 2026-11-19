@@ -49,6 +49,7 @@ const MAX_SWAP_DEADLINE_SECONDS: u64 = 300;
 #[derive(Clone)]
 pub enum DataKey {
     Pool(Address, Address),
+    Admin,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -74,13 +75,31 @@ pub struct Router;
 
 #[contractimpl]
 impl Router {
+    /// Initialize the router and record the admin authorized to set pool rates.
+    ///
+    /// # Arguments
+    /// * `admin` - Address authorized to call `set_pool_rate`.
+    pub fn initialize(env: Env, admin: Address) {
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &admin);
+    }
+
     /// Register or update the exchange rate for a token pair.
+    ///
+    /// Only the admin authorized at initialize may call this.
     ///
     /// # Arguments
     /// * `token_in`  - Address of the input token.
     /// * `token_out` - Address of the output token. Must differ from `token_in`.
     /// * `rate`      - Units of `token_out` per unit of `token_in`. Must be > 0.
     pub fn set_pool_rate(env: Env, token_in: Address, token_out: Address, rate: i128) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, RouterError::InvalidPath));
+        admin.require_auth();
+
         if token_in == token_out {
             panic_with_error!(&env, RouterError::InvalidPath);
         }
@@ -216,15 +235,15 @@ impl Router {
         ensure_positive_amount(&env, amount_out);
         ensure_path(&env, &path);
 
+        // First pass: quote every hop backwards without publishing anything, so the
+        // input cap can be enforced before any swap becomes observable.
         let mut amount = amount_out;
         let mut index = path.len() - 1;
 
         while index > 0 {
             let token_in = path.get(index - 1).unwrap();
             let token_out = path.get(index).unwrap();
-            let amount_in = quote_exact_output_hop(&env, &token_in, &token_out, amount);
-            publish_swap(&env, token_in, token_out, amount_in, amount);
-            amount = amount_in;
+            amount = quote_exact_output_hop(&env, &token_in, &token_out, amount);
             index -= 1;
         }
 
@@ -232,34 +251,26 @@ impl Router {
             panic_with_error!(&env, RouterError::ExcessiveInput);
         }
 
+            amount = quote_exact_output_hop(&env, &token_in, &token_out, amount);
         amount
     }
-
-    /// Returns the router's balance of `token`. Always 0 — the router is stateless
-    /// and never holds token balances.
-    pub fn get_router_balance(_env: Env, _token: Address) -> i128 {
-        0
-    }
+    if deadline - now > MAX_SWAP_DEADLINE_SECONDS {
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
+/// Reject a swap whose deadline has already passed or is unreasonably far away.
 fn ensure_deadline(env: &Env, deadline: u64) {
     let now = env.ledger().timestamp();
     if deadline < now {
         panic_with_error!(env, RouterError::DeadlineExpired);
     }
-    if deadline > now + MAX_SWAP_DEADLINE_SECONDS {
+    if deadline - now > MAX_SWAP_DEADLINE_SECONDS {
         panic_with_error!(env, RouterError::DeadlineTooFar);
     }
 }
 
-fn ensure_positive_amount(env: &Env, amount: i128) {
-    if amount <= 0 {
-        panic_with_error!(env, RouterError::InvalidAmount);
-    }
-}
-
+    if deadline - now > MAX_SWAP_DEADLINE_SECONDS {
 fn ensure_path(env: &Env, path: &Vec<Address>) {
     if path.len() < 2 {
         panic_with_error!(env, RouterError::InvalidPath);
@@ -293,9 +304,80 @@ fn get_pool_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
         .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
 }
 
+fn ensure_positive_amount(env: &Env, amount: i128) {
+    if amount <= 0 {
+        panic_with_error!(env, RouterError::InvalidAmount);
+    }
+}
+
+fn ensure_path(env: &Env, path: &Vec<Address>) {
+    if path.len() < 2 {
+        panic_with_error!(env, RouterError::InvalidPath);
+    }
+}
+
+fn load_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
+}
+
 fn publish_swap(env: &Env, token_in: Address, token_out: Address, amount_in: i128, amount_out: i128) {
     env.events().publish(
         (Symbol::new(env, "swap"),),
+    env.storage()
+        .instance()
+        .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
+}
+
+/// Look up the registered rate for a token pair, panicking if absent.
+fn load_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
+}
+
+fn execute_exact_input_hop(
+    env: &Env,
+    token_in: Address,
+    token_out: Address,
+    amount_in: i128,
+) -> i128 {
+    let rate = load_rate(env, &token_in, &token_out);
+    let amount_out = amount_in
+        .checked_mul(rate)
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow));
+
+    publish_swap(env, token_in, token_out, amount_in, amount_out);
+    amount_out
+}
+
+fn quote_exact_output_hop(
+    env: &Env,
+    token_in: &Address,
+    token_out: &Address,
+    amount_out: i128,
+) -> i128 {
+    let rate = load_rate(env, token_in, token_out);
+    amount_out
+        .checked_add(rate - 1)
+        .and_then(|v| v.checked_div(rate))
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow))
+}
+
+/// Emit a `SwapEvent` for a completed hop.
+fn publish_swap(
+    env: &Env,
+    token_in: Address,
+    token_out: Address,
+    amount_in: i128,
+    amount_out: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "swap"), token_in.clone(), token_out.clone()),
         SwapEvent {
             token_in,
             token_out,

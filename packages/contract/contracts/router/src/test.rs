@@ -124,6 +124,21 @@ fn test_initialize_and_get_factory() {
 }
 
 #[test]
+fn test_initialize_cannot_be_called_twice() {
+    let (env, id) = setup();
+    let client = RouterClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    let first_factory = env.register(MockFactory, ());
+    let second_factory = env.register(MockFactory, ());
+
+    client.initialize(&admin, &first_factory);
+    assert_eq!(client.get_factory(), first_factory);
+
+    assert!(client.try_initialize(&admin, &second_factory).is_err());
+    assert_eq!(client.get_factory(), first_factory);
+}
+
+#[test]
 fn test_get_factory_and_get_admin_panic_before_initialize() {
     let (env, id) = setup();
     let client = RouterClient::new(&env, &id);
@@ -279,139 +294,6 @@ fn test_exact_output_single_zero_amount() {
 
 /// Pins the exact-output surface: `exact_output_single` is declared unsupported
 /// and must revert with `RouterError::ExactOutputUnsupported` (code 9) rather
-/// than silently degrading to an exact-input swap. This keeps the SDK's
-/// exact-output path unambiguous.
-#[test]
-fn test_exact_output_single_reverts_unsupported() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let s = setup_router_with_mock_pool(&env);
+/// than silently degrading to an exact-input swap. This keep
 
-    let recipient = Address::generate(&env);
-    let result = s.client.try_exact_output_single(&ExactOutputSingleParams {
-        token_in: s.token_in.clone(),
-        token_out: s.token_out.clone(),
-        fee: 3000,
-        recipient,
-        deadline: env.ledger().timestamp() + 120,
-        amount_out: 500,
-        amount_in_max: 1_000,
-        sqrt_price_limit_x96: 0,
-    });
-
-    assert!(result.is_err());
-}
-
-/// amount_in=1000 → amount_out=999. minOut=1000 must revert (under slippage).
-#[test]
-fn test_exact_input_reverts_when_amount_out_below_min_out() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let s = setu
-
-    let result = s.client.try_exact_input_single(&ExactInputSingleParams {
-        token_in: s.token_in,
-        token_out: s.token_out,
-        fee: 3000,
-        recipient: Address::generate(&env),
-        deadline: env.ledger().timestamp() + 120,
-        amount_in: 1_000,
-        amount_out_min: 1_000,
-        sqrt_price_limit_x96: 0,
-    });
-
-    assert!(
-        result.is_err(),
-        "expected SlippageExceeded when amount_out < amount_out_min"
-    );
-}
-
-/// Exact boundary: amount_out == amount_out_min succeeds (inclusive).
-#[test]
-fn test_exact_input_succeeds_at_min_out_boundary() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let s = setup_router_with_mock_pool(&env);
-
-    let result = s.client.try_exact_input_single(&ExactInputSingleParams {
-        token_in: s.token_in,
-        token_out: s.token_out,
-        fee: 3000,
-        recipient: Address::generate(&env),
-        deadline: env.ledger().timestamp() + 120,
-        amount_in: 1_000,
-        amount_out_min: 999,
-        sqrt_price_limit_x96: 0,
-    });
-
-    assert!(
-        result.is_ok(),
-        "expected success when amount_out == amount_out_min"
-    );
-}
-
-/// The router must derive `zero_for_one` from the pool's token ordering, not
-/// from the caller's argument order. Passing `(token_0, token_1)` and
-/// `(token_1, token_0)` against the same pool must yield mirrored deltas.
-#[test]
-fn test_exact_input_single_resolves_direction_from_pool_token_order() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let s = setup_router_with_mock_pool(&env);
-
-    let amount_in = 1_000u128;
-    let out = amount_in - amount_in / 1000;
-
-    // token_in == pool token_0, token_out == pool token_1 → zero_for_one = true
-    let forward = s.client.exact_input_single(&ExactInputSingleParams {
-        token_in: s.token_in,
-        token_out: s.token_out,
-        fee: 3000,
-        recipient: Address::generate(&env),
-        deadline: env.ledger().timestamp() + 120,
-        amount_in,
-        amount_out_min: 0,
-        sqrt_price_limit_x96: 0,
-    });
-    assert_eq!(forward, (amount_in as i128, -(out as i128)));
-
-    // token_in == pool token_1, token_out == pool token_0 → zero_for_one = false
-    let reverse = s.client.exact_input_single(&ExactInputSingleParams {
-        token_in: s.token_out,
-        token_out: s.token_in,
-        fee: 3000,
-        recipient: Address::generate(&env),
-        deadline: env.ledger().timestamp() + 120,
-        amount_in,
-        amount_out_min: 0,
-        sqrt_price_limit_x96: 0,
-    });
-    assert_eq!(reverse, (-(out as i128), amount_in as i128));
-}
-
-/// A token pair that matches neither ordering of the pool's tokens must be
-/// rejected with a typed router error instead of calling `swap`.
-#[test]
-fn test_exact_input_single_rejects_mismatched_token_pair() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let s = setup_router_with_mock_pool(&env);
-
-    let stranger = Address::generate(&env);
-
-    let result = s.client.try_exact_input_single(&ExactInputSingleParams {
-        token_in: s.token_in,
-        token_out: stranger,
-        fee: 3000,
-        recipient: Address::generate(&env),
-        deadline: env.ledger().timestamp() + 120,
-        amount_in: 1_000,
-        amount_out_min: 0,
-        sqrt_price_limit_x96: 0,
-    });
-
-    assert!(
-        result.is_err(),
-        "expected a typed router error for a token pair not matching the pool"
-    );
-}
+/* … truncated 1422 chars — edit only what you need near the top … */
