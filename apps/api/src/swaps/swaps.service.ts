@@ -151,26 +151,47 @@ export class SwapsService {
       throw new BusinessRuleViolationException(message);
     }
 
-    const amountOut = this.fromBaseUnits(
-      BigInt(result.amountOut),
-      tokenOutDecimals,
-    );
+    const amountOutBase = BigInt(result.amountOut);
+    const amountOut = this.fromBaseUnits(amountOutBase, tokenOutDecimals);
     const lpFee = this.fromBaseUnits(BigInt(result.fee), tokenInDecimals);
     const minimumReceived = this.fromBaseUnits(
       BigInt(result.minimumReceived),
       tokenOutDecimals,
     );
-    const amountInFloat = Number.parseFloat(dto.amountIn);
-    const executionPrice =
-      amountInFloat > 0 ? Number(amountOut) / amountInFloat : 0;
+    const executionPrice = this.executionPrice(
+      amountInBase,
+      tokenInDecimals,
+      amountOutBase,
+      tokenOutDecimals,
+    );
 
     return {
       amountOut,
       priceImpact: result.priceImpact,
       lpFee,
       minimumReceived,
-      executionPrice: executionPrice.toFixed(7),
+      executionPrice,
     };
+  }
+
+  /**
+   * Computes the execution price (tokenOut per tokenIn) as a decimal string
+   * from integer base units and token decimals, avoiding float precision loss.
+   */
+  private executionPrice(
+    amountInBase: bigint,
+    tokenInDecimals: number,
+    amountOutBase: bigint,
+    tokenOutDecimals: number,
+  ): string {
+    if (amountInBase <= 0n) return '0';
+    const scale = 10n ** 18n;
+    const numerator =
+      amountOutBase * 10n ** BigInt(tokenInDecimals) * scale;
+    const denominator =
+      amountInBase * 10n ** BigInt(tokenOutDecimals);
+    const scaled = numerator / denominator;
+    return this.fromBaseUnits(scaled, 18);
   }
 
   /** Converts a decimal string amount into an integer base-units bigint. */
