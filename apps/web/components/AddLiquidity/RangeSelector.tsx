@@ -53,6 +53,17 @@ interface Bar {
 const CHART_H = 100;
 const CHART_W = 100; // percentage units
 
+/** Matches empty or partially typed non-negative decimal text (no exponent, sign or letters). */
+const DECIMAL_INPUT = /^\d*\.?\d*$/;
+
+function toBigInt(value: string): bigint {
+  try {
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
+}
+
 export function RangeSelector({
   ticks,
   ticksError,
@@ -80,11 +91,12 @@ export function RangeSelector({
     const sorted = [...ticks].sort((a, b) => a.tick - b.tick);
     const minT = sorted[0].tick;
     const maxT = sorted[sorted.length - 1].tick;
-    const maxLiq = Math.max(...sorted.map((t) => parseFloat(t.liquidityGross) || 0), 1);
-    const bars: Bar[] = sorted.map((t) => ({
+    const liqs = sorted.map((t) => toBigInt(t.liquidityGross));
+    const maxLiq = liqs.reduce((m, l) => (l > m ? l : m), 1n);
+    const bars: Bar[] = sorted.map((t, i) => ({
       tick: t.tick,
       x: ((t.tick - minT) / (maxT - minT)) * CHART_W,
-      h: (parseFloat(t.liquidityGross) / maxLiq) * CHART_H,
+      h: (Number((liqs[i] * 10000n) / maxLiq) / 10000) * CHART_H,
       active: t.tick >= lowerTick && t.tick <= upperTick,
     }));
     return { bars, minTick: minT, maxTick: maxT };
@@ -144,8 +156,9 @@ export function RangeSelector({
   // on-chain call (mint would revert or silently create a degenerate range).
   const handleLowerPriceChange = useCallback(
     (value: string) => {
-      const price = parseFloat(value);
-      if (value.trim() !== '' && !isNaN(price) && price > 0) {
+      if (!DECIMAL_INPUT.test(value.trim())) return;
+      const price = Number(value);
+      if (value.trim() !== '' && Number.isFinite(price) && price > 0) {
         const proposedTick = nearestUsableTick(priceToTick(price), tickSpacing);
         if (proposedTick >= upperTick) return;
       }
@@ -156,8 +169,9 @@ export function RangeSelector({
 
   const handleUpperPriceChange = useCallback(
     (value: string) => {
-      const price = parseFloat(value);
-      if (value.trim() !== '' && !isNaN(price) && price > 0) {
+      if (!DECIMAL_INPUT.test(value.trim())) return;
+      const price = Number(value);
+      if (value.trim() !== '' && Number.isFinite(price) && price > 0) {
         const proposedTick = nearestUsableTick(priceToTick(price), tickSpacing);
         if (proposedTick <= lowerTick) return;
       }

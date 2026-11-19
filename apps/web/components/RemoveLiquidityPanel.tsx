@@ -6,6 +6,7 @@ import { PositionRangeBadge, type PositionSnapshot } from '@swyft/ui';
 import { estimateRemoveAmounts, estimateRemoveAmountsAsync } from '@swyft/sdk';
 import { useRemoveLiquidity } from '@/hooks/useRemoveLiquidity';
 import { useWalletContext } from '@/context/WalletContext';
+import { formatDecimal } from '@/lib/token-display';
 
 const PRESETS = [25, 50, 75, 100];
 
@@ -166,13 +167,13 @@ export function RemoveLiquidityPanel({
             <div className="flex justify-between">
               <span>{token0Symbol}</span>
               <span className="font-medium tabular-nums">
-                {parseFloat(position.uncollectedFeesToken0).toFixed(7)}
+                {formatDecimal(position.uncollectedFeesToken0, 7)}
               </span>
             </div>
             <div className="flex justify-between">
               <span>{token1Symbol}</span>
               <span className="font-medium tabular-nums">
-                {parseFloat(position.uncollectedFeesToken1).toFixed(7)}
+                {formatDecimal(position.uncollectedFeesToken1, 7)}
               </span>
             </div>
           </div>
