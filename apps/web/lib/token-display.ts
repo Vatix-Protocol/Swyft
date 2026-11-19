@@ -8,6 +8,10 @@ const UNKNOWN_TOKEN_PREFIX = '?';
  * returns a Token with that symbol and name.
  * Otherwise, returns a fallback Token with a visually distinguishable symbol
  * (prefixed with '?') and an accessible name indicating an unknown token.
+ *
+ * Addresses are treated as opaque strings: truncation for layout is a plain
+ * string slice (never `Number`/`parseFloat`), and the full original address is
+ * kept in `id` (and `name`) so copy actions use the untruncated value.
  */
 export function tokenFromAddress(address: string, symbol?: string, name?: string): Token {
   if (symbol && name) {

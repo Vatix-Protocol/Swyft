@@ -34,4 +34,12 @@ describe('token-display helpers', () => {
       expect(isUnknownToken(token)).toBe(true);
     });
   });
+
+  it('keeps the full address for copying while only slicing the display symbol', () => {
+    const address = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+    const token = tokenFromAddress(address);
+    expect(token.symbol).toBe(`?${address.slice(0, 4)}…`);
+    expect(token.id).toBe(address);
+    expect(token.name).toContain(address);
+  });
 });
