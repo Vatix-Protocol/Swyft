@@ -8,6 +8,7 @@ import { useSwapQuote } from '@/hooks/useSwapQuote';
 import { useWalletBalances } from '@/hooks/useWalletBalances';
 import { SwapConfirmModal } from '@/components/SwapConfirmModal';
 import { ROUTER_ADDRESS } from '@/lib/constants';
+import * as swapExecution from '@/hooks/useSwapExecution';
 
 // ---------------------------------------------------------------------------
 // TokenPickerButton
@@ -178,8 +179,12 @@ export function SwapWidget({
   });
 
   // Exact-output mode is only available when a router contract is
-  // configured; otherwise the widget stays exact-input only.
-  const exactOutputAvailable = Boolean(ROUTER_ADDRESS);
+  // configured and the hook implements the exact-output submit; otherwise
+  // the widget stays exact-input only.
+  const exactOutputAvailable =
+    Boolean(ROUTER_ADDRESS) &&
+    (swapExecution as { EXACT_OUTPUT_SUBMIT_AVAILABLE?: boolean }).EXACT_OUTPUT_SUBMIT_AVAILABLE ===
+      true;
   const exactOutputQuote =
     swapMode === 'exactOut' && poolId && pair.tokenIn && pair.tokenOut && amountOut
       ? (() => {

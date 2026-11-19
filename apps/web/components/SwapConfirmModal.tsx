@@ -166,15 +166,14 @@ export function SwapConfirmModal(props: Props) {
               <span className="text-sm text-zinc-500 dark:text-zinc-400">You pay</span>
               <span className="text-sm font-semibold text-zinc-900 dark:text-white">
                 {props.mode === 'exactOut' ? '≈' : ''}
-                {parseFloat(props.mode === 'exactOut' ? props.quote.amountIn : props.amountIn).toFixed(6)}{' '}
-                {tokenIn.symbol}
+                {props.mode === 'exactOut' ? props.quote.amountIn : props.amountIn} {tokenIn.symbol}
               </span>
             </div>
             <div className="flex items-center justify-between rounded-xl bg-zinc-50 px-4 py-3 dark:bg-zinc-800/50">
               <span className="text-sm text-zinc-500 dark:text-zinc-400">You receive</span>
               <span className="text-sm font-semibold text-zinc-900 dark:text-white">
                 {props.mode === 'exactOut' ? '' : '≈'}
-                {parseFloat(props.mode === 'exactOut' ? props.amountOut : props.quote.amountOut).toFixed(6)}{' '}
+                {props.mode === 'exactOut' ? props.amountOut : props.quote.amountOut}{' '}
                 {tokenOut.symbol}
               </span>
             </div>
@@ -185,22 +184,21 @@ export function SwapConfirmModal(props: Props) {
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
               <span>Rate</span>
               <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                1 {tokenIn.symbol} = {parseFloat(props.quote.executionPrice).toFixed(6)}{' '}
-                {tokenOut.symbol}
+                1 {tokenIn.symbol} = {props.quote.executionPrice} {tokenOut.symbol}
               </span>
             </div>
             {props.mode === 'exactOut' ? (
               <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
                 <span>Max. spent</span>
                 <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                  {parseFloat(props.quote.maximumIn).toFixed(6)} {tokenIn.symbol}
+                  {props.quote.maximumIn} {tokenIn.symbol}
                 </span>
               </div>
             ) : (
               <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
                 <span>Min. received</span>
                 <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                  {parseFloat(props.quote.minimumReceived).toFixed(6)} {tokenOut.symbol}
+                  {props.quote.minimumReceived} {tokenOut.symbol}
                 </span>
               </div>
             )}
@@ -211,14 +209,14 @@ export function SwapConfirmModal(props: Props) {
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
               <span>LP fee</span>
               <span>
-                {parseFloat(props.quote.lpFee).toFixed(7)} {tokenIn.symbol}
+                {props.quote.lpFee} {tokenIn.symbol}
               </span>
             </div>
-            {parseFloat(props.quote.protocolFee) > 0 && (
+            {/[1-9]/.test(props.quote.protocolFee) && (
               <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
                 <span>Protocol fee</span>
                 <span>
-                  {parseFloat(props.quote.protocolFee).toFixed(7)} {tokenIn.symbol}
+                  {props.quote.protocolFee} {tokenIn.symbol}
                 </span>
               </div>
             )}
