@@ -93,7 +93,7 @@ impl PositionNft {
     /// Panics if the caller is not the authorised minter, if `liquidity` is
     /// zero (`ZeroLiquidity`), if `tick_lower >= tick_upper`
     /// (`InvalidTickRange`), or if the token ID counter would overflow
-    /// `u64::MAX`.
+    /// `u64::MAX` (`Overflow`).
     pub fn mint(
         env: Env,
         owner: Address,
@@ -122,10 +122,16 @@ impl PositionNft {
             .get(&DataKey::NextId)
             .unwrap_or(0u64);
 
-        // Check for overflow
-        if id == u64::MAX {
-            env.panic_with_error(soroban_sdk::Error::from_contract_error(PositionNftError::Overflow as u32));
-        }
+        // Compute the next id with checked arithmetic so a `u64::MAX` counter
+        // fails the mint with a typed error instead of panicking or wrapping.
+        // `NextId` is only written after this succeeds, so it stays unchanged
+        // on overflow and existing ids are never reused.
+        let next_id = match id.checked_add(1) {
+            Some(next) => next,
+            None => env.panic_with_error(soroban_sdk::Error::from_contract_error(
+                PositionNftError::Overflow as u32,
+            )),
+        };
 
         let created_at = env.ledger().timestamp();
 
@@ -139,7 +145,7 @@ impl PositionNft {
         };
 
         env.storage().persistent().set(&DataKey::Position(id), &meta);
-        env.storage().instance().set(&DataKey::NextId, &(id + 1));
+        env.storage().instance().set(&DataKey::NextId, &next_id);
 
         // Transfer event: zero address → owner
         emit_transfer(&env, None, Some(owner), id);
@@ -257,6 +263,30 @@ impl PositionNft {
 
     /// Returns the full [`PositionMetadata`] record for a token.
     ///
+    /// # Parameters
+    /// - `env`: Soroban execution environment.
+    /// - `token_id`: ID of the token to query.
+    ///
+    /// # Returns
+    /// The stored [`PositionMetadata`] for `token_id`.
+    ///
+    /// # Panics
+    /// Panics if `token_id` does not exist (`"token not found"`).
+    pub fn get_position(env: Env, token_id: u64) -> PositionMetadata {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Position(token_id))
+            .expect("token not found")
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn require_minter(env: &Env) {
+    let minter: Address = env
+        .storage()
+        .instance()
+        .get(&Data
     /// # Panics
     /// Panics if `token_id` does not exist (`"token not found"`).
     pub fn get_position(env: Env, token_id: u64) -> PositionMetadata {
@@ -284,74 +314,4 @@ fn emit_transfer(env: &Env, from: Option<Address>, to: Option<Address>, token_id
 }
 
 #[cfg(test)]
-mod test {
-    use super::*;
-    use soroban_sdk::testutils::{Address as _, Events as _};
-    use soroban_sdk::{IntoVal, TryFromVal};
-
-    fn setup() -> (Env, PositionNftClient<'static>, Address, Address) {
-        let env = Env::default();
-        env.mock_all_auths();
-        let contract_id = env.register_contract(None, PositionNft);
-        let client = PositionNftClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let minter = Address::generate(&env);
-        client.initialize(&admin, &minter);
-        (env, client, admin, minter)
-    }
-
-    #[test]
-    fn burn_requires_minter() {
-        let (env, client, _admin, _minter) = setup();
-        let owner = Address::generate(&env);
-        let pool = Address::generate(&env);
-
-        let id = client.mint(&owner, &pool, &-10i32, &10i32, &1_000u128);
-
-        // Minter can burn an existing id.
-        client.burn(&id);
-
-        // A second burn of that id fails because the token is gone.
-        let res = client.try_burn(&id);
-        assert!(res.is_err());
-
-        // Another address fails the minter check.
-        let other = Address::generate(&env);
-        let id2 = client.mint(&owner, &pool, &-10i32, &10i32, &1_000u128);
-        let res = client
-            .mock_auths(&[soroban_sdk::testutils::MockAuth {
-                address: &other,
-                invoke: &soroban_sdk::testutils::MockAuthInvoke {
-                    contract: &client.address,
-                    fn_name: "burn",
-                    args: (id2,).into_val(&env),
-                    sub_invokes: &[],
-                },
-            }])
-            .try_burn(&id2);
-        assert!(res.is_err());
-    }
-
-    #[test]
-    fn burn_emits_transfer_to_none() {
-        let (env, client, _admin, _minter) = setup();
-        let owner = Address::generate(&env);
-        let pool = Address::generate(&env);
-
-        let id = client.mint(&owner, &pool, &-10i32, &10i32, &1_000u128);
-        client.burn(&id);
-
-        let events = env.events().all();
-        let burn_event = events.last().expect("expected a burn event");
-        let topics = burn_event.1;
-        assert_eq!(topics.len(), 3);
-        assert_eq!(
-            Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap(),
-            symbol_short!("transfer")
-        );
-        let from = Option::<Address>::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
-        let to = Option::<Address>::try_from_val(&env, &topics.get(2).unwrap()).unwrap();
-        assert_eq!(from, Some(owner));
-        assert_eq!(to, None);
-    }
-}
+mod test;

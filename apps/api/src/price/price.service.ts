@@ -45,6 +45,10 @@ export function spotPriceCacheKey(tokenA: string, tokenB: string): string {
 /**
  * OHLCV candle for a fixed interval bucket.
  *
+ * OHLC/volume are decimal strings exactly as stored in the database, so
+ * clients receive the precise value (e.g. `"0.1"`) rather than a binary
+ * float approximation. The chart client parses them if it needs a number.
+ *
  * Gap policy (null buckets): when no trades occurred in a bucket inside the
  * requested `[from, to]` range, the API returns an explicit null candle —
  * `open`/`high`/`low`/`close`/`volume` are all `null`. Gaps are never
@@ -52,11 +56,11 @@ export function spotPriceCacheKey(tokenA: string, tokenB: string): string {
  */
 export interface PriceCandle {
   time: number;
-  open: number | null;
-  high: number | null;
-  low: number | null;
-  close: number | null;
-  volume: number | null;
+  open: string | null;
+  high: string | null;
+  low: string | null;
+  close: string | null;
+  volume: string | null;
 }
 
 /** Build an explicit null-bucket candle for a missing interval. */
@@ -280,6 +284,7 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
           },
         ],
       },
+      select: { id: true },
     });
 
     if (!pool) {
@@ -288,53 +293,47 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    const fromDate = new Date(from * 1000);
-    const toDate = new Date(to * 1000);
-
-    const priceCandles = await this.prisma.priceCandle.findMany({
+    const intervalSec = this.intervalToSeconds(interval);
+    const rows = await this.prisma.candle.findMany({
       where: {
         poolId: pool.id,
         interval,
-        periodStart: {
-          gte: fromDate,
-          lte: toDate,
-        },
+        time: { gte: from, lte: to },
       },
-      orderBy: { periodStart: 'asc' },
+      orderBy: { time: 'asc' },
+      take: limit,
     });
 
-    const candles = priceCandles.map((candle) => ({
-      time: Math.floor(candle.periodStart.getTime() / 1000),
-      open: parseFloat(candle.open.toString()),
-      high: parseFloat(candle.high.toString()),
-      low: parseFloat(candle.low.toString()),
-      close: parseFloat(candle.close.toString()),
-      volume: parseFloat(candle.volumeUsd.toString()),
+    const candles: PriceCandle[] = rows.map((row) => ({
+      time: row.time,
+      open: row.open.toString(),
+      high: row.high.toString(),
+      low: row.low.toString(),
+      close: row.close.toString(),
+      volume: row.volume.toString(),
     }));
 
-    const intervalSec = this.getIntervalSeconds(interval);
-    const filled = fillCandleGaps(candles, intervalSec, from, to, limit);
-
-    return { poolId: pool.id, candles: filled };
+    return {
+      poolId: pool.id,
+      candles: fillCandleGaps(candles, intervalSec, from, to, limit),
+    };
   }
 
-  private getIntervalSeconds(interval: string): number {
-    switch (interval) {
-      case '1m':
-        return 60;
-      case '5m':
-        return 300;
-      case '1h':
-        return 3600;
-      case '1d':
-        return 86400;
+  private intervalToSeconds(interval: string): number {
+    const match = /^(\d+)([smhd])$/.exec(interval);
+    if (!match) return 60;
+    const value = parseInt(match[1], 10);
+    switch (match[2]) {
+      case 's':
+        return value;
+      case 'm':
+        return value * 60;
+      case 'h':
+        return value * 3600;
+      case 'd':
+        return value * 86400;
       default:
-        return 3600;
+        return 60;
     }
-  }
-
-  async invalidatePairCache(tokenA: string, tokenB: string): Promise<void> {
-    const key = spotPriceCacheKey(tokenA, tokenB);
-    await this.cache.invalidate(key);
   }
 }
