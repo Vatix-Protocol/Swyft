@@ -179,3 +179,54 @@ mod non_positive_fee_tests {
         assert_eq!(client.get_balance(&token), 0);
     }
 }
+
+#[cfg(test)]
+mod unauthorized_pool_tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    fn setup(env: &Env) -> (FeeCollectorClient<'_>, Address, Address) {
+        let contract_id = env.register_contract(None, FeeCollector);
+        let client = FeeCollectorClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let treasury = Address::generate(env);
+        client.initialize(&admin, &treasury);
+        (client, admin, contract_id)
+    }
+
+    #[test]
+    fn unauthorized_pool_cannot_deposit_fees_even_with_switch_on() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _contract_id) = setup(&env);
+        let pool = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        // Fee switch is on, but the pool was never authorized.
+        client.set_fee_switch(&true);
+        assert!(!client.is_authorized_pool(&pool));
+
+        let result = client.try_deposit_protocol_fees(&token, &pool, &100i128);
+        assert!(result.is_err());
+        // No tokens were transferred into the collector.
+        assert_eq!(client.get_balance(&token), 0);
+    }
+
+    #[test]
+    fn authorized_pool_proceeds_past_auth_check() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _contract_id) = setup(&env);
+        let pool = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        client.set_authorized_pool(&pool, &true);
+        assert!(client.is_authorized_pool(&pool));
+
+        // Switch is off: authorized pool passes the auth check and the call
+        // is a no-op at the switch check (no panic, no balance change).
+        client.set_fee_switch(&false);
+        client.deposit_protocol_fees(&token, &pool, &100i128);
+        assert_eq!(client.get_balance(&token), 0);
+    }
+}
