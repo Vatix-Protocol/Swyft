@@ -1,4 +1,8 @@
-import { AdminAuditService } from './admin-audit.service';
+import {
+  AdminAuditError,
+  AdminAuditErrorCode,
+  AdminAuditService,
+} from './admin-audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('AdminAuditService', () => {
@@ -50,4 +54,31 @@ describe('AdminAuditService', () => {
       }),
     );
   });
+});
+
+describe('AdminAuditService.record idempotency key validation', () => {
+  it.each(['', undefined, 42])(
+    'rejects idempotency key %p with INVALID_INPUT and writes no row',
+    async (idempotencyKey) => {
+      const service = new AdminAuditService();
+      const persist = jest.spyOn(
+        service as unknown as { persist: () => Promise<void> },
+        'persist',
+      );
+
+      const promise = service.record({
+        actor: { id: 'admin-1', role: 'admin' },
+        action: 'pool.pause',
+        idempotencyKey: idempotencyKey as unknown as string,
+      });
+
+      await expect(promise).rejects.toBeInstanceOf(AdminAuditError);
+      await expect(promise).rejects.toMatchObject({
+        code: AdminAuditErrorCode.INVALID_INPUT,
+        message: 'Missing idempotency key',
+      });
+      expect(persist).not.toHaveBeenCalled();
+      expect(service.list()).toHaveLength(0);
+    },
+  );
 });

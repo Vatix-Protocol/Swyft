@@ -379,3 +379,42 @@ describe('PriceService', () => {
     });
   });
 });
+
+describe('PriceService.getCandles decimal strings', () => {
+  it('returns OHLCV fields as the exact fixture decimal strings', async () => {
+    const prisma = {
+      pool: { findFirst: jest.fn().mockResolvedValue({ id: 'pool-1' }) },
+      candle: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            time: 3600,
+            open: '10.5',
+            high: '10.5',
+            low: '10.5',
+            close: '10.5',
+            volume: '10.5',
+          },
+        ]),
+      },
+    } as unknown as PrismaService;
+    const cache = {
+      createSubscriber: jest.fn(),
+    } as unknown as CacheService;
+    const service = new PriceService(cache, prisma);
+
+    const result = await service.getCandles(
+      'USDC',
+      'XLM',
+      '1h',
+      3600,
+      3600,
+      10,
+    );
+
+    expect(result.candles).toHaveLength(1);
+    for (const field of ['open', 'high', 'low', 'close', 'volume'] as const) {
+      expect(typeof result.candles[0][field]).toBe('string');
+      expect(result.candles[0][field]).toBe('10.5');
+    }
+  });
+});
