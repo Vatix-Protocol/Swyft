@@ -36,6 +36,11 @@ pub enum RouterError {
 }
 
 /// Router-enforced maximum interval between ledger time and a swap deadline.
+///
+/// The swap deadline window is **300 seconds**. A `deadline` more than 300
+/// seconds ahead of the current ledger time is rejected with
+/// [`RouterError::DeadlineTooFar`], while a `deadline` already in the past is
+/// rejected with [`RouterError::DeadlineExpired`].
 const MAX_SWAP_DEADLINE_SECONDS: u64 = 300;
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
@@ -249,9 +254,10 @@ impl Router {
             amount = quote_exact_output_hop(&env, &token_in, &token_out, amount);
         amount
     }
+    if deadline - now > MAX_SWAP_DEADLINE_SECONDS {
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Internal helpers ──────────────────────────────────────────────────────────
 
 /// Reject a swap whose deadline has already passed or is unreasonably far away.
 fn ensure_deadline(env: &Env, deadline: u64) {
@@ -264,27 +270,46 @@ fn ensure_deadline(env: &Env, deadline: u64) {
     }
 }
 
-/// Reject paths with fewer than two tokens.
+    if deadline - now > MAX_SWAP_DEADLINE_SECONDS {
 fn ensure_path(env: &Env, path: &Vec<Address>) {
     if path.len() < 2 {
         panic_with_error!(env, RouterError::InvalidPath);
     }
 }
 
-/// Look up the registered rate for a token pair, panicking if absent.
-fn get_rate(env: &Env, token_in: &Address, t
+fn execute_exact_input_hop(env: &Env, token_in: Address, token_out: Address, amount_in: i128) -> i128 {
+    let amount_out = quote_exact_input_hop(env, &token_in, &token_out, amount_in);
+    publish_swap(env, token_in, token_out, amount_in, amount_out);
+    amount_out
+}
+
+fn quote_exact_input_hop(env: &Env, token_in: &Address, token_out: &Address, amount_in: i128) -> i128 {
+    let rate = get_pool_rate(env, token_in, token_out);
+    amount_in
+        .checked_mul(rate)
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow))
+}
+
+fn quote_exact_output_hop(env: &Env, token_in: &Address, token_out: &Address, amount_out: i128) -> i128 {
+    let rate = get_pool_rate(env, token_in, token_out);
+    amount_out
+        .checked_div(rate)
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow))
+}
+
+fn get_pool_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
+}
+
 fn ensure_positive_amount(env: &Env, amount: i128) {
     if amount <= 0 {
         panic_with_error!(env, RouterError::InvalidAmount);
     }
 }
 
-/// Reject zero or negative amounts.
-fn ensure_positive_amount(env: &Env, amount: i128) {
-    if amount <= 0 {
-        panic_with_error!(env, RouterError::InvalidAmount);
-    }
-}
 fn ensure_path(env: &Env, path: &Vec<Address>) {
     if path.len() < 2 {
         panic_with_error!(env, RouterError::InvalidPath);
@@ -298,8 +323,23 @@ fn load_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
         .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
 }
 
+fn publish_swap(env: &Env, token_in: Address, token_out: Address, amount_in: i128, amount_out: i128) {
+    env.events().publish(
+        (Symbol::new(env, "swap"),),
+    env.storage()
+        .instance()
+        .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
+}
+
 /// Look up the registered rate for a token pair, panicking if absent.
 fn load_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
+}
+
 fn execute_exact_input_hop(
     env: &Env,
     token_in: Address,
@@ -315,7 +355,6 @@ fn execute_exact_input_hop(
     amount_out
 }
 
-    let rate = load_rate(env, &token_in, &token_out);
 fn quote_exact_output_hop(
     env: &Env,
     token_in: &Address,

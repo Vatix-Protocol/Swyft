@@ -66,6 +66,13 @@ pub enum RouterError {
 }
 
 /// Router-enforced maximum interval between ledger time and a swap deadline.
+///
+/// The swap deadline window is **300 seconds**. A `deadline` further out than
+/// `ledger_time + 300` reverts with `RouterError::DeadlineTooFar`; a `deadline`
+/// already in the past reverts with `RouterError::DeadlineExpired`.
+///
+/// This constant describes the `packages/contract/contracts/router` crate. The
+/// `packages/contracts/router` crate uses the same 300-second window.
 const MAX_SWAP_DEADLINE_SECONDS: u64 = 300;
 
 

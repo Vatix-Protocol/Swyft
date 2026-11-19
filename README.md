@@ -172,6 +172,12 @@ compose files must read credentials from environment variables or local
 
 ## Handsoff notes
 
+<!-- handsoff-issue-1338 -->
+- #1338: Add a test that pool mint pulls token0 and token1 from the sender
+
+<!-- handsoff-issue-1339 -->
+- #1339: Add a test that burn returns tokens to the sender
+
 <!-- handsoff-issue-1310 -->
 - #1310: Mint and burn cast a u128 liquidity amount to i128 with as
 
