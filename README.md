@@ -172,6 +172,9 @@ compose files must read credentials from environment variables or local
 
 ## Handsoff notes
 
+<!-- handsoff-issue-1310 -->
+- #1310: Mint and burn cast a u128 liquidity amount to i128 with as
+
 <!-- handsoff-issue-1330 -->
 - #1330: Add a test that cl-pool swap rejects a zero remaining amount after the fee
 

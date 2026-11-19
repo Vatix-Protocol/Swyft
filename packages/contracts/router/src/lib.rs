@@ -44,6 +44,7 @@ const MAX_SWAP_DEADLINE_SECONDS: u64 = 300;
 #[derive(Clone)]
 pub enum DataKey {
     Pool(Address, Address),
+    Admin,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -69,13 +70,31 @@ pub struct Router;
 
 #[contractimpl]
 impl Router {
+    /// Initialize the router and record the admin authorized to set pool rates.
+    ///
+    /// # Arguments
+    /// * `admin` - Address authorized to call `set_pool_rate`.
+    pub fn initialize(env: Env, admin: Address) {
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &admin);
+    }
+
     /// Register or update the exchange rate for a token pair.
+    ///
+    /// Only the admin authorized at initialize may call this.
     ///
     /// # Arguments
     /// * `token_in`  - Address of the input token.
     /// * `token_out` - Address of the output token. Must differ from `token_in`.
     /// * `rate`      - Units of `token_out` per unit of `token_in`. Must be > 0.
     pub fn set_pool_rate(env: Env, token_in: Address, token_out: Address, rate: i128) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, RouterError::InvalidPath));
+        admin.require_auth();
+
         if token_in == token_out {
             panic_with_error!(&env, RouterError::InvalidPath);
         }
@@ -227,24 +246,14 @@ impl Router {
             panic_with_error!(&env, RouterError::ExcessiveInput);
         }
 
-        // Second pass: the cap held, so publish each hop now that a revert can no
-        // longer leave a partial swap behind.
-        let mut amount = amount_out;
-        let mut index = path.len() - 1;
-
-        while index > 0 {
-            let token_in = path.get(index - 1).unwrap();
-            let token_out = path.get(index).unwrap();
-            amount = execute_exact_input_hop(&env, token_in, token_out, amount);
-            index -= 1;
-        }
-
+            amount = quote_exact_output_hop(&env, &token_in, &token_out, amount);
         amount
     }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// Reject a swap whose deadline has already passed or is unreasonably far away.
 fn ensure_deadline(env: &Env, deadline: u64) {
     let now = env.ledger().timestamp();
     if deadline < now {
@@ -255,12 +264,27 @@ fn ensure_deadline(env: &Env, deadline: u64) {
     }
 }
 
+/// Reject paths with fewer than two tokens.
+fn ensure_path(env: &Env, path: &Vec<Address>) {
+    if path.len() < 2 {
+        panic_with_error!(env, RouterError::InvalidPath);
+    }
+}
+
+/// Look up the registered rate for a token pair, panicking if absent.
+fn get_rate(env: &Env, token_in: &Address, t
 fn ensure_positive_amount(env: &Env, amount: i128) {
     if amount <= 0 {
         panic_with_error!(env, RouterError::InvalidAmount);
     }
 }
 
+/// Reject zero or negative amounts.
+fn ensure_positive_amount(env: &Env, amount: i128) {
+    if amount <= 0 {
+        panic_with_error!(env, RouterError::InvalidAmount);
+    }
+}
 fn ensure_path(env: &Env, path: &Vec<Address>) {
     if path.len() < 2 {
         panic_with_error!(env, RouterError::InvalidPath);
@@ -274,6 +298,8 @@ fn load_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
         .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
 }
 
+/// Look up the registered rate for a token pair, panicking if absent.
+fn load_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
 fn execute_exact_input_hop(
     env: &Env,
     token_in: Address,
@@ -289,6 +315,7 @@ fn execute_exact_input_hop(
     amount_out
 }
 
+    let rate = load_rate(env, &token_in, &token_out);
 fn quote_exact_output_hop(
     env: &Env,
     token_in: &Address,
@@ -297,10 +324,12 @@ fn quote_exact_output_hop(
 ) -> i128 {
     let rate = load_rate(env, token_in, token_out);
     amount_out
-        .checked_div(rate)
+        .checked_add(rate - 1)
+        .and_then(|v| v.checked_div(rate))
         .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow))
 }
 
+/// Emit a `SwapEvent` for a completed hop.
 fn publish_swap(
     env: &Env,
     token_in: Address,
