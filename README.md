@@ -172,6 +172,15 @@ compose files must read credentials from environment variables or local
 
 ## Handsoff notes
 
+<!-- handsoff-issue-1330 -->
+- #1330: Add a test that cl-pool swap rejects a zero remaining amount after the fee
+
+<!-- handsoff-issue-1331 -->
+- #1331: cl-pool searches for the next tick from current_tick minus one
+
+<!-- handsoff-issue-1332 -->
+- #1332: Crossing a tick uses saturating arithmetic on active liquidity
+
 <!-- handsoff-issue-1342 -->
 - #1342: Add a test that a pool fee of one thousandth is what swap charges
 
