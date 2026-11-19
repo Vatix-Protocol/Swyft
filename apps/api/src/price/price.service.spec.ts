@@ -173,6 +173,37 @@ describe('PriceService', () => {
       expect(mockCache.set).not.toHaveBeenCalled();
     });
 
+    it('returns null change fields when change24h is missing', async () => {
+      mockCache.get.mockResolvedValue(null);
+      jest.spyOn(service, 'getSpotPrice').mockResolvedValueOnce({
+        poolId: 'p',
+        currentPrice: '0.1',
+        sqrtPrice: '0',
+        tick: 0,
+        liquidity: '0',
+        timestamp: 0,
+      });
+      const result = await service.getTokenPairPrice('USDC', 'XLM');
+      expect(result.change24hAbsolute).toBeNull();
+      expect(result.change24hPercent).toBeNull();
+    });
+
+    it('keeps a present change24h as its decimal string', async () => {
+      mockCache.get.mockResolvedValue(null);
+      jest.spyOn(service, 'getSpotPrice').mockResolvedValueOnce({
+        poolId: 'p',
+        currentPrice: '0.1',
+        sqrtPrice: '0',
+        tick: 0,
+        liquidity: '0',
+        timestamp: 0,
+        change24h: '0.0050',
+      });
+      const result = await service.getTokenPairPrice('USDC', 'XLM');
+      expect(result.change24hAbsolute).toBe('0.0050');
+      expect(typeof result.change24hPercent).toBe('string');
+    });
+
     it('throws NotFoundException when no pool data exists', async () => {
       mockCache.get.mockResolvedValue(null);
       await expect(service.getTokenPairPrice('USDC', 'XLM')).rejects.toThrow(

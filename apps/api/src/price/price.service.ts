@@ -24,8 +24,10 @@ export interface SpotPriceResponse {
   tokenA: string;
   tokenB: string;
   spotPrice: string;
-  change24hAbsolute: string;
-  change24hPercent: string;
+  /** Decimal string as reported upstream, or null when the 24h change is unknown. */
+  change24hAbsolute: string | null;
+  /** Percent change to 4 dp, or null when the 24h change is unknown. */
+  change24hPercent: string | null;
   high24h: string;
   low24h: string;
   lastUpdated: string;
@@ -224,17 +226,24 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    const price = parseFloat(event.currentPrice);
-    const change = parseFloat(event.change24h ?? '0');
-    const changePercent =
-      price - change !== 0 ? (change / Math.abs(price - change)) * 100 : 0;
+    // A missing change24h is an unknown move, not a 0% move.
+    const change24h = event.change24h ?? null;
+    let changePercent: string | null = null;
+    if (change24h !== null) {
+      const price = Number(event.currentPrice);
+      const change = Number(change24h);
+      const base = price - change;
+      changePercent = (
+        base !== 0 ? (change / Math.abs(base)) * 100 : 0
+      ).toFixed(4);
+    }
 
     const response: SpotPriceResponse = {
       tokenA: tokenA.toLowerCase(),
       tokenB: tokenB.toLowerCase(),
       spotPrice: event.currentPrice,
-      change24hAbsolute: event.change24h ?? '0',
-      change24hPercent: changePercent.toFixed(4),
+      change24hAbsolute: change24h,
+      change24hPercent: changePercent,
       high24h: event.currentPrice,
       low24h: event.currentPrice,
       lastUpdated: new Date(event.timestamp).toISOString(),
