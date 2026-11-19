@@ -251,4 +251,17 @@ impl Router {
     /// `RouterError::ExactOutputUnsupported` and performs no swap, no auth check,
     /// and emits no eve
 
-/* … truncated 3000 chars — edit only what you need near the top … */
+,
+            amount_out,
+        }
+    }
+
+    /// Swap at most `amount_in_max` of `token_in` for an exact amount of `token_out`.
+    ///
+    /// # Support status
+    /// Exact-output swaps are **not supported** by this router. The entrypoint is
+    /// declared so callers (e.g. the SDK) get a deterministic, typed failure rather
+    /// than a missing-method error: it always reverts with
+    /// `RouterError::ExactOutputUnsupported` and performs no swap, no auth check,
+    /// and emits no events.
+

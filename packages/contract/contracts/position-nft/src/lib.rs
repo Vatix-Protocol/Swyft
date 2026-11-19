@@ -93,7 +93,7 @@ impl PositionNft {
     /// Panics if the caller is not the authorised minter, if `liquidity` is
     /// zero (`ZeroLiquidity`), if `tick_lower >= tick_upper`
     /// (`InvalidTickRange`), or if the token ID counter would overflow
-    /// `u64::MAX`.
+    /// `u64::MAX` (`Overflow`).
     pub fn mint(
         env: Env,
         owner: Address,
@@ -122,10 +122,16 @@ impl PositionNft {
             .get(&DataKey::NextId)
             .unwrap_or(0u64);
 
-        // Check for overflow
-        if id == u64::MAX {
-            env.panic_with_error(soroban_sdk::Error::from_contract_error(PositionNftError::Overflow as u32));
-        }
+        // Compute the next id with checked arithmetic so a `u64::MAX` counter
+        // fails the mint with a typed error instead of panicking or wrapping.
+        // `NextId` is only written after this succeeds, so it stays unchanged
+        // on overflow and existing ids are never reused.
+        let next_id = match id.checked_add(1) {
+            Some(next) => next,
+            None => env.panic_with_error(soroban_sdk::Error::from_contract_error(
+                PositionNftError::Overflow as u32,
+            )),
+        };
 
         let created_at = env.ledger().timestamp();
 
@@ -139,7 +145,7 @@ impl PositionNft {
         };
 
         env.storage().persistent().set(&DataKey::Position(id), &meta);
-        env.storage().instance().set(&DataKey::NextId, &(id + 1));
+        env.storage().instance().set(&DataKey::NextId, &next_id);
 
         // Transfer event: zero address → owner
         emit_transfer(&env, None, Some(owner), id);
@@ -241,23 +247,6 @@ impl PositionNft {
     /// - `env`: Soroban execution environment.
     /// - `token_id`: ID of the token to query.
     ///
-    /// # Returns
-    /// The [`Address`] of the current owner.
-    ///
-    /// # Panics
-    /// Panics if `token_id` does not exist (`"token not found"`).
-    pub fn owner_of(env: Env, token_id: u64) -> Address {
-        let meta: PositionMetadata = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Position(token_id))
-            .expect("token not found");
-        meta.owner
-    }
+    /// # Retur
 
-    /// Returns full metadata for a token.
-    ///
-    /// # Parameters
-    /// - `env`: Soroban execution environmen
-
-/* … truncated 1637 chars — edit only what you need near the top … */
+/* … truncated 591 chars — edit only what you need near the top … */
