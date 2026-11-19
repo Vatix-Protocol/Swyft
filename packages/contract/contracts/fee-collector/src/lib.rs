@@ -230,3 +230,88 @@ mod unauthorized_pool_tests {
         assert_eq!(client.get_balance(&token), 0);
     }
 }
+
+#[cfg(test)]
+mod collect_protocol_fees_tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
+
+    fn setup(env: &Env) -> (FeeCollectorClient<'_>, Address, Address) {
+        let contract_id = env.register_contract(None, FeeCollector);
+        let client = FeeCollectorClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let treasury = Address::generate(env);
+        client.initialize(&admin, &treasury);
+        (client, admin, contract_id)
+    }
+
+    /// Registers a Stellar asset contract and funds the collector with `amount`.
+    fn fund_collector(env: &Env, contract_id: &Address, amount: i128) -> Address {
+        let token_admin = Address::generate(env);
+        let token_id = env.register_stellar_asset_contract(token_admin.clone());
+        StellarAssetClient::new(env, &token_id).mint(contract_id, &amount);
+        token_id
+    }
+
+    #[test]
+    fn non_admin_call_fails_and_balance_unchanged() {
+        let env = Env::default();
+        let (client, _admin, contract_id) = setup(&env);
+        let token = fund_collector(&env, &contract_id, 500);
+        let attacker = Address::generate(&env);
+
+        // Only the attacker authorizes; the admin does not.
+        env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+            address: &attacker,
+            invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "collect_protocol_fees",
+                args: (&token, &attacker).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+
+        let result = client.try_collect_protocol_fees(&token, &attacker);
+        assert!(result.is_err());
+        // Balance is untouched.
+        assert_eq!(client.get_balance(&token), 0);
+        assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), 500);
+    }
+
+    #[test]
+    fn admin_call_sends_full_balance_and_stores_zero() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, contract_id) = setup(&env);
+        let token = fund_collector(&env, &contract_id, 500);
+
+        // Seed the stored balance to match the funded amount.
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Balance(token.clone()), &500i128);
+        });
+
+        client.collect_protocol_fees(&token, &admin);
+
+        assert_eq!(client.get_balance(&token), 0);
+        assert_eq!(TokenClient::new(&env, &token).balance(&admin), 500);
+        assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), 0);
+    }
+
+    #[test]
+    fn zero_balance_returns_without_transfer() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, contract_id) = setup(&env);
+        let token = fund_collector(&env, &contract_id, 0);
+
+        // No stored balance: the call returns early without a transfer.
+        client.collect_protocol_fees(&token, &admin);
+
+        assert_eq!(client.get_balance(&token), 0);
+        assert_eq!(TokenClient::new(&env, &token).balance(&admin), 0);
+        assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), 0);
+    }
+}
