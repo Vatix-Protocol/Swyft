@@ -132,3 +132,65 @@ impl FeeCollector {
         env.storage().persistent().set(&balance_key, &0i128);
     }
 }
+
+#[cfg(test)]
+mod fee_switch_tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{token, Env};
+
+    fn setup(env: &Env) -> (FeeCollectorClient<'_>, Address, Address, Address, Address) {
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, FeeCollector);
+        let client = FeeCollectorClient::new(env, &contract_id);
+
+        let admin = Address::generate(env);
+        let treasury = Address::generate(env);
+        let pool = Address::generate(env);
+        client.initialize(&admin, &treasury);
+        client.set_authorized_pool(&pool, &true);
+
+        let token_admin = Address::generate(env);
+        let token_id = env.register_stellar_asset_contract(token_admin.clone());
+        let token_client = token::StellarAssetClient::new(env, &token_id);
+        token_client.mint(&pool, &1_000i128);
+
+        (client, admin, treasury, pool, token_id)
+    }
+
+    #[test]
+    fn fee_switch_defaults_to_off() {
+        let env = Env::default();
+        let (client, _admin, _treasury, _pool, _token) = setup(&env);
+        assert!(!client.is_fee_on());
+    }
+
+    #[test]
+    fn deposit_is_noop_while_fee_switch_off() {
+        let env = Env::default();
+        let (client, _admin, _treasury, pool, token_id) = setup(&env);
+        let token_client = token::Client::new(&env, &token_id);
+
+        let before = token_client.balance(&pool);
+        client.deposit_protocol_fees(&token_id, &pool, &100i128);
+
+        assert_eq!(token_client.balance(&pool), before);
+        assert_eq!(client.get_balance(&token_id), 0i128);
+    }
+
+    #[test]
+    fn deposit_transfers_when_fee_switch_on() {
+        let env = Env::default();
+        let (client, _admin, _treasury, pool, token_id) = setup(&env);
+        let token_client = token::Client::new(&env, &token_id);
+
+        client.set_fee_switch(&true);
+        assert!(client.is_fee_on());
+
+        let before = token_client.balance(&pool);
+        client.deposit_protocol_fees(&token_id, &pool, &100i128);
+
+        assert_eq!(token_client.balance(&pool), before - 100i128);
+        assert_eq!(client.get_balance(&token_id), 100i128);
+    }
+}
