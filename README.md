@@ -174,3 +174,6 @@ compose files must read credentials from environment variables or local
 
 <!-- handsoff-issue-1334 -->
 - #1334: Fee growth uses wrapping_add so a full accumulator wraps instead of failing
+
+<!-- handsoff-issue-1337 -->
+- #1337: Add a test that the cl-pool swap requires the sender
