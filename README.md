@@ -174,3 +174,6 @@ compose files must read credentials from environment variables or local
 
 <!-- handsoff-issue-1330 -->
 - #1330: Add a test that cl-pool swap rejects a zero remaining amount after the fee
+
+<!-- handsoff-issue-1331 -->
+- #1331: cl-pool searches for the next tick from current_tick minus one
