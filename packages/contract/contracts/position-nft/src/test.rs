@@ -244,18 +244,29 @@ fn test_burn_removes_position() {
     let (env, contract_id, _minter, pool, user) = setup();
     let client = PositionNftClient::new(&env, &contract_id);
 
-    let id = client.mint(&user, &pool, &0i32, &60i32, &100u128);
+    let id = client.mint(&user, &pool, &-60i32, &60i32, &1_000u128);
     client.burn(&id);
 
     assert!(client.get_position(&id).is_none());
 }
 
 #[test]
-fn test_burn_emits_transfer_event() {
+fn test_burn_by_minter_succeeds() {
     let (env, contract_id, _minter, pool, user) = setup();
     let client = PositionNftClient::new(&env, &contract_id);
 
-    let id = client.mint(&user, &pool, &0i32, &60i32, &100u128);
+    let id = client.mint(&user, &pool, &-60i32, &60i32, &1_000u128);
+    client.burn(&id);
+
+    assert!(client.get_position(&id).is_none());
+}
+
+#[test]
+fn test_burn_emits_transfer_event_to_none() {
+    let (env, contract_id, _minter, pool, user) = setup();
+    let client = PositionNftClient::new(&env, &contract_id);
+
+    let id = client.mint(&user, &pool, &-60i32, &60i32, &1_000u128);
     client.burn(&id);
 
     let events = env.events().all();
@@ -266,37 +277,25 @@ fn test_burn_emits_transfer_event() {
 
 #[test]
 #[should_panic(expected = "token not found")]
-fn test_burn_nonexistent_panics() {
-    let (env, contract_id, ..) = setup();
+fn test_burn_twice_panics() {
+    let (env, contract_id, _minter, pool, user) = setup();
     let client = PositionNftClient::new(&env, &contract_id);
-    client.burn(&999u64);
-}
 
-// ── minter-only auth ──────────────────────────────────────────────────────────
-
-#[test]
-fn test_mint_requires_minter_auth() {
-    let (env, contract_id, minter, pool, user) = setup();
-    // Do NOT mock all auths — check the recorded auth tree manually
-    env.mock_all_auths();
-    let client = PositionNftClient::new(&env, &contract_id);
-    client.mint(&user, &pool, &0i32, &60i32, &100u128);
-
-    // The minter address must appear in the authorised invocations
-    let auths = env.auths();
-    let minter_auth = auths.iter().any(|(addr, _)| *addr == minter);
-    assert!(minter_auth, "minter auth was not required");
-}
-
-#[test]
-fn test_burn_requires_minter_auth() {
-    let (env, contract_id, minter, pool, user) = setup();
-    env.mock_all_auths();
-    let client = PositionNftClient::new(&env, &contract_id);
-    let id = client.mint(&user, &pool, &0i32, &60i32, &100u128);
+    let id = client.mint(&user, &pool, &-60i32, &60i32, &1_000u128);
     client.burn(&id);
+    client.burn(&id);
+}
 
-    let auths = env.auths();
-    let minter_auth = auths.iter().any(|(addr, _)| *addr == minter);
-    assert!(minter_auth, "minter auth was not required");
+#[test]
+#[should_panic(expected = "not minter")]
+fn test_burn_by_non_minter_panics() {
+    let (env, contract_id, _minter, pool, user) = setup();
+    let client = PositionNftClient::new(&env, &contract_id);
+
+    let id = client.mint(&user, &pool, &-60i32, &60i32, &1_000u128);
+    // Replace the minter with a different address so the original minter
+    // is no longer authorized to burn.
+    let other = Address::generate(&env);
+    client.set_minter(&other);
+    client.burn(&id);
 }

@@ -84,7 +84,7 @@ export class SwapsService {
 
     const zeroForOne = this.resolveDirection(pool, dto.tokenIn, dto.tokenOut);
     const price = this.spotPrice(pool.currentSqrtPrice);
-    if (!Number.isFinite(price) || price <= 0) {
+    if (price === null || Number(price) <= 0) {
       throw new BusinessRuleViolationException(
         `Pool ${dto.poolId} has no valid price yet`,
       );
@@ -179,13 +179,33 @@ export class SwapsService {
     return this.fromBaseUnits(scaled, 18);
   }
 
-  /** Converts a decimal string amount into an integer base-units bigint. */
+  /**
+   * Converts a decimal string amount into an integer base-units bigint.
+   *
+   * Only plain non-negative decimal strings are accepted: signs, exponents,
+   * more than one dot, or more fractional digits than `decimals` are rejected
+   * with a 400 rather than silently truncated. Conversion uses integer math
+   * only (no `Number`/`parseFloat`).
+   */
   private toBaseUnits(amount: string, decimals: number): bigint {
-    const [whole, frac = ''] = amount.split('.');
-    const paddedFrac = (frac + '0'.repeat(decimals)).slice(0, decimals);
-    return (
-      BigInt(whole || '0') * 10n ** BigInt(decimals) + BigInt(paddedFrac || '0')
-    );
+    const trimmed = amount?.trim() ?? '';
+    const match = /^(\d+)(?:\.(\d+))?$/.exec(trimmed);
+    if (!match) {
+      throw new InvalidInputException(
+        `amountIn must be a plain non-negative decimal string`,
+      );
+    }
+
+    const whole = match[1];
+    const frac = match[2] ?? '';
+    if (frac.length > decimals) {
+      throw new InvalidInputException(
+        `amountIn has more than ${decimals} fractional digits`,
+      );
+    }
+
+    const paddedFrac = frac.padEnd(decimals, '0');
+    return BigInt(whole) * 10n ** BigInt(decimals) + BigInt(paddedFrac || '0');
   }
 
   /** Converts an integer base-units bigint into a decimal string amount. */
@@ -214,10 +234,28 @@ export class SwapsService {
     );
   }
 
-  /** Spot price of token1 per token0, decoded from the Q64.96 sqrt price. */
-  private spotPrice(currentSqrtPrice: string): number {
-    const sqrtPrice = Number(currentSqrtPrice) / 2 ** 96;
-    return sqrtPrice * sqrtPrice;
+  /**
+   * Spot price of token1 per token0, decoded from the Q64.96 sqrt price.
+   *
+   * The sqrt price is decoded with integer arithmetic into a decimal string
+   * (price = sqrtPrice^2 / 2^192) so values near 2^96 are not rounded through
+   * a JavaScript `Number`. Returns `null` when the input is not a valid
+   * non-negative integer string.
+   */
+  private spotPrice(currentSqrtPrice: string): string | null {
+    const trimmed = currentSqrtPrice?.trim() ?? '';
+    if (!/^\d+$/.test(trimmed)) {
+      return null;
+    }
+
+    const sqrtPrice = BigInt(trimmed);
+    if (sqrtPrice <= 0n) {
+      return null;
+    }
+
+    const Q192 = 1n << 192n;
+    const priceScaled = (sqrtPrice * sqrtPrice * 10n ** 18n) / Q192;
+    return this.fromBaseUnits(priceScaled, 18);
   }
 
   private toResponse(swap: SwapSnapshot): SwapResponse {
