@@ -177,3 +177,6 @@ compose files must read credentials from environment variables or local
 
 <!-- handsoff-issue-1331 -->
 - #1331: cl-pool searches for the next tick from current_tick minus one
+
+<!-- handsoff-issue-1332 -->
+- #1332: Crossing a tick uses saturating arithmetic on active liquidity
