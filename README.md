@@ -169,3 +169,8 @@ web client setup. For local Docker usage, prefer the compose guidance above.
 See `SECURITY.md` for reporting and policy. Do not commit secrets; local
 compose files must read credentials from environment variables or local
 `.env` files that are git-ignored.
+
+## Handsoff notes
+
+<!-- handsoff-issue-1310 -->
+- #1310: Mint and burn cast a u128 liquidity amount to i128 with as
