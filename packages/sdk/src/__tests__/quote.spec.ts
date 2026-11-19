@@ -316,6 +316,55 @@ describe('getSwapQuote — feeTier validation', () => {
     ).toThrow(QuoteValidationError);
   });
 
-  it('rejects negative feeTier with QuoteValidationError
+  it('rejects negative feeTier with QuoteValidationError', () => {
+    expect(() =>
+      getSwapQuote({
+        poolState: pool({ feeTier: -3000 }),
+        tokenIn: 'token0',
+        amountIn: '1000000',
+        slippage: 50,
+      })
+    ).toThrow(QuoteValidationError);
+  });
 
-/* … truncated 774 chars — edit only what you need near the top … */
+  it('names the feeTier field in the error message', () => {
+    expect(() =>
+      getSwapQuote({
+        poolState: pool({ feeTier: 0 }),
+        tokenIn: 'token0',
+        amountIn: '1000000',
+        slippage: 50,
+      })
+    ).toThrow(/feeTier/i);
+  });
+});
+
+describe('getSwapQuote — non-trivial output', () => {
+  it('produces an amountOut that differs from amountIn after fees', () => {
+    const amountIn = '1000000';
+    const quote = getSwapQuote({
+      poolState: pool(),
+      tokenIn: 'token0',
+      amountIn,
+      slippage: 50,
+    });
+
+    expect(BigInt(quote.amountOut)).toBeGreaterThan(0n);
+    expect(quote.amountOut).not.toBe(amountIn);
+    expect(BigInt(quote.amountOut)).toBeLessThan(BigInt(amountIn));
+  });
+
+  it('applies the fee so output is strictly less than a fee-free echo', () => {
+    const amountIn = '1000000';
+    const quote = getSwapQuote({
+      poolState: pool(),
+      tokenIn: 'token0',
+      amountIn,
+      slippage: 0,
+    });
+
+    const fee = BigInt(quote.fee);
+    expect(fee).toBeGreaterThan(0n);
+    expect(BigInt(quote.amountOut)).toBeLessThan(BigInt(amountIn));
+  });
+});
