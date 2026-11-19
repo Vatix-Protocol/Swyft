@@ -247,6 +247,54 @@ impl PositionNft {
     /// - `env`: Soroban execution environment.
     /// - `token_id`: ID of the token to query.
     ///
-    /// # Retur
+    /// # Returns
+    /// The [`Address`] that currently owns `token_id`.
+    ///
+    /// # Panics
+    /// Panics if `token_id` does not exist (`"token not found"`).
+    pub fn owner_of(env: Env, token_id: u64) -> Address {
+        let meta: PositionMetadata = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Position(token_id))
+            .expect("token not found");
+        meta.owner
+    }
 
-/* … truncated 591 chars — edit only what you need near the top … */
+    /// Returns the full [`PositionMetadata`] record for a token.
+    ///
+    /// # Parameters
+    /// - `env`: Soroban execution environment.
+    /// - `token_id`: ID of the token to query.
+    ///
+    /// # Returns
+    /// The stored [`PositionMetadata`] for `token_id`.
+    ///
+    /// # Panics
+    /// Panics if `token_id` does not exist (`"token not found"`).
+    pub fn get_position(env: Env, token_id: u64) -> PositionMetadata {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Position(token_id))
+            .expect("token not found")
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn require_minter(env: &Env) {
+    let minter: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::Minter)
+        .expect("not initialized");
+    minter.require_auth();
+}
+
+fn emit_transfer(env: &Env, from: Option<Address>, to: Option<Address>, token_id: u64) {
+    let topics = (symbol_short!("transfer"), from, to);
+    env.events().publish(topics, token_id);
+}
+
+#[cfg(test)]
+mod test;

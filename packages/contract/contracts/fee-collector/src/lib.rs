@@ -141,3 +141,186 @@ impl FeeCollector {
         env.storage().persistent().set(&balance_key, &0i128);
     }
 }
+
+#[cfg(test)]
+mod non_positive_fee_tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    fn setup(env: &Env) -> (FeeCollectorClient<'_>, Address, Address) {
+        let contract_id = env.register_contract(None, FeeCollector);
+        let client = FeeCollectorClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let treasury = Address::generate(env);
+        client.initialize(&admin, &treasury);
+        (client, admin, contract_id)
+    }
+
+    #[test]
+    fn deposit_zero_amount_is_rejected_and_balance_unchanged() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _contract_id) = setup(&env);
+        let pool = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        client.set_authorized_pool(&pool, &true);
+        client.set_fee_switch(&true);
+
+        let result = client.try_deposit_protocol_fees(&token, &pool, &0i128);
+        assert!(result.is_err());
+        assert_eq!(client.get_balance(&token), 0);
+    }
+
+    #[test]
+    fn deposit_negative_amount_is_rejected_and_balance_unchanged() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _contract_id) = setup(&env);
+        let pool = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        client.set_authorized_pool(&pool, &true);
+        client.set_fee_switch(&true);
+
+        let result = client.try_deposit_protocol_fees(&token, &pool, &-1i128);
+        assert!(result.is_err());
+        assert_eq!(client.get_balance(&token), 0);
+    }
+}
+
+#[cfg(test)]
+mod unauthorized_pool_tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    fn setup(env: &Env) -> (FeeCollectorClient<'_>, Address, Address) {
+        let contract_id = env.register_contract(None, FeeCollector);
+        let client = FeeCollectorClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let treasury = Address::generate(env);
+        client.initialize(&admin, &treasury);
+        (client, admin, contract_id)
+    }
+
+    #[test]
+    fn unauthorized_pool_cannot_deposit_fees_even_with_switch_on() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _contract_id) = setup(&env);
+        let pool = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        // Fee switch is on, but the pool was never authorized.
+        client.set_fee_switch(&true);
+        assert!(!client.is_authorized_pool(&pool));
+
+        let result = client.try_deposit_protocol_fees(&token, &pool, &100i128);
+        assert!(result.is_err());
+        // No tokens were transferred into the collector.
+        assert_eq!(client.get_balance(&token), 0);
+    }
+
+    #[test]
+    fn authorized_pool_proceeds_past_auth_check() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _contract_id) = setup(&env);
+        let pool = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        client.set_authorized_pool(&pool, &true);
+        assert!(client.is_authorized_pool(&pool));
+
+        // Switch is off: authorized pool passes the auth check and the call
+        // is a no-op at the switch check (no panic, no balance change).
+        client.set_fee_switch(&false);
+        client.deposit_protocol_fees(&token, &pool, &100i128);
+        assert_eq!(client.get_balance(&token), 0);
+    }
+}
+
+#[cfg(test)]
+mod collect_protocol_fees_tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
+
+    fn setup(env: &Env) -> (FeeCollectorClient<'_>, Address, Address) {
+        let contract_id = env.register_contract(None, FeeCollector);
+        let client = FeeCollectorClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let treasury = Address::generate(env);
+        client.initialize(&admin, &treasury);
+        (client, admin, contract_id)
+    }
+
+    /// Registers a Stellar asset contract and funds the collector with `amount`.
+    fn fund_collector(env: &Env, contract_id: &Address, amount: i128) -> Address {
+        let token_admin = Address::generate(env);
+        let token_id = env.register_stellar_asset_contract(token_admin.clone());
+        StellarAssetClient::new(env, &token_id).mint(contract_id, &amount);
+        token_id
+    }
+
+    #[test]
+    fn non_admin_call_fails_and_balance_unchanged() {
+        let env = Env::default();
+        let (client, _admin, contract_id) = setup(&env);
+        let token = fund_collector(&env, &contract_id, 500);
+        let attacker = Address::generate(&env);
+
+        // Only the attacker authorizes; the admin does not.
+        env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+            address: &attacker,
+            invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "collect_protocol_fees",
+                args: (&token, &attacker).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+
+        let result = client.try_collect_protocol_fees(&token, &attacker);
+        assert!(result.is_err());
+        // Balance is untouched.
+        assert_eq!(client.get_balance(&token), 0);
+        assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), 500);
+    }
+
+    #[test]
+    fn admin_call_sends_full_balance_and_stores_zero() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, contract_id) = setup(&env);
+        let token = fund_collector(&env, &contract_id, 500);
+
+        // Seed the stored balance to match the funded amount.
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Balance(token.clone()), &500i128);
+        });
+
+        client.collect_protocol_fees(&token, &admin);
+
+        assert_eq!(client.get_balance(&token), 0);
+        assert_eq!(TokenClient::new(&env, &token).balance(&admin), 500);
+        assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), 0);
+    }
+
+    #[test]
+    fn zero_balance_returns_without_transfer() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, contract_id) = setup(&env);
+        let token = fund_collector(&env, &contract_id, 0);
+
+        // No stored balance: the call returns early without a transfer.
+        client.collect_protocol_fees(&token, &admin);
+
+        assert_eq!(client.get_balance(&token), 0);
+        assert_eq!(TokenClient::new(&env, &token).balance(&admin), 0);
+        assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), 0);
+    }
+}
