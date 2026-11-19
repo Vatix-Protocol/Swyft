@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol};
 
 #[cfg(test)]
 mod test;
@@ -8,6 +8,13 @@ mod test;
 const KEY_ADMIN: Symbol = symbol_short!("ADMIN");
 const KEY_TREASURY: Symbol = symbol_short!("TREASURY");
 const KEY_FEE_ON: Symbol = symbol_short!("FEE_ON");
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum FeeCollectorError {
+    BalanceOverflow = 1,
+}
 
 #[contracttype]
 #[derive(Clone)]
@@ -100,13 +107,15 @@ impl FeeCollector {
         }
 
         from.require_auth();
-        token::Client::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
 
-        let balance_key = DataKey::Balance(token);
+        let balance_key = DataKey::Balance(token.clone());
         let balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&balance_key, &(balance + amount));
+        let new_balance = balance
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, FeeCollectorError::BalanceOverflow));
+
+        token::Client::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
+        env.storage().persistent().set(&balance_key, &new_balance);
     }
 
     /// Returns the accumulated, uncollected balance of `token`.
