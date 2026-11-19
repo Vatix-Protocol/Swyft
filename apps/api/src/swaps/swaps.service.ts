@@ -43,32 +43,24 @@ interface SwapsListResponse {
   limit: number;
   total: number;
   totalPages: number;
-  isLoading: boolean;
 }
 
 @Injectable()
 export class SwapsService {
-  private _isLoading = false;
-
-  get isLoading(): boolean {
-    return this._isLoading;
-  }
-
   constructor(
     private readonly swapsRepository: SwapsRepository,
     private readonly poolsService: PoolsService,
   ) {}
 
   async getSwaps(query: GetSwapsQueryDto): Promise<SwapsListResponse> {
-    this._isLoading = true;
-    try {
-      const normalized: SwapsQuery = {
-        poolId: query.poolId?.trim() || undefined,
-        wallet: query.wallet?.trim() || undefined,
-        page: query.page ?? 1,
-        limit: query.limit ?? 20,
-      };
+    const normalized: SwapsQuery = {
+      poolId: query.poolId?.trim() || undefined,
+      wallet: query.wallet?.trim() || undefined,
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+    };
 
+    try {
       const { items, total } = await this.swapsRepository.listSwaps(normalized);
 
       return {
@@ -77,7 +69,6 @@ export class SwapsService {
         limit: normalized.limit,
         total,
         totalPages: total === 0 ? 0 : Math.ceil(total / normalized.limit),
-        isLoading: false,
       };
     } catch (err: unknown) {
       if (
@@ -87,8 +78,6 @@ export class SwapsService {
         throw new SlippageExceededException();
       }
       throw err;
-    } finally {
-      this._isLoading = false;
     }
   }
 
