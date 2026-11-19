@@ -169,3 +169,8 @@ web client setup. For local Docker usage, prefer the compose guidance above.
 See `SECURITY.md` for reporting and policy. Do not commit secrets; local
 compose files must read credentials from environment variables or local
 `.env` files that are git-ignored.
+
+## Handsoff notes
+
+<!-- handsoff-issue-1338 -->
+- #1338: Add a test that pool mint pulls token0 and token1 from the sender
