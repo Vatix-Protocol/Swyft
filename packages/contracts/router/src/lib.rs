@@ -235,30 +235,16 @@ impl Router {
         while index > 0 {
             let token_in = path.get(index - 1).unwrap();
             let token_out = path.get(index).unwrap();
-            let amount_in = quote_exact_output_hop(&env, &token_in, &token_out, amount);
-            publish_swap(&env, token_in, token_out, amount_in, amount);
-            amount = amount_in;
+            amount = execute_exact_input_hop(&env, token_in, token_out, amount);
             index -= 1;
         }
 
         amount
     }
-
-    /// Returns the router's balance of `token`. Always 0 — the router is stateless.
-    ///
-    /// # Arguments
-    /// * `_token` - Token address (unused; present for interface compatibility).
-    ///
-    /// # Returns
-    /// `0i128`.
-    pub fn get_router_balance(_env: Env, _token: Address) -> i128 {
-        0
-    }
 }
 
-// ── Helpers ──────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Reverts if `deadline` is in the past or farther than the allowed maximum TTL.
 fn ensure_deadline(env: &Env, deadline: u64) {
     let now = env.ledger().timestamp();
     if deadline < now {
@@ -269,36 +255,32 @@ fn ensure_deadline(env: &Env, deadline: u64) {
     }
 }
 
-/// Reverts if `amount` is not strictly positive.
 fn ensure_positive_amount(env: &Env, amount: i128) {
     if amount <= 0 {
         panic_with_error!(env, RouterError::InvalidAmount);
     }
 }
 
-/// Reverts if `path` has fewer than two tokens.
 fn ensure_path(env: &Env, path: &Vec<Address>) {
     if path.len() < 2 {
         panic_with_error!(env, RouterError::InvalidPath);
     }
 }
 
-/// Looks up the registered rate for a token pair, reverting if none exists.
-fn get_pool_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
+fn load_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
     env.storage()
         .instance()
         .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
         .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
 }
 
-/// Computes the output of an exact-input hop and publishes the swap event.
 fn execute_exact_input_hop(
     env: &Env,
     token_in: Address,
     token_out: Address,
     amount_in: i128,
 ) -> i128 {
-    let rate = get_pool_rate(env, &token_in, &token_out);
+    let rate = load_rate(env, &token_in, &token_out);
     let amount_out = amount_in
         .checked_mul(rate)
         .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow));
@@ -307,27 +289,18 @@ fn execute_exact_input_hop(
     amount_out
 }
 
-/// Computes the input required for an exact-output hop without publishing anything.
 fn quote_exact_output_hop(
     env: &Env,
     token_in: &Address,
     token_out: &Address,
     amount_out: i128,
 ) -> i128 {
-    let rate = get_pool_rate(env, token_in, token_out);
-    let amount_in = amount_out
-        .checked_add(rate - 1)
+    let rate = load_rate(env, token_in, token_out);
+    amount_out
+        .checked_div(rate)
         .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow))
-        / rate;
-
-    if amount_in <= 0 {
-        panic_with_error!(env, RouterError::InvalidAmount);
-    }
-
-    amount_in
 }
 
-/// Emits a `SwapEvent` for a completed hop.
 fn publish_swap(
     env: &Env,
     token_in: Address,
