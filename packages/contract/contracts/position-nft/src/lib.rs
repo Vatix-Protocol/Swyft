@@ -242,7 +242,7 @@ impl PositionNft {
     /// - `token_id`: ID of the token to query.
     ///
     /// # Returns
-    /// The [`Address`] of the current owner.
+    /// The [`Address`] that currently owns `token_id`.
     ///
     /// # Panics
     /// Panics if `token_id` does not exist (`"token not found"`).
@@ -255,9 +255,45 @@ impl PositionNft {
         meta.owner
     }
 
-    /// Returns full metadata for a token.
+    /// Returns the full metadata record for a token.
     ///
     /// # Parameters
-    /// - `env`: Soroban execution environmen
+    /// - `env`: Soroban execution environment.
+    /// - `token_id`: ID of the token to query.
+    ///
+    /// # Returns
+    /// The [`PositionMetadata`] for `token_id`.
+    ///
+    /// # Panics
+    /// Panics if `token_id` does not exist (`"token not found"`).
+    pub fn get_position(env: Env, token_id: u64) -> PositionMetadata {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Position(token_id))
+            .expect("token not found")
+    }
 
-/* … truncated 1637 chars — edit only what you need near the top … */
+    /// Returns the total number of tokens minted so far (the next token ID).
+    pub fn total_supply(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::NextId)
+            .unwrap_or(0u64)
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn require_minter(env: &Env) {
+    let minter: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::Minter)
+        .expect("not initialized");
+    minter.require_auth();
+}
+
+fn emit_transfer(env: &Env, from: Option<Address>, to: Option<Address>, token_id: u64) {
+    let topics = (symbol_short!("transfer"), from, to);
+    env.events().publish(topics, token_id);
+}
