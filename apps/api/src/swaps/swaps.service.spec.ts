@@ -249,6 +249,83 @@ describe('SwapsService', () => {
         BusinessRuleViolationException,
       );
     });
+
+    it.each(['', 'abc', '-1', '1e2'])(
+      'throws when the sqrt price is the non-integer string %p',
+      async (currentSqrtPrice) => {
+        pools.findPoolById.mockResolvedValue(
+          makePoolDetail({ currentSqrtPrice }),
+        );
+
+        await expect(service.getQuote(baseRequest)).rejects.toThrow(
+          BusinessRuleViolationException,
+        );
+      },
+    );
+
+    it('decodes a sqrt price of 2^96 to a spot price of 1', () => {
+      expect(service['spotPrice']((1n << 96n).toString())).toBe('1');
+    });
+
+    it.each(['-1', '+1'])(
+      'rejects amountIn %p with a leading sign as invalid input',
+      async (amountIn) => {
+        pools.findPoolById.mockResolvedValue(makePoolDetail());
+
+        await expect(
+          service.getQuote({ ...baseRequest, amountIn }),
+        ).rejects.toThrow(
+          'amountIn must be a plain non-negative decimal string',
+        );
+        expect(() => service['toBaseUnits'](amountIn, 6)).toThrow(
+          InvalidInputException,
+        );
+      },
+    );
+
+    it('keeps "1.0" valid at 1 decimal', () => {
+      expect(service['toBaseUnits']('1.0', 1)).toBe(10n);
+    });
+
+    it('computes execution price with integer division for amounts above Number.MAX_SAFE_INTEGER', () => {
+      // 2^53 + 1 is not representable as a Number; float math would yield 1.
+      const amountIn = BigInt('9007199254740993');
+      const amountOut = BigInt('9007199254740992');
+
+      const price = service['executionPrice'](amountIn, 0, amountOut, 0);
+
+      expect(price).toBe('0.999999999999999888');
+      expect(price).toBe(
+        service['fromBaseUnits']((amountOut * 10n ** 18n) / amountIn, 18),
+      );
+    });
+  });
+
+  describe('concurrent getSwaps()', () => {
+    it('resolves overlapping calls with their own rows without shared loading state', async () => {
+      expect(service).not.toHaveProperty('_isLoading');
+
+      let resolveFirst!: (v: { items: SwapSnapshot[]; total: number }) => void;
+      let resolveSecond!: (v: { items: SwapSnapshot[]; total: number }) => void;
+      repo.listSwaps
+        .mockImplementationOnce(
+          () => new Promise((resolve) => (resolveFirst = resolve)),
+        )
+        .mockImplementationOnce(
+          () => new Promise((resolve) => (resolveSecond = resolve)),
+        );
+
+      const first = service.getSwaps({ poolId: 'pool-1', page: 1, limit: 10 });
+      const second = service.getSwaps({ poolId: 'pool-2', page: 1, limit: 10 });
+
+      resolveSecond({ items: [makeSnapshot({ id: 'swap-b' })], total: 1 });
+      resolveFirst({ items: [makeSnapshot({ id: 'swap-a' })], total: 1 });
+
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+      expect(firstResult.items.map((s) => s.id)).toEqual(['swap-a']);
+      expect(secondResult.items.map((s) => s.id)).toEqual(['swap-b']);
+      expect(service).not.toHaveProperty('_isLoading');
+    });
   });
 
   describe('snapshot', () => {
