@@ -43,3 +43,47 @@ describe('resolveJwtSecret', () => {
     );
   });
 });
+
+describe('resolveJwtSecret secret leakage', () => {
+  const originalEnv = process.env.NODE_ENV;
+  const SENTINEL = 'SENTINEL_SECRET_VALUE';
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalEnv;
+    jest.restoreAllMocks();
+  });
+
+  function configWith(secret: string): ConfigService {
+    return { getOrThrow: () => secret } as unknown as ConfigService;
+  }
+
+  it('does not include the secret in the rejection error or logs', () => {
+    process.env.NODE_ENV = 'production';
+    const logSpies = (['log', 'warn', 'error', 'debug'] as const).map((m) =>
+      jest.spyOn(console, m).mockImplementation(() => undefined),
+    );
+    const config = {
+      getOrThrow: jest.fn().mockReturnValueOnce('change-me-in-production'),
+    } as unknown as ConfigService;
+
+    let message = '';
+    try {
+      resolveJwtSecret(config);
+    } catch (err) {
+      message = (err as Error).message;
+    }
+
+    expect(message).toBe(
+      'JWT_SECRET is set to the insecure default "change-me-in-production". ' +
+        'Set a unique secret before starting the API in production.',
+    );
+    expect(message).not.toContain(SENTINEL);
+
+    expect(resolveJwtSecret(configWith(SENTINEL))).toBe(SENTINEL);
+    for (const spy of logSpies) {
+      for (const call of spy.mock.calls) {
+        expect(String(call.join(' '))).not.toContain(SENTINEL);
+      }
+    }
+  });
+});

@@ -445,3 +445,30 @@ describe('WebhooksService', () => {
     });
   });
 });
+
+describe('WebhooksService.create secret handling', () => {
+  it('does not echo the signing secret in the return value or audit meta', async () => {
+    const SENTINEL = 'SENTINEL_SECRET_VALUE';
+    const prisma = buildMockPrisma();
+    prisma.webhook.create.mockResolvedValue(mockWebhookRecord);
+    const service = new WebhooksService(
+      prisma as unknown as PrismaService,
+      buildMockWorker() as unknown as WebhookWorker,
+    );
+
+    const result = await service.create(OWNER, URL, EVENT_TYPES, SENTINEL);
+
+    expect(result).not.toHaveProperty('secret');
+    expect(JSON.stringify(result)).not.toContain(SENTINEL);
+    const [createArgs] = prisma.webhook.create.mock.calls[0] as [
+      { select: Record<string, boolean> },
+    ];
+    expect(createArgs.select).not.toHaveProperty('secret');
+    const [auditArgs] = prisma.webhookAuditLog.create.mock.calls[0] as [
+      { data: { meta: string } },
+    ];
+    const auditData = auditArgs.data;
+    expect(auditData.meta).not.toContain(SENTINEL);
+    expect(JSON.stringify(auditData)).not.toContain(SENTINEL);
+  });
+});
