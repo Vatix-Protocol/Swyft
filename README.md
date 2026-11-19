@@ -174,3 +174,6 @@ compose files must read credentials from environment variables or local
 
 <!-- handsoff-issue-1327 -->
 - #1327: Document that pool fee growth divides by liquidity and drops the remainder
+
+<!-- handsoff-issue-1329 -->
+- #1329: Add a test that mint rejects an inverted tick range
