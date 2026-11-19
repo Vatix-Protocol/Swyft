@@ -138,6 +138,21 @@ describe('WebhooksService', () => {
       );
     });
 
+    it('stores an empty eventTypes array (no 400) when every type is unknown', async () => {
+      prisma.webhook.create.mockResolvedValue(mockWebhookRecord);
+      const onlyUnknown = ['unknown.event'] as unknown as WebhookEventType[];
+
+      await expect(
+        service.create(OWNER, URL, onlyUnknown),
+      ).resolves.toBeDefined();
+
+      expect(prisma.webhook.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ eventTypes: [] }),
+        }),
+      );
+    });
+
     it('passes through all valid WEBHOOK_EVENTS without filtering', async () => {
       prisma.webhook.create.mockResolvedValue(mockWebhookRecord);
       const all = [...WEBHOOK_EVENTS] as WebhookEventType[];

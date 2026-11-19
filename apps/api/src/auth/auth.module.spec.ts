@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 
-import { resolveJwtSecret } from './auth.module';
+import { jwtModuleOptionsFactory, resolveJwtSecret } from './auth.module';
 
 /**
  * Validates that resolveJwtSecret refuses to boot with the insecure
@@ -85,5 +85,25 @@ describe('resolveJwtSecret secret leakage', () => {
         expect(String(call.join(' '))).not.toContain(SENTINEL);
       }
     }
+  });
+});
+
+describe('jwtModuleOptionsFactory expiresIn', () => {
+  function configWith(expiresIn: string | undefined): ConfigService {
+    return {
+      getOrThrow: () => 'a-real-unique-secret',
+      get: (key: string) => (key === 'JWT_EXPIRES_IN' ? expiresIn : undefined),
+    } as unknown as ConfigService;
+  }
+
+  it('falls back to 15m when JWT_EXPIRES_IN is unset', () => {
+    const options = jwtModuleOptionsFactory(configWith(undefined));
+    expect(options.signOptions.expiresIn).toBe('15m');
+    expect(options.secret).toBe('a-real-unique-secret');
+  });
+
+  it('passes a configured 5m through unchanged', () => {
+    const options = jwtModuleOptionsFactory(configWith('5m'));
+    expect(options.signOptions.expiresIn).toBe('5m');
   });
 });
