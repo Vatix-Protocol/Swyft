@@ -235,18 +235,72 @@ impl Router {
         amount
     }
 
-    /// Returns the router's balance of `token`. Always 0 — the router is stateless.
-    ///
-    /// # Arguments
-    /// * `_token` - Token address (unused; present for interface compatibility).
-    ///
-    /// # Returns
-    /// `0i128`.
+    /// Returns the router's balance of `token`. Always 0 — the router is stateless
+    /// and never holds token balances.
     pub fn get_router_balance(_env: Env, _token: Address) -> i128 {
         0
     }
 }
 
-// ── Helpers ──────────────
+// ── Internal helpers ──────────────────────────────────────────────────────────
 
-/* … truncated 210 chars — edit only what you need near the top … */
+fn ensure_deadline(env: &Env, deadline: u64) {
+    let now = env.ledger().timestamp();
+    if deadline < now {
+        panic_with_error!(env, RouterError::DeadlineExpired);
+    }
+    if deadline > now + MAX_SWAP_DEADLINE_SECONDS {
+        panic_with_error!(env, RouterError::DeadlineTooFar);
+    }
+}
+
+fn ensure_positive_amount(env: &Env, amount: i128) {
+    if amount <= 0 {
+        panic_with_error!(env, RouterError::InvalidAmount);
+    }
+}
+
+fn ensure_path(env: &Env, path: &Vec<Address>) {
+    if path.len() < 2 {
+        panic_with_error!(env, RouterError::InvalidPath);
+    }
+}
+
+fn execute_exact_input_hop(env: &Env, token_in: Address, token_out: Address, amount_in: i128) -> i128 {
+    let amount_out = quote_exact_input_hop(env, &token_in, &token_out, amount_in);
+    publish_swap(env, token_in, token_out, amount_in, amount_out);
+    amount_out
+}
+
+fn quote_exact_input_hop(env: &Env, token_in: &Address, token_out: &Address, amount_in: i128) -> i128 {
+    let rate = get_pool_rate(env, token_in, token_out);
+    amount_in
+        .checked_mul(rate)
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow))
+}
+
+fn quote_exact_output_hop(env: &Env, token_in: &Address, token_out: &Address, amount_out: i128) -> i128 {
+    let rate = get_pool_rate(env, token_in, token_out);
+    amount_out
+        .checked_div(rate)
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow))
+}
+
+fn get_pool_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
+}
+
+fn publish_swap(env: &Env, token_in: Address, token_out: Address, amount_in: i128, amount_out: i128) {
+    env.events().publish(
+        (Symbol::new(env, "swap"),),
+        SwapEvent {
+            token_in,
+            token_out,
+            amount_in,
+            amount_out,
+        },
+    );
+}
