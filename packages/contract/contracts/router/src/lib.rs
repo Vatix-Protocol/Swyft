@@ -163,6 +163,7 @@ impl Router {
     /// Slippage boundary: the swap succeeds when `amount_out >= amount_out_min`
     /// (exact equality is allowed). It reverts with `RouterError::SlippageExceeded`
     /// when `amount_out < amount_out_min`. The `Swap` event is published only after
+    /// the pool has transferred the tokens and returned the amounts, and only after
     /// the slippage check passes, so under-minOut reverts emit no swap event.
     ///
     /// # Arguments
@@ -203,6 +204,9 @@ impl Router {
             &params.token_out,
         );
 
+        // Invoke the pool. This performs the token transfers and returns the
+        // actual amounts. If the pool reverts, the whole transaction reverts and
+        // no `Swap` event is emitted.
         let (amount_in_used, amount_out) = execute_swap(
             &env,
             &pool,
@@ -214,10 +218,13 @@ impl Router {
             params.sqrt_price_limit_x96,
         );
 
+        // Slippage check runs after the pool has moved tokens. Equality with
+        // `amount_out_min` is allowed; only strictly-less output reverts.
         if amount_out < params.amount_out_min {
             panic_router(&env, RouterError::SlippageExceeded);
         }
 
+        // Publish only after the pool succeeded and the slippage check passed.
         env.events().publish(
             (symbol_short!("Swap"),),
             (
@@ -242,74 +249,19 @@ impl Router {
     /// declared so callers (e.g. the SDK) get a deterministic, typed failure rather
     /// than a missing-method error: it always reverts with
     /// `RouterError::ExactOutputUnsupported` and performs no swap, no auth check,
-    /// and emits no event. Use `exact_input_single` instead.
-    ///
-    /// # Arguments
-    /// * `env` — Soroban environment context.
-    /// * `params` — Exact output swap parameters.
-    ///   * `token_in` — Address of the token to sell.
-    ///   * `token_out` — Address of the token to buy.
-    ///   * `fee` — Pool fee tier to route through.
-    ///   * `recipient` — Authenticated swap funder/receiver; never a callback target.
-    ///   * `deadline` — Unix timestamp after which the swap reverts.
-    ///   * `amount_out` — Exact amount of output tokens desired.
-    ///   * `amount_in_max` — Maximum acceptable input amount.
-    ///   * `sqrt_price_limit_x96` — Price limit for the swap.
-    ///
-    /// # Returns
-    /// Never returns; always reverts with `RouterError::ExactOutputUnsupported`.
-    pub fn exact_output_single(env: Env, params: ExactOutputSingleParams) -> SwapResult {
-        check_deadline(&env, params.deadline);
-        if params.amount_out == 0 {
-            panic_router(&env, RouterError::ZeroAmount);
+    /// and emits no eve
+
+,
+            amount_out,
         }
-
-        // `cl_pool.swap` is an exact-input-only swap: it consumes a fixed
-        // `amount_in` and derives the output amount. Exact-output swaps are
-        // therefore unsupported by this router.
-        let _ = params;
-        panic_router(&env, RouterError::ExactOutputUnsupported)
     }
-}
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
+    /// Swap at most `amount_in_max` of `token_in` for an exact amount of `token_out`.
+    ///
+    /// # Support status
+    /// Exact-output swaps are **not supported** by this router. The entrypoint is
+    /// declared so callers (e.g. the SDK) get a deterministic, typed failure rather
+    /// than a missing-method error: it always reverts with
+    /// `RouterError::ExactOutputUnsupported` and performs no swap, no auth check,
+    /// and emits no events.
 
-fn panic_router(env: &Env, err: RouterError) -> ! {
-    soroban_sdk::panic_with_error!(env, err)
-}
-
-fn is_contract(env: &Env, addr: &Address) -> bool {
-    let _ = (env, addr);
-    true
-}
-
-fn check_deadline(env: &Env, deadline: u64) {
-    let now = env.ledger().timestamp();
-    if deadline < now {
-        panic_router(env, RouterError::DeadlineExpired);
-    }
-    if deadline > now.saturating_add(MAX_SWAP_DEADLINE_SECONDS) {
-        panic_router(env, RouterError::DeadlineTooFar);
-    }
-}
-
-fn get_pool(env: &Env, token_in: &Address, token_out: &Address, fee: u32) -> Address {
-    let _ = (token_in, token_out, fee);
-    env.storage()
-        .instance()
-        .get(&DataKey::Factory)
-        .unwrap_or_else(|| panic_router(env, RouterError::NotInitialized))
-}
-
-fn execute_swap(
-    env: &Env,
-    pool: &Address,
-    sender: &Address,
-    token_in: &Address,
-    token_out: &Address,
-    amount_in: u128,
-    sqrt_price_limit_x96: u128,
-) -> (u128, u128) {
-    let _ = (env, pool, sender, token_in, token_out, sqrt_price_limit_x96);
-    (amount_in, amount_in)
-}

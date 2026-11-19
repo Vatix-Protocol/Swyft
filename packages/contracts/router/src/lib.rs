@@ -230,14 +230,15 @@ impl Router {
         ensure_positive_amount(&env, amount_out);
         ensure_path(&env, &path);
 
+        // First pass: quote every hop backwards without publishing anything, so the
+        // input cap can be enforced before any swap becomes observable.
         let mut amount = amount_out;
         let mut index = path.len() - 1;
 
         while index > 0 {
             let token_in = path.get(index - 1).unwrap();
             let token_out = path.get(index).unwrap();
-            let amount_in = quote_exact_output_hop(&env, &token_in, &token_out, amount);
-            amount = amount_in;
+            amount = quote_exact_output_hop(&env, &token_in, &token_out, amount);
             index -= 1;
         }
 
@@ -245,6 +246,7 @@ impl Router {
             panic_with_error!(&env, RouterError::ExcessiveInput);
         }
 
+            amount = quote_exact_output_hop(&env, &token_in, &token_out, amount);
         amount
     }
 }
@@ -262,13 +264,6 @@ fn ensure_deadline(env: &Env, deadline: u64) {
     }
 }
 
-/// Reject zero or negative amounts.
-fn ensure_positive_amount(env: &Env, amount: i128) {
-    if amount <= 0 {
-        panic_with_error!(env, RouterError::InvalidAmount);
-    }
-}
-
 /// Reject paths with fewer than two tokens.
 fn ensure_path(env: &Env, path: &Vec<Address>) {
     if path.len() < 2 {
@@ -277,21 +272,41 @@ fn ensure_path(env: &Env, path: &Vec<Address>) {
 }
 
 /// Look up the registered rate for a token pair, panicking if absent.
-fn get_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
+fn get_rate(env: &Env, token_in: &Address, t
+fn ensure_positive_amount(env: &Env, amount: i128) {
+    if amount <= 0 {
+        panic_with_error!(env, RouterError::InvalidAmount);
+    }
+}
+
+/// Reject zero or negative amounts.
+fn ensure_positive_amount(env: &Env, amount: i128) {
+    if amount <= 0 {
+        panic_with_error!(env, RouterError::InvalidAmount);
+    }
+}
+fn ensure_path(env: &Env, path: &Vec<Address>) {
+    if path.len() < 2 {
+        panic_with_error!(env, RouterError::InvalidPath);
+    }
+}
+
+fn load_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
     env.storage()
         .instance()
         .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
         .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
 }
 
-/// Execute a single exact-input hop and emit the swap event.
+/// Look up the registered rate for a token pair, panicking if absent.
+fn load_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
 fn execute_exact_input_hop(
     env: &Env,
     token_in: Address,
     token_out: Address,
     amount_in: i128,
 ) -> i128 {
-    let rate = get_rate(env, &token_in, &token_out);
+    let rate = load_rate(env, &token_in, &token_out);
     let amount_out = amount_in
         .checked_mul(rate)
         .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow));
@@ -300,14 +315,14 @@ fn execute_exact_input_hop(
     amount_out
 }
 
-/// Quote the input required for a single exact-output hop.
+    let rate = load_rate(env, &token_in, &token_out);
 fn quote_exact_output_hop(
     env: &Env,
     token_in: &Address,
     token_out: &Address,
     amount_out: i128,
 ) -> i128 {
-    let rate = get_rate(env, token_in, token_out);
+    let rate = load_rate(env, token_in, token_out);
     amount_out
         .checked_add(rate - 1)
         .and_then(|v| v.checked_div(rate))
