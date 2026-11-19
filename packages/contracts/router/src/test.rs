@@ -1,46 +1,63 @@
+#![cfg(test)]
+
 use super::*;
-use soroban_sdk::{
-    testutils::{Address as _, Events, Ledger},
-    vec, Address, Env,
-};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
-const NOW: u64 = 1_000;
-const DEADLINE: u64 = 1_100;
-
-fn setup() -> (Env, Address, Address, Address, Address) {
+fn setup() -> (Env, RouterClient<'static>) {
     let env = Env::default();
-    env.ledger().with_mut(|ledger| {
-        ledger.timestamp = NOW;
+    let contract_id = env.register_contract(None, Router);
+    let client = RouterClient::new(&env, &contract_id);
+    (env, client)
+}
+
+#[test]
+fn identical_token_addresses_cannot_be_a_pool_rate() {
+    let (env, client) = setup();
+    let token = Address::generate(&env);
+
+    let result = client.try_set_pool_rate(&token, &token, &1_000);
+    assert_eq!(result, Err(Ok(RouterError::InvalidPath)));
+
+    // Storage must remain empty after the rejected call.
+    let stored: Option<i128> = env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .get(&DataKey::Pool(token.clone(), token.clone()))
     });
-
-    let router_id = env.register_contract(None, Router);
-    let token_a = Address::generate(&env);
-    let token_b = Address::generate(&env);
-    let token_c = Address::generate(&env);
-
-    (env, router_id, token_a, token_b, token_c)
+    assert_eq!(stored, None);
 }
 
 #[test]
-fn exact_input_single_success() {
-    let (env, router_id, token_a, token_b, _) = setup();
-    let client = RouterClient::new(&env, &router_id);
-    client.set_pool_rate(&token_a, &token_b, &2);
+fn zero_rate_is_rejected_and_leaves_storage_empty() {
+    let (env, client) = setup();
+    let token_in = Address::generate(&env);
+    let token_out = Address::generate(&env);
 
-    let amount_out = client.exact_input_single(&token_a, &token_b, &10, &19, &DEADLINE);
+    let result = client.try_set_pool_rate(&token_in, &token_out, &0);
+    assert_eq!(result, Err(Ok(RouterError::InvalidAmount)));
 
-    assert_eq!(amount_out, 20);
+    let stored: Option<i128> = env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
+    });
+    assert_eq!(stored, None);
 }
 
 #[test]
-fn exact_output_single_success() {
-    let (env, router_id, token_a, token_b, _) = setup();
-    let client = RouterClient::new(&env, &router_id);
-    client.set_pool_rate(&token_a, &token_b, &2);
+fn positive_rate_for_distinct_tokens_is_stored_and_readable() {
+    let (env, client) = setup();
+    let token_in = Address::generate(&env);
+    let token_out = Address::generate(&env);
 
-    let amount_in = client.exact_output_single(&token_a, &token_b, &20, &10, &DEADLINE);
+    client.set_pool_rate(&token_in, &token_out, &2_500);
 
-    assert_eq!(amount_in, 10);
+    let stored: Option<i128> = env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
+    });
+    assert_eq!(stored, Some(2_500));
 }
 
 #[test]
