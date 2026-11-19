@@ -97,16 +97,34 @@ export class PoolsRepository {
     return n > 0n;
   }
 
+  /**
+   * Validates a decimal price string.
+   *
+   * Accepts only a positive decimal (e.g. "1.10", "0.5", "42"). Rejects
+   * empty/whitespace strings, signs, exponents, and any non-numeric input so
+   * the value can be persisted as an exact decimal rather than a binary float.
+   */
+  static isValidDecimalPrice(value: string | undefined | null): boolean {
+    if (value === undefined || value === null) return false;
+    const trimmed = value.trim();
+    if (trimmed === '') return false;
+    if (!/^\d+(\.\d+)?$/.test(trimmed)) return false;
+    // Reject zero (and "0.00") since a pool price must be positive.
+    return /[1-9]/.test(trimmed);
+  }
+
   async upsertPoolState(poolId: string, patch: PoolStatePatch): Promise<void> {
     if (patch.currentPrice === undefined) return;
 
-    const currentPrice = Number.parseFloat(patch.currentPrice);
-    if (!Number.isFinite(currentPrice) || currentPrice < 0) return;
+    // Validate as a decimal string and persist it verbatim so the stored value
+    // remains an exact decimal (e.g. "1.10" == 1.10) instead of a binary float.
+    if (!PoolsRepository.isValidDecimalPrice(patch.currentPrice)) return;
+    const currentPrice = patch.currentPrice.trim();
 
     await this.prisma.pool
       .update({
         where: { id: poolId },
-        data: { currentPrice: patch.currentPrice },
+        data: { currentPrice },
       })
       .catch((error: { code?: string }) => {
         // State updates may arrive for a pool that has not been indexed yet.
