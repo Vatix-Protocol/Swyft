@@ -44,6 +44,7 @@ const MAX_SWAP_DEADLINE_SECONDS: u64 = 300;
 #[derive(Clone)]
 pub enum DataKey {
     Pool(Address, Address),
+    Admin,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -69,13 +70,31 @@ pub struct Router;
 
 #[contractimpl]
 impl Router {
+    /// Initialize the router and record the admin authorized to set pool rates.
+    ///
+    /// # Arguments
+    /// * `admin` - Address authorized to call `set_pool_rate`.
+    pub fn initialize(env: Env, admin: Address) {
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &admin);
+    }
+
     /// Register or update the exchange rate for a token pair.
+    ///
+    /// Only the admin authorized at initialize may call this.
     ///
     /// # Arguments
     /// * `token_in`  - Address of the input token.
     /// * `token_out` - Address of the output token. Must differ from `token_in`.
     /// * `rate`      - Units of `token_out` per unit of `token_in`. Must be > 0.
     pub fn set_pool_rate(env: Env, token_in: Address, token_out: Address, rate: i128) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, RouterError::InvalidPath));
+        admin.require_auth();
+
         if token_in == token_out {
             panic_with_error!(&env, RouterError::InvalidPath);
         }
@@ -244,7 +263,83 @@ impl Router {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// Reject a deadline that has already passed or is too far in the future.
 fn ensure_deadline(env: &Env, deadline: u64) {
-    let now = env.ledger().timestamp
+    let now = env.ledger().timestamp();
+    if deadline < now {
+        panic_with_error!(env, RouterError::DeadlineExpired);
+    }
+    if deadline > now + MAX_SWAP_DEADLINE_SECONDS {
+        panic_with_error!(env, RouterError::DeadlineTooFar);
+    }
+}
 
-/* … truncated 1877 chars — edit only what you need near the top … */
+/// Reject a non-positive amount.
+fn ensure_positive_amount(env: &Env, amount: i128) {
+    if amount <= 0 {
+        panic_with_error!(env, RouterError::InvalidAmount);
+    }
+}
+
+/// Reject a path with fewer than two tokens.
+fn ensure_path(env: &Env, path: &Vec<Address>) {
+    if path.len() < 2 {
+        panic_with_error!(env, RouterError::InvalidPath);
+    }
+}
+
+/// Load the stored rate for a token pair, panicking if none is registered.
+fn load_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
+}
+
+/// Compute the output for an exact input hop and emit the swap event.
+fn execute_exact_input_hop(
+    env: &Env,
+    token_in: Address,
+    token_out: Address,
+    amount_in: i128,
+) -> i128 {
+    let rate = load_rate(env, &token_in, &token_out);
+    let amount_out = amount_in
+        .checked_mul(rate)
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow));
+    publish_swap(env, token_in, token_out, amount_in, amount_out);
+    amount_out
+}
+
+/// Compute the input required for an exact output hop.
+fn quote_exact_output_hop(
+    env: &Env,
+    token_in: &Address,
+    token_out: &Address,
+    amount_out: i128,
+) -> i128 {
+    let rate = load_rate(env, token_in, token_out);
+    amount_out
+        .checked_add(rate - 1)
+        .and_then(|n| n.checked_div(rate))
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow))
+}
+
+/// Emit a `SwapEvent` for a completed hop.
+fn publish_swap(
+    env: &Env,
+    token_in: Address,
+    token_out: Address,
+    amount_in: i128,
+    amount_out: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "swap"), token_in.clone(), token_out.clone()),
+        SwapEvent {
+            token_in,
+            token_out,
+            amount_in,
+            amount_out,
+        },
+    );
+}
