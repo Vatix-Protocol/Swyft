@@ -60,25 +60,15 @@ export class SwapsService {
       limit: query.limit ?? 20,
     };
 
-    try {
-      const { items, total } = await this.swapsRepository.listSwaps(normalized);
+    const { items, total } = await this.swapsRepository.listSwaps(normalized);
 
-      return {
-        items: items.map((swap) => this.toResponse(swap)),
-        page: normalized.page,
-        limit: normalized.limit,
-        total,
-        totalPages: total === 0 ? 0 : Math.ceil(total / normalized.limit),
-      };
-    } catch (err: unknown) {
-      if (
-        err instanceof Error &&
-        err.message.includes(SwapErrorCode.SLIPPAGE_EXCEEDED)
-      ) {
-        throw new SlippageExceededException();
-      }
-      throw err;
-    }
+    return {
+      items: items.map((swap) => this.toResponse(swap)),
+      page: normalized.page,
+      limit: normalized.limit,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / normalized.limit),
+    };
   }
 
   /**
@@ -136,6 +126,12 @@ export class SwapsService {
         slippage: dto.slippageBps,
       });
     } catch (err: unknown) {
+      if (
+        err instanceof Error &&
+        err.message.includes(SwapErrorCode.SLIPPAGE_EXCEEDED)
+      ) {
+        throw new SlippageExceededException();
+      }
       const message = err instanceof Error ? err.message : 'quote failed';
       throw new BusinessRuleViolationException(message);
     }
