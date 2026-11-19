@@ -132,3 +132,50 @@ impl FeeCollector {
         env.storage().persistent().set(&balance_key, &0i128);
     }
 }
+
+#[cfg(test)]
+mod non_positive_fee_tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    fn setup(env: &Env) -> (FeeCollectorClient<'_>, Address, Address) {
+        let contract_id = env.register_contract(None, FeeCollector);
+        let client = FeeCollectorClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let treasury = Address::generate(env);
+        client.initialize(&admin, &treasury);
+        (client, admin, contract_id)
+    }
+
+    #[test]
+    fn deposit_zero_amount_is_rejected_and_balance_unchanged() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _contract_id) = setup(&env);
+        let pool = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        client.set_authorized_pool(&pool, &true);
+        client.set_fee_switch(&true);
+
+        let result = client.try_deposit_protocol_fees(&token, &pool, &0i128);
+        assert!(result.is_err());
+        assert_eq!(client.get_balance(&token), 0);
+    }
+
+    #[test]
+    fn deposit_negative_amount_is_rejected_and_balance_unchanged() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _contract_id) = setup(&env);
+        let pool = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        client.set_authorized_pool(&pool, &true);
+        client.set_fee_switch(&true);
+
+        let result = client.try_deposit_protocol_fees(&token, &pool, &-1i128);
+        assert!(result.is_err());
+        assert_eq!(client.get_balance(&token), 0);
+    }
+}
