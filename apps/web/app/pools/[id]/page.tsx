@@ -7,6 +7,7 @@ import { usePoolDetail } from '@/hooks/usePoolDetail';
 import { TokenLogo } from '@swyft/ui';
 import type { Token } from '@swyft/ui';
 import { formatFeeApr } from '@/lib/fee-apr';
+import { formatFeeTier } from '@/lib/fee-tier';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -17,10 +18,6 @@ function fmt(n: string | number, prefix = '$') {
   if (num >= 1_000_000) return `${prefix}${(num / 1_000_000).toFixed(2)}M`;
   if (num >= 1_000) return `${prefix}${(num / 1_000).toFixed(2)}K`;
   return `${prefix}${num.toFixed(2)}`;
-}
-
-function fmtFee(bps: number) {
-  return `${(bps / 10_000).toFixed(4)}%`;
 }
 
 function tokenToUiToken(t: { address: string; symbol: string; name: string }): Token {
@@ -139,7 +136,7 @@ export default function PoolDetailPage({ params }: PageProps) {
           <div>
             <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">{poolName}</h1>
             <span className="text-sm text-zinc-500 dark:text-zinc-400">
-              {fmtFee(pool.feeTier)} fee tier
+              {formatFeeTier(pool.feeTier)} fee tier
             </span>
           </div>
         </div>
