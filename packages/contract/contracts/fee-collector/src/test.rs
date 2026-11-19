@@ -47,6 +47,48 @@ fn collect_protocol_fees_requires_admin() {
     let client = FeeCollectorClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
+    let second_admin = Address::generate(&env);
+    let second_treasury = Address::generate(&env);
+
+    client.initialize(&admin, &treasury);
+
+    assert!(client
+        .try_initialize(&second_admin, &second_treasury)
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, FeeCollector);
+    let client = FeeCollectorClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+fn initialize_cannot_be_repeated() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, FeeCollector);
+    let client = FeeCollectorClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    let second_admin = Address::generate(&env);
+    let second_treasury = Address::generate(&env);
+
+    client.initialize(&admin, &treasury);
+
+    assert!(client
+        .try_initialize(&second_admin, &second_treasury)
+        .is_err());
+
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_treasury(), treasury);
+}
+
+#[test]
+fn collect_protocol_fees_requires_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, FeeCollector);
+    let client = FeeCollectorClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
 
     client.initialize(&admin, &treasury);
     client.set_balance(&1000);

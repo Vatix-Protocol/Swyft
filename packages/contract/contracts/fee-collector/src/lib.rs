@@ -143,6 +143,33 @@ impl FeeCollector {
 }
 
 #[cfg(test)]
+mod reinit_test {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    #[test]
+    fn initialize_cannot_be_repeated() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, FeeCollector);
+        let client = FeeCollectorClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+
+        let new_admin = Address::generate(&env);
+        let new_treasury = Address::generate(&env);
+        let result = client.try_initialize(&new_admin, &new_treasury);
+        assert!(result.is_err(), "second initialize must fail");
+
+        assert_eq!(client.get_admin(), admin);
+        assert_eq!(client.get_treasury(), treasury);
+    }
+}
+
+#[cfg(test)]
 mod non_positive_fee_tests {
     use super::*;
     use soroban_sdk::testutils::Address as _;
@@ -322,5 +349,7 @@ mod collect_protocol_fees_tests {
         assert_eq!(client.get_balance(&token), 0);
         assert_eq!(TokenClient::new(&env, &token).balance(&admin), 0);
         assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), 0);
+    }
+}
     }
 }

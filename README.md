@@ -172,6 +172,9 @@ compose files must read credentials from environment variables or local
 
 ## Handsoff notes
 
+<!-- handsoff-issue-1342 -->
+- #1342: Add a test that a pool fee of one thousandth is what swap charges
+
 <!-- handsoff-issue-1327 -->
 - #1327: Document that pool fee growth divides by liquidity and drops the remainder
 
