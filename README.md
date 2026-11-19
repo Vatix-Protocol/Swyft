@@ -174,3 +174,27 @@ compose files must read credentials from environment variables or local
 
 <!-- handsoff-issue-1342 -->
 - #1342: Add a test that a pool fee of one thousandth is what swap charges
+
+<!-- handsoff-issue-1327 -->
+- #1327: Document that pool fee growth divides by liquidity and drops the remainder
+
+<!-- handsoff-issue-1329 -->
+- #1329: Add a test that mint rejects an inverted tick range
+
+<!-- handsoff-issue-1306 -->
+- #1306: pool::swap ignores token_out and exact_input
+
+<!-- handsoff-issue-1307 -->
+- #1307: pool::swap updates the price without moving tokens
+
+<!-- handsoff-issue-1308 -->
+- #1308: A price-limited pool swap still reports the full amount_in
+
+<!-- handsoff-issue-1309 -->
+- #1309: Pool swap fees are always accrued as token0
+
+<!-- handsoff-issue-1334 -->
+- #1334: Fee growth uses wrapping_add so a full accumulator wraps instead of failing
+
+<!-- handsoff-issue-1337 -->
+- #1337: Add a test that the cl-pool swap requires the sender

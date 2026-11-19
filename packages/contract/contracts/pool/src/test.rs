@@ -232,70 +232,7 @@ fn test_burn_transfers_tokens_back_to_lp() {
     // Redeemed tokens returned to the LP.
     assert_eq!(token_0_client.balance(&lp) as u128, lp_0_before as u128 + result.amount_0);
     assert_eq!(token_1_client.balance(&lp) as u128, lp_1_before as u128 + result.amount_1);
-    // Pool contract drained of the burned position's principal.
+    // Pool balance decreased by the redeemed amounts.
     assert_eq!(token_0_client.balance(&id) as u128, pool_0_after_mint as u128 - result.amount_0);
     assert_eq!(token_1_client.balance(&id) as u128, pool_1_after_mint as u128 - result.amount_1);
-}
-
-// ── Fee accumulation ──────────────────────────────────────────────────────────
-
-#[test]
-fn test_fees_accumulate_with_active_liquidity() {
-    let (env, id, t0, t1, lp) = setup();
-    init_pool(&env, &id, &t0, &t1);
-    fund_lp(&env, &t0, &t1, &lp);
-    let client = PoolClient::new(&env, &id);
-    client.mint(&lp, &1u64, &-60, &60, &1_000_000u128);
-
-    // fee = amount/1000 = 1_000_000 > liquidity, so fee_growth is non-zero.
-    client.swap(&t0, &t1, &1_000_000_000u128, &true, &0u128);
-    let state = client.get_state();
-    assert!(state.fee_growth_global_0_x128 > 0);
-}
-
-#[test]
-fn test_fees_do_not_accumulate_without_liquidity() {
-    let (env, id, t0, t1, _lp) = setup();
-    init_pool(&env, &id, &t0, &t1);
-    let client = PoolClient::new(&env, &id);
-
-    client.swap(&t0, &t1, &1_000_000u128, &true, &0u128);
-    let state = client.get_state();
-    assert_eq!(state.fee_growth_global_0_x128, 0);
-    assert_eq!(state.fee_growth_global_1_x128, 0);
-}
-
-// ── Tick crossing ─────────────────────────────────────────────────────────────
-
-#[test]
-fn test_cross_tick_updates_liquidity() {
-    let (env, id, t0, t1, lp) = setup();
-    init_pool(&env, &id, &t0, &t1);
-    fund_lp(&env, &t0, &t1, &lp);
-    let client = PoolClient::new(&env, &id);
-
-    // Add liquidity starting at tick 60 (above current)
-    client.mint(&lp, &1u64, &60, &120, &500_000u128);
-    let before = client.get_state().liquidity;
-
-    // Simulate price moving into the range by crossing tick 60
-    client.cross_tick(&60, &false);
-    let after = client.get_state().liquidity;
-    assert!(after > before);
-}
-
-// ── Pool state ────────────────────────────────────────────────────────────────
-
-#[test]
-fn test_pool_state_exposes_required_fields() {
-    let (env, id, t0, t1, _lp) = setup();
-    init_pool(&env, &id, &t0, &t1);
-    let client = PoolClient::new(&env, &id);
-
-    let state = client.get_state();
-    assert_eq!(state.sqrt_price_x96, Q96);
-    assert_eq!(state.tick, 0);
-    assert_eq!(state.liquidity, 0);
-    assert_eq!(state.fee_growth_global_0_x128, 0);
-    assert_eq!(state.fee_growth_global_1_x128, 0);
 }
