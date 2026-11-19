@@ -105,7 +105,7 @@ export class SwapsService {
 
     const zeroForOne = this.resolveDirection(pool, dto.tokenIn, dto.tokenOut);
     const price = this.spotPrice(pool.currentSqrtPrice);
-    if (!Number.isFinite(price) || price <= 0) {
+    if (price === null || Number(price) <= 0) {
       throw new BusinessRuleViolationException(
         `Pool ${dto.poolId} has no valid price yet`,
       );
@@ -208,10 +208,28 @@ export class SwapsService {
     );
   }
 
-  /** Spot price of token1 per token0, decoded from the Q64.96 sqrt price. */
-  private spotPrice(currentSqrtPrice: string): number {
-    const sqrtPrice = Number(currentSqrtPrice) / 2 ** 96;
-    return sqrtPrice * sqrtPrice;
+  /**
+   * Spot price of token1 per token0, decoded from the Q64.96 sqrt price.
+   *
+   * The sqrt price is decoded with integer arithmetic into a decimal string
+   * (price = sqrtPrice^2 / 2^192) so values near 2^96 are not rounded through
+   * a JavaScript `Number`. Returns `null` when the input is not a valid
+   * non-negative integer string.
+   */
+  private spotPrice(currentSqrtPrice: string): string | null {
+    const trimmed = currentSqrtPrice?.trim() ?? '';
+    if (!/^\d+$/.test(trimmed)) {
+      return null;
+    }
+
+    const sqrtPrice = BigInt(trimmed);
+    if (sqrtPrice <= 0n) {
+      return null;
+    }
+
+    const Q192 = 1n << 192n;
+    const priceScaled = (sqrtPrice * sqrtPrice * 10n ** 18n) / Q192;
+    return this.fromBaseUnits(priceScaled, 18);
   }
 
   private toResponse(swap: SwapSnapshot): SwapResponse {
