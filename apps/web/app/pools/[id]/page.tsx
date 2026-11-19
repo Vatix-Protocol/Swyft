@@ -12,8 +12,9 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-function fmt(n: string | number, prefix = '$') {
+function fmt(n: string | number | null | undefined, prefix = '$') {
   const num = typeof n === 'string' ? parseFloat(n) : n;
+  if (num == null || !Number.isFinite(num)) return '—';
   if (num >= 1_000_000) return `${prefix}${(num / 1_000_000).toFixed(2)}M`;
   if (num >= 1_000) return `${prefix}${(num / 1_000).toFixed(2)}K`;
   return `${prefix}${num.toFixed(2)}`;

@@ -28,9 +28,20 @@ interface TokenInputProps {
   onChange: (value: string) => void;
 }
 
+/** Compares two non-negative decimal strings exactly, without converting to float. */
+function exceedsBalance(amount: string, balance: string): boolean {
+  const [ai = '', af = ''] = (amount || '0').split('.');
+  const [bi = '', bf = ''] = (balance || '0').split('.');
+  const len = Math.max(af.length, bf.length);
+  try {
+    return BigInt((ai || '0') + af.padEnd(len, '0')) > BigInt((bi || '0') + bf.padEnd(len, '0'));
+  } catch {
+    return false;
+  }
+}
+
 function TokenInput({ label, symbol, amount, balance, disabled, onChange }: TokenInputProps) {
-  const insufficient =
-    !disabled && balance !== undefined && parseFloat(amount || '0') > parseFloat(balance || '0');
+  const insufficient = !disabled && balance !== undefined && exceedsBalance(amount, balance);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value;
