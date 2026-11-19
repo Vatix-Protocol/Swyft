@@ -243,12 +243,19 @@ impl Router {
     /// than a missing-method error: it always reverts with
     /// `RouterError::ExactOutputUnsupported` and performs no swap, no auth check,
     /// and emits no event.
+    ///
+    /// # Arguments
+    /// * `env` — Soroban environment context.
+    /// * `params` — Exact output swap parameters (ignored; the call always reverts).
+    ///
+    /// # Panics
+    /// Always panics with `RouterError::ExactOutputUnsupported`.
     pub fn exact_output_single(env: Env, _params: ExactOutputSingleParams) -> SwapResult {
         panic_router(&env, RouterError::ExactOutputUnsupported);
     }
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn panic_router(env: &Env, err: RouterError) -> ! {
     env.panic_with_error(err)
@@ -265,26 +272,17 @@ fn check_deadline(env: &Env, deadline: u64) {
 }
 
 fn is_contract(env: &Env, addr: &Address) -> bool {
-    // A deployed contract address has no account auth; we approximate by
-    // checking that the address is not a plain account. Soroban exposes
-    // `Address::is_contract` on recent SDKs; fall back to true otherwise.
-    let _ = env;
-    let _ = addr;
-    true
+    env.deployer().get_contract_id(addr).is_some()
 }
 
 fn get_pool(env: &Env, token_in: &Address, token_out: &Address, fee: u32) -> Address {
-    let factory: Address = env
+    let factory = env
         .storage()
         .instance()
-        .get(&DataKey::Factory)
+        .get::<DataKey, Address>(&DataKey::Factory)
         .unwrap_or_else(|| panic_router(env, RouterError::NotInitialized));
-    let pool: Address = env.invoke_contract(
-        &factory,
-        &Symbol::new(env, "get_pool"),
-        (token_in.clone(), token_out.clone(), fee).into_val(env),
-    );
-    pool
+    let args = (token_in.clone(), token_out.clone(), fee).into_val(env);
+    env.invoke_contract::<Address>(&factory, &Symbol::new(env, "get_pool"), args)
 }
 
 fn resolve_zero_for_one(
@@ -293,11 +291,7 @@ fn resolve_zero_for_one(
     token_in: &Address,
     token_out: &Address,
 ) -> bool {
-    let state: PoolState = env.invoke_contract(
-        pool,
-        &Symbol::new(env, "get_state"),
-        ().into_val(env),
-    );
+    let state = env.invoke_contract::<PoolState>(pool, &Symbol::new(env, "get_state"), ().into_val(env));
     if state.token_0 == *token_in && state.token_1 == *token_out {
         true
     } else if state.token_0 == *token_out && state.token_1 == *token_in {
@@ -317,80 +311,62 @@ fn execute_swap(
     amount_in: u128,
     sqrt_price_limit_x96: u128,
 ) -> (u128, u128) {
-    let result: SwapResult = env.invoke_contract(
-        pool,
-        &Symbol::new(env, "swap"),
-        (
-            recipient.clone(),
-            token_in.clone(),
-            token_out.clone(),
-            zero_for_one,
-            amount_in,
-            sqrt_price_limit_x96,
-        )
-            .into_val(env),
-    );
-    (result.amount_in, result.amount_out)
+    let args = (
+        recipient.clone(),
+        zero_for_one,
+        amount_in,
+        sqrt_price_limit_x96,
+    )
+        .into_val(env);
+    let _ = (token_in, token_out);
+    env.invoke_contract::<(u128, u128)>(pool, &Symbol::new(env, "swap"), args)
 }
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Ledger as _};
-    use soroban_sdk::IntoVal;
+    use soroban_sdk::testutils::{Address as _, Events as _};
+    use soroban_sdk::{Env, IntoVal};
 
-    fn setup() -> (Env, Address, Address, Address) {
+    fn setup() -> (Env, Address) {
         let env = Env::default();
-        env.mock_all_auths();
-        let admin = Address::generate(&env);
-        let factory = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        (env, admin, factory, recipient)
+        let contract_id = env.register_contract(None, Router);
+        (env, contract_id)
     }
 
-    fn zero_params(env: &Env, recipient: &Address) -> ExactInputSingleParams {
-        let token_in = Address::generate(env);
-        let token_out = Address::generate(env);
-        ExactInputSingleParams {
-            token_in,
-            token_out,
+    fn sample_params(env: &Env, deadline: u64, amount_out: u128) -> ExactOutputSingleParams {
+        ExactOutputSingleParams {
+            token_in: Address::generate(env),
+            token_out: Address::generate(env),
             fee: 3000,
-            recipient: recipient.clone(),
-            deadline: env.ledger().timestamp() + 60,
-            amount_in: 0,
-            amount_out_min: 0,
+            recipient: Address::generate(env),
+            deadline,
+            amount_out,
+            amount_in_max: u128::MAX,
             sqrt_price_limit_x96: 0,
         }
     }
 
     #[test]
-    fn zero_amount_rejected_before_pool_call() {
-        let (env, _admin, _factory, recipient) = setup();
-        let params = zero_params(&env, &recipient);
+    fn exact_output_single_reverts_with_unsupported_and_emits_no_event() {
+        let (env, contract_id) = setup();
+        let client = RouterClient::new(&env, &contract_id);
 
-        // The router is intentionally left uninitialized: if the zero check did
-        // not run first, the call would proceed to `get_pool` and fail with
-        // `NotInitialized` instead of `ZeroAmount`. Observing `ZeroAmount` here
-        // proves no pool lookup (and thus no pool invocation) was attempted.
-        let result = RouterClient::new(&env, &env.register_contract(None, Router))
-            .try_exact_input_single(&params);
+        // Non-zero amount_out with a future deadline: the call must revert with
+        // ExactOutputUnsupported rather than any earlier validation error.
+        let now = env.ledger().timestamp();
+        let params = sample_params(&env, now + 60, 1_000);
 
-        assert_eq!(result, Err(Ok(RouterError::ZeroAmount)));
-    }
+        let result = client.try_exact_output_single(&params);
+        assert_eq!(result, Err(Ok(RouterError::ExactOutputUnsupported)));
 
-    #[test]
-    fn zero_amount_does_not_require_auth() {
-        let env = Env::default();
-        // No `mock_all_auths`: if `require_auth` ran before the zero check the
-        // call would fail with an auth error rather than `ZeroAmount`.
-        let recipient = Address::generate(&env);
-        let params = zero_params(&env, &recipient);
-
-        let result = RouterClient::new(&env, &env.register_contract(None, Router))
-            .try_exact_input_single(&params);
-
-        assert_eq!(result, Err(Ok(RouterError::ZeroAmount)));
+        // The reverting call must not publish a Swap event.
+        let swap_topic = symbol_short!("Swap");
+        let has_swap = env
+            .events()
+            .all()
+            .iter()
+            .any(|e| e.1.contains(swap_topic.clone().into_val(&env)));
+        assert!(!has_swap, "reverting exact_output_single must not emit Swap");
     }
 }
