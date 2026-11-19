@@ -180,3 +180,6 @@ compose files must read credentials from environment variables or local
 
 <!-- handsoff-issue-1308 -->
 - #1308: A price-limited pool swap still reports the full amount_in
+
+<!-- handsoff-issue-1309 -->
+- #1309: Pool swap fees are always accrued as token0
