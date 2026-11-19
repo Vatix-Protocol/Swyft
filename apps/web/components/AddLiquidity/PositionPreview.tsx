@@ -39,6 +39,11 @@ export interface PositionPreviewProps {
   isWalletConnected: boolean;
 }
 
+/** True when `value` is a plain decimal string greater than zero (e.g. "1.230000"), compared without float parsing. */
+function isPositiveDecimal(value: string): boolean {
+  return /^\d*\.?\d*$/.test(value) && /[1-9]/.test(value);
+}
+
 interface RowProps {
   label: ReactNode;
   value: string;
@@ -93,7 +98,7 @@ export function PositionPreview({
   isWalletConnected,
 }: PositionPreviewProps) {
   const isBusy = txStatus === 'signing' || txStatus === 'submitting';
-  const hasAmounts = parseFloat(amount0 || '0') > 0 || parseFloat(amount1 || '0') > 0;
+  const hasAmounts = isPositiveDecimal(amount0) || isPositiveDecimal(amount1);
   const aprAvailable = estimatedApr !== 'N/A' && estimatedApr !== '—';
 
   return (
@@ -135,12 +140,12 @@ export function PositionPreview({
           Position preview
         </p>
         <div className="flex flex-col gap-2 text-xs">
-          <Row label={`${token0Symbol} deposit`} value={parseFloat(amount0 || '0').toFixed(6)} />
-          <Row label={`${token1Symbol} deposit`} value={parseFloat(amount1 || '0').toFixed(6)} />
+          <Row label={`${token0Symbol} deposit`} value={amount0 || '0'} />
+          <Row label={`${token1Symbol} deposit`} value={amount1 || '0'} />
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
           <Row
             label="Price range"
-            value={`${parseFloat(lowerPrice || '0').toFixed(4)} – ${parseFloat(upperPrice || '0').toFixed(4)}`}
+            value={`${lowerPrice || '0'} – ${upperPrice || '0'}`}
           />
           <Row label="Share of pool" value={`${shareOfPool}%`} />
           <Row
