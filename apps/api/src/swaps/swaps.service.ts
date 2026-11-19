@@ -43,53 +43,32 @@ interface SwapsListResponse {
   limit: number;
   total: number;
   totalPages: number;
-  isLoading: boolean;
 }
 
 @Injectable()
 export class SwapsService {
-  private _isLoading = false;
-
-  get isLoading(): boolean {
-    return this._isLoading;
-  }
-
   constructor(
     private readonly swapsRepository: SwapsRepository,
     private readonly poolsService: PoolsService,
   ) {}
 
   async getSwaps(query: GetSwapsQueryDto): Promise<SwapsListResponse> {
-    this._isLoading = true;
-    try {
-      const normalized: SwapsQuery = {
-        poolId: query.poolId?.trim() || undefined,
-        wallet: query.wallet?.trim() || undefined,
-        page: query.page ?? 1,
-        limit: query.limit ?? 20,
-      };
+    const normalized: SwapsQuery = {
+      poolId: query.poolId?.trim() || undefined,
+      wallet: query.wallet?.trim() || undefined,
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+    };
 
-      const { items, total } = await this.swapsRepository.listSwaps(normalized);
+    const { items, total } = await this.swapsRepository.listSwaps(normalized);
 
-      return {
-        items: items.map((swap) => this.toResponse(swap)),
-        page: normalized.page,
-        limit: normalized.limit,
-        total,
-        totalPages: total === 0 ? 0 : Math.ceil(total / normalized.limit),
-        isLoading: false,
-      };
-    } catch (err: unknown) {
-      if (
-        err instanceof Error &&
-        err.message.includes(SwapErrorCode.SLIPPAGE_EXCEEDED)
-      ) {
-        throw new SlippageExceededException();
-      }
-      throw err;
-    } finally {
-      this._isLoading = false;
-    }
+    return {
+      items: items.map((swap) => this.toResponse(swap)),
+      page: normalized.page,
+      limit: normalized.limit,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / normalized.limit),
+    };
   }
 
   /**
@@ -147,30 +126,57 @@ export class SwapsService {
         slippage: dto.slippageBps,
       });
     } catch (err: unknown) {
+      if (
+        err instanceof Error &&
+        err.message.includes(SwapErrorCode.SLIPPAGE_EXCEEDED)
+      ) {
+        throw new SlippageExceededException();
+      }
       const message = err instanceof Error ? err.message : 'quote failed';
       throw new BusinessRuleViolationException(message);
     }
 
-    const amountOut = this.fromBaseUnits(
-      BigInt(result.amountOut),
-      tokenOutDecimals,
-    );
+    const amountOutBase = BigInt(result.amountOut);
+    const amountOut = this.fromBaseUnits(amountOutBase, tokenOutDecimals);
     const lpFee = this.fromBaseUnits(BigInt(result.fee), tokenInDecimals);
     const minimumReceived = this.fromBaseUnits(
       BigInt(result.minimumReceived),
       tokenOutDecimals,
     );
-    const amountInFloat = Number.parseFloat(dto.amountIn);
-    const executionPrice =
-      amountInFloat > 0 ? Number(amountOut) / amountInFloat : 0;
+    const executionPrice = this.executionPrice(
+      amountInBase,
+      tokenInDecimals,
+      amountOutBase,
+      tokenOutDecimals,
+    );
 
     return {
       amountOut,
       priceImpact: result.priceImpact,
       lpFee,
       minimumReceived,
-      executionPrice: executionPrice.toFixed(7),
+      executionPrice,
     };
+  }
+
+  /**
+   * Computes the execution price (tokenOut per tokenIn) as a decimal string
+   * from integer base units and token decimals, avoiding float precision loss.
+   */
+  private executionPrice(
+    amountInBase: bigint,
+    tokenInDecimals: number,
+    amountOutBase: bigint,
+    tokenOutDecimals: number,
+  ): string {
+    if (amountInBase <= 0n) return '0';
+    const scale = 10n ** 18n;
+    const numerator =
+      amountOutBase * 10n ** BigInt(tokenInDecimals) * scale;
+    const denominator =
+      amountInBase * 10n ** BigInt(tokenOutDecimals);
+    const scaled = numerator / denominator;
+    return this.fromBaseUnits(scaled, 18);
   }
 
   /**
