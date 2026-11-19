@@ -169,3 +169,11 @@ web client setup. For local Docker usage, prefer the compose guidance above.
 See `SECURITY.md` for reporting and policy. Do not commit secrets; local
 compose files must read credentials from environment variables or local
 `.env` files that are git-ignored.
+
+## Handsoff notes
+
+<!-- handsoff-issue-1334 -->
+- #1334: Fee growth uses wrapping_add so a full accumulator wraps instead of failing
+
+<!-- handsoff-issue-1337 -->
+- #1337: Add a test that the cl-pool swap requires the sender

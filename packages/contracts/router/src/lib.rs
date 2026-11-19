@@ -211,15 +211,15 @@ impl Router {
         ensure_positive_amount(&env, amount_out);
         ensure_path(&env, &path);
 
+        // First pass: quote every hop backwards without publishing anything, so the
+        // input cap can be enforced before any swap becomes observable.
         let mut amount = amount_out;
         let mut index = path.len() - 1;
 
         while index > 0 {
             let token_in = path.get(index - 1).unwrap();
             let token_out = path.get(index).unwrap();
-            let amount_in = quote_exact_output_hop(&env, &token_in, &token_out, amount);
-            publish_swap(&env, token_in, token_out, amount_in, amount);
-            amount = amount_in;
+            amount = quote_exact_output_hop(&env, &token_in, &token_out, amount);
             index -= 1;
         }
 
@@ -227,24 +227,94 @@ impl Router {
             panic_with_error!(&env, RouterError::ExcessiveInput);
         }
 
-        amount
-    }
+        // Second pass: the cap held, so publish each hop now that a revert can no
+        // longer leave a partial swap behind.
+        let mut amount = amount_out;
+        let mut index = path.len() - 1;
 
-    /// Returns the router's balance of `token`. Always 0 — the router is stateless.
-    ///
-    /// # Arguments
-    /// * `_token` - Token address (unused; present for interface compatibility).
-    ///
-    /// # Returns
-    /// `0i128`.
-    pub fn get_router_balance(_env: Env, _token: Address) -> i128 {
-        0
+        while index > 0 {
+            let token_in = path.get(index - 1).unwrap();
+            let token_out = path.get(index).unwrap();
+            amount = execute_exact_input_hop(&env, token_in, token_out, amount);
+            index -= 1;
+        }
+
+        amount
     }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn ensure_deadline(env: &Env, deadline: u64) {
-    let now = env.ledger().timestamp
+    let now = env.ledger().timestamp();
+    if deadline < now {
+        panic_with_error!(env, RouterError::DeadlineExpired);
+    }
+    if deadline - now > MAX_SWAP_DEADLINE_SECONDS {
+        panic_with_error!(env, RouterError::DeadlineTooFar);
+    }
+}
 
-/* … truncated 1877 chars — edit only what you need near the top … */
+fn ensure_positive_amount(env: &Env, amount: i128) {
+    if amount <= 0 {
+        panic_with_error!(env, RouterError::InvalidAmount);
+    }
+}
+
+fn ensure_path(env: &Env, path: &Vec<Address>) {
+    if path.len() < 2 {
+        panic_with_error!(env, RouterError::InvalidPath);
+    }
+}
+
+fn load_rate(env: &Env, token_in: &Address, token_out: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::Pool(token_in.clone(), token_out.clone()))
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::PoolNotFound))
+}
+
+fn execute_exact_input_hop(
+    env: &Env,
+    token_in: Address,
+    token_out: Address,
+    amount_in: i128,
+) -> i128 {
+    let rate = load_rate(env, &token_in, &token_out);
+    let amount_out = amount_in
+        .checked_mul(rate)
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow));
+
+    publish_swap(env, token_in, token_out, amount_in, amount_out);
+    amount_out
+}
+
+fn quote_exact_output_hop(
+    env: &Env,
+    token_in: &Address,
+    token_out: &Address,
+    amount_out: i128,
+) -> i128 {
+    let rate = load_rate(env, token_in, token_out);
+    amount_out
+        .checked_div(rate)
+        .unwrap_or_else(|| panic_with_error!(env, RouterError::Overflow))
+}
+
+fn publish_swap(
+    env: &Env,
+    token_in: Address,
+    token_out: Address,
+    amount_in: i128,
+    amount_out: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "swap"), token_in.clone(), token_out.clone()),
+        SwapEvent {
+            token_in,
+            token_out,
+            amount_in,
+            amount_out,
+        },
+    );
+}
