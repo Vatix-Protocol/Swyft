@@ -242,6 +242,112 @@ impl Router {
     /// declared so callers (e.g. the SDK) get a deterministic, typed failure rather
     /// than a missing-method error: it always reverts with
     /// `RouterError::ExactOutputUnsupported` and performs no swap, no auth check,
-    /// and emits no eve
+    /// and emits no event.
+    pub fn exact_output_single(_env: Env, _params: ExactOutputSingleParams) -> SwapResult {
+        panic_router(&_env, RouterError::ExactOutputUnsupported);
+    }
+}
 
-/* … truncated 2474 chars — edit only what you need near the top … */
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+/// Resolve the pool address for the ordered pair `(token_in, token_out)` and
+/// `fee` by querying the configured factory.
+///
+/// The factory stores pools keyed by the canonical `(token_0, token_1, fee)`
+/// tuple, so the pair is sorted the same way the factory sorts it before the
+/// lookup. A missing pool reverts with `RouterError::PoolNotFound` so unknown
+/// pairs fail before `execute_swap` is reached.
+fn get_pool(env: &Env, token_in: &Address, token_out: &Address, fee: u32) -> Address {
+    let factory = env
+        .storage()
+        .instance()
+        .get::<DataKey, Address>(&DataKey::Factory)
+        .unwrap_or_else(|| panic_router(env, RouterError::NotInitialized));
+
+    // Canonicalize the pair the same way the factory stores it: token_0 is the
+    // lexicographically smaller address. This keeps the lookup stable regardless
+    // of the caller's argument order.
+    let (token_0, token_1) = if token_in < token_out {
+        (token_in.clone(), token_out.clone())
+    } else {
+        (token_out.clone(), token_in.clone())
+    };
+
+    let pool: Address = env.invoke_contract(
+        &factory,
+        &Symbol::new(env, "get_pool"),
+        (token_0, token_1, fee).into_val(env),
+    );
+
+    pool
+}
+
+/// Resolve whether the swap is `token_0 -> token_1` (`zero_for_one`) by reading
+/// the pool's own token ordering.
+fn resolve_zero_for_one(
+    env: &Env,
+    pool: &Address,
+    token_in: &Address,
+    token_out: &Address,
+) -> bool {
+    let state: PoolState = env.invoke_contract(
+        pool,
+        &Symbol::new(env, "get_state"),
+        ().into_val(env),
+    );
+    if state.token_0 == *token_in && state.token_1 == *token_out {
+        true
+    } else if state.token_0 == *token_out && state.token_1 == *token_in {
+        false
+    } else {
+        panic_router(env, RouterError::InvalidPair);
+    }
+}
+
+/// Execute the swap against the resolved pool.
+fn execute_swap(
+    env: &Env,
+    pool: &Address,
+    recipient: &Address,
+    token_in: &Address,
+    token_out: &Address,
+    zero_for_one: bool,
+    amount_in: u128,
+    sqrt_price_limit_x96: u128,
+) -> (u128, u128) {
+    let result: SwapResult = env.invoke_contract(
+        pool,
+        &Symbol::new(env, "swap"),
+        (
+            recipient.clone(),
+            zero_for_one,
+            amount_in,
+            sqrt_price_limit_x96,
+            token_in.clone(),
+            token_out.clone(),
+        )
+            .into_val(env),
+    );
+    (result.amount_in, result.amount_out)
+}
+
+/// Enforce that `deadline` is in the future and within the router's max TTL.
+fn check_deadline(env: &Env, deadline: u64) {
+    let now = env.ledger().timestamp();
+    if deadline < now {
+        panic_router(env, RouterError::DeadlineExpired);
+    }
+    if deadline - now > MAX_SWAP_DEADLINE_SECONDS {
+        panic_router(env, RouterError::DeadlineTooFar);
+    }
+}
+
+/// Return whether `addr` is a deployed contract.
+fn is_contract(env: &Env, addr: &Address) -> bool {
+    env.deployer().get_contract_id(addr).is_some()
+}
+
+/// Revert with a typed router error.
+fn panic_router(env: &Env, err: RouterError) -> ! {
+    env.panic_with_error(err)
+}
