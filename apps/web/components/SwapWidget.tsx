@@ -13,7 +13,7 @@ import { ROUTER_ADDRESS } from '@/lib/constants';
 // TokenPickerButton
 // ---------------------------------------------------------------------------
 
-function TokenPickerButton({
+export function TokenPickerButton({
   token,
   tokens,
   onSelect,
