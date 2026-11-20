@@ -7,6 +7,7 @@ import { usePools, PoolOrderBy, PoolListItem } from '@/hooks/usePools';
 import { useSearchDebounce } from '@/hooks/useSearchDebounce';
 import { tokenFromAddress } from '@/lib/token-display';
 import { formatFeeApr } from '@/lib/fee-apr';
+import { formatFeeTier } from '@/lib/fee-tier';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -14,11 +15,6 @@ function fmt(n: number, prefix = '$') {
   if (n >= 1_000_000) return `${prefix}${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `${prefix}${(n / 1_000).toFixed(2)}K`;
   return `${prefix}${n.toFixed(2)}`;
-}
-
-function fmtFee(feeTier: string) {
-  const bps = Number(feeTier);
-  return `${(bps / 10_000).toFixed(2)}%`;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -126,7 +122,7 @@ function PoolRow({ pool, onNavigate }: { pool: PoolListItem; onNavigate: (path: 
             {t0.symbol}/{t1.symbol}
           </span>
           <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-            {fmtFee(pool.feeTier)}
+            {formatFeeTier(pool.feeTier)}
           </span>
         </div>
       </td>

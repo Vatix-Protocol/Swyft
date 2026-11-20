@@ -1,5 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CacheService, TTL } from '../cache/cache.service';
+import {
+  divideDecimals,
+  fromScaledBigInt,
+  toScaledBigInt,
+} from '../common/decimal';
 import { deriveClPoolView } from './cl-pool-view';
 import { GetPoolsQueryDto } from './dto/get-pools-query.dto';
 import {
@@ -138,27 +143,35 @@ export class PoolsService {
       volume7d: '0',
       feeApr: pool.feeApr,
       creationTimestamp: Math.floor(pool.createdAt.getTime() / 1000),
-      recentSwaps: pool.swaps.map(
+      // Swaps with a missing or malformed amount are skipped rather than
+      // coerced to 0, so they never distort prices or volume.
+      recentSwaps: pool.swaps.flatMap(
         (swap: {
           id: string;
-          amount0: string;
-          amount1: string;
+          amount0: string | null;
+          amount1: string | null;
           timestamp: Date;
           transactionHash: string;
-        }): Swap => {
-          const a0 = Number.parseFloat(swap.amount0 ?? '0');
-          const a1 = Number.parseFloat(swap.amount1 ?? '0');
-          const price = a1 !== 0 ? (a0 / a1).toString() : a0.toString();
+        }): Swap[] => {
+          const a0 = toScaledBigInt(swap.amount0);
+          const a1 = toScaledBigInt(swap.amount1);
+          if (a0 === null || a1 === null) return [];
+          const price =
+            a1 !== 0n
+              ? (divideDecimals(swap.amount0, swap.amount1) as string)
+              : fromScaledBigInt(a0);
 
-          return {
-            id: swap.id,
-            timestamp: Math.floor(swap.timestamp.getTime() / 1000),
-            token0Amount: swap.amount0,
-            token1Amount: swap.amount1,
-            price,
-            type: a0 > a1 ? 'sell' : 'buy',
-            txHash: swap.transactionHash,
-          };
+          return [
+            {
+              id: swap.id,
+              timestamp: Math.floor(swap.timestamp.getTime() / 1000),
+              token0Amount: swap.amount0 as string,
+              token1Amount: swap.amount1 as string,
+              price,
+              type: a0 > a1 ? 'sell' : 'buy',
+              txHash: swap.transactionHash,
+            },
+          ];
         },
       ),
       clPool: deriveClPoolView(pool),
