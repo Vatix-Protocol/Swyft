@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import PoolsPage from './page';
+import { formatFeeTier } from '@/lib/fee-tier';
 
 const mockPush = vi.fn();
 
@@ -83,5 +84,34 @@ describe('PoolsPage', () => {
 
     // Renders fallback symbol starting with '?'
     expect(screen.getByText(/\?C123…\/\?C987…/)).toBeInTheDocument();
+  });
+
+  it('renders fee tier "3000" as the formatter text, not a float', () => {
+    mockUsePools.mockReturnValue({
+      data: {
+        items: [
+          {
+            id: 'pool-fee',
+            token0: 'XLM',
+            token1: 'USDC',
+            feeTier: '3000',
+            tvl: 1000,
+            volume24h: 100,
+            volume7d: 700,
+            feeApr: 1,
+            currentPrice: 0.1,
+          },
+        ],
+        totalPages: 1,
+      },
+      isLoading: false,
+      isError: false,
+      misconfigError: null,
+    });
+
+    render(<PoolsPage />);
+
+    expect(screen.getByText(formatFeeTier('3000'))).toBeInTheDocument();
+    expect(screen.queryByText(/3000\.0+1/)).not.toBeInTheDocument();
   });
 });

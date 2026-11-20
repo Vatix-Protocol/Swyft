@@ -138,6 +138,21 @@ describe('WebhooksService', () => {
       );
     });
 
+    it('stores an empty eventTypes array (no 400) when every type is unknown', async () => {
+      prisma.webhook.create.mockResolvedValue(mockWebhookRecord);
+      const onlyUnknown = ['unknown.event'] as unknown as WebhookEventType[];
+
+      await expect(
+        service.create(OWNER, URL, onlyUnknown),
+      ).resolves.toBeDefined();
+
+      expect(prisma.webhook.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ eventTypes: [] }),
+        }),
+      );
+    });
+
     it('passes through all valid WEBHOOK_EVENTS without filtering', async () => {
       prisma.webhook.create.mockResolvedValue(mockWebhookRecord);
       const all = [...WEBHOOK_EVENTS] as WebhookEventType[];
@@ -429,6 +444,27 @@ describe('WebhooksService', () => {
           data: expect.objectContaining({ largeSwapUsd: 25000 }),
         }),
       );
+    });
+
+    it('stores 10000 when LARGE_SWAP_THRESHOLD_USD is unset', async () => {
+      prisma.webhook.create.mockResolvedValue(mockWebhookRecord);
+
+      await service.create(OWNER, URL, EVENT_TYPES);
+
+      expect(prisma.webhook.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ largeSwapUsd: 10000 }),
+        }),
+      );
+    });
+
+    it('rejects a non-numeric LARGE_SWAP_THRESHOLD_USD without creating a webhook', async () => {
+      process.env.LARGE_SWAP_THRESHOLD_USD = 'abc';
+
+      await expect(service.create(OWNER, URL, EVENT_TYPES)).rejects.toThrow(
+        'LARGE_SWAP_THRESHOLD_USD',
+      );
+      expect(prisma.webhook.create).not.toHaveBeenCalled();
     });
 
     it('explicit largeSwapUsd overrides env var', async () => {

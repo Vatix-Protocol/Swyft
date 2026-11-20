@@ -283,6 +283,30 @@ describe('SwapsService', () => {
       },
     );
 
+    it.each(['0', '0.000'])(
+      'rejects a non-positive amountIn %p at the token decimals',
+      async (amountIn) => {
+        pools.findPoolById.mockResolvedValue(makePoolDetail());
+
+        await expect(
+          service.getQuote({ ...baseRequest, amountIn }),
+        ).rejects.toThrow(InvalidInputException);
+        await expect(
+          service.getQuote({ ...baseRequest, amountIn }),
+        ).rejects.toThrow('amountIn must be greater than zero');
+      },
+    );
+
+    it('lets an amountIn of "1" past validation to the SDK quote', async () => {
+      pools.findPoolById.mockResolvedValue(makePoolDetail());
+
+      const outcome: unknown = await service
+        .getQuote({ ...baseRequest, amountIn: '1' })
+        .catch((err: unknown) => err);
+
+      expect(outcome).not.toBeInstanceOf(InvalidInputException);
+    });
+
     it('keeps "1.0" valid at 1 decimal', () => {
       expect(service['toBaseUnits']('1.0', 1)).toBe(10n);
     });

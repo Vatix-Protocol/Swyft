@@ -187,6 +187,54 @@ describe('SlippagePanel', () => {
     expect(onChange).toHaveBeenCalledWith(1500);
     expect(screen.getByText(/high slippage/i)).toBeInTheDocument();
   });
+
+  it('calls onChange with basis points for each preset', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<SlippagePanel slippageBps={50} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: /slippage tolerance/i }));
+    await user.click(screen.getByRole('button', { name: '0.1%' }));
+    await user.click(screen.getByRole('button', { name: '0.5%' }));
+    await user.click(screen.getByRole('button', { name: '1%' }));
+
+    expect(onChange.mock.calls).toEqual([[10], [50], [100]]);
+  });
+
+  it('ignores a non-decimal character and a lone dot', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<SlippagePanel slippageBps={50} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: /slippage tolerance/i }));
+    const input = screen.getByLabelText('Custom slippage percentage');
+
+    await user.type(input, '2');
+    expect(onChange).toHaveBeenLastCalledWith(200);
+    onChange.mockClear();
+
+    await user.type(input, 'a');
+    expect(input).toHaveValue('2');
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.clear(input);
+    onChange.mockClear();
+    await user.type(input, '.');
+    expect(input).toHaveValue('.');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('shows the high-slippage warning only above 100 bps', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(<SlippagePanel slippageBps={100} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: /slippage tolerance/i }));
+    expect(screen.queryByText(/high slippage/i)).not.toBeInTheDocument();
+
+    rerender(<SlippagePanel slippageBps={101} onChange={onChange} />);
+    expect(screen.getByText('High slippage — your trade may be frontrun.')).toBeInTheDocument();
+  });
 });
 
 // ─── TokenSelectorModal ───────────────────────────────────────────────────────
@@ -263,5 +311,14 @@ describe('TokenSelectorModal', () => {
     await user.type(screen.getByRole('searchbox', { name: /search tokens/i }), 'zzz');
 
     expect(screen.getByText('No tokens found')).toBeInTheDocument();
+  });
+});
+
+describe('SlippagePanel accessible name', () => {
+  it('exposes the current percent and collapsed state before the click', () => {
+    render(<SlippagePanel slippageBps={50} onChange={vi.fn()} />);
+    const button = screen.getByRole('button', { name: /Slippage tolerance: 0\.5%/ });
+    expect(button.getAttribute('aria-label')).toContain('0.5%');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
   });
 });

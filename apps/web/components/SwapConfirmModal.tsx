@@ -8,6 +8,7 @@ import { PriceImpactBadge } from '@swyft/ui';
 import { useSwapExecution } from '@/hooks/useSwapExecution';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { getExplorerTxUrl } from '@/lib/constants';
+import { formatDecimal } from '@/lib/token-display';
 
 type Props =
   | {
@@ -166,7 +167,10 @@ export function SwapConfirmModal(props: Props) {
               <span className="text-sm text-zinc-500 dark:text-zinc-400">You pay</span>
               <span className="text-sm font-semibold text-zinc-900 dark:text-white">
                 {props.mode === 'exactOut' ? '≈' : ''}
-                {parseFloat(props.mode === 'exactOut' ? props.quote.amountIn : props.amountIn).toFixed(6)}{' '}
+                {formatDecimal(
+                  props.mode === 'exactOut' ? props.quote.amountIn : props.amountIn,
+                  6
+                )}{' '}
                 {tokenIn.symbol}
               </span>
             </div>
@@ -174,7 +178,10 @@ export function SwapConfirmModal(props: Props) {
               <span className="text-sm text-zinc-500 dark:text-zinc-400">You receive</span>
               <span className="text-sm font-semibold text-zinc-900 dark:text-white">
                 {props.mode === 'exactOut' ? '' : '≈'}
-                {parseFloat(props.mode === 'exactOut' ? props.amountOut : props.quote.amountOut).toFixed(6)}{' '}
+                {formatDecimal(
+                  props.mode === 'exactOut' ? props.amountOut : props.quote.amountOut,
+                  6
+                )}{' '}
                 {tokenOut.symbol}
               </span>
             </div>
@@ -185,7 +192,7 @@ export function SwapConfirmModal(props: Props) {
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
               <span>Rate</span>
               <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                1 {tokenIn.symbol} = {parseFloat(props.quote.executionPrice).toFixed(6)}{' '}
+                1 {tokenIn.symbol} = {formatDecimal(props.quote.executionPrice, 6)}{' '}
                 {tokenOut.symbol}
               </span>
             </div>
@@ -193,14 +200,14 @@ export function SwapConfirmModal(props: Props) {
               <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
                 <span>Max. spent</span>
                 <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                  {parseFloat(props.quote.maximumIn).toFixed(6)} {tokenIn.symbol}
+                  {formatDecimal(props.quote.maximumIn, 6)} {tokenIn.symbol}
                 </span>
               </div>
             ) : (
               <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
                 <span>Min. received</span>
                 <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                  {parseFloat(props.quote.minimumReceived).toFixed(6)} {tokenOut.symbol}
+                  {formatDecimal(props.quote.minimumReceived, 6)} {tokenOut.symbol}
                 </span>
               </div>
             )}
@@ -211,14 +218,14 @@ export function SwapConfirmModal(props: Props) {
             <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
               <span>LP fee</span>
               <span>
-                {parseFloat(props.quote.lpFee).toFixed(7)} {tokenIn.symbol}
+                {formatDecimal(props.quote.lpFee, 7)} {tokenIn.symbol}
               </span>
             </div>
-            {parseFloat(props.quote.protocolFee) > 0 && (
+            {/[1-9]/.test(props.quote.protocolFee) && (
               <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
                 <span>Protocol fee</span>
                 <span>
-                  {parseFloat(props.quote.protocolFee).toFixed(7)} {tokenIn.symbol}
+                  {formatDecimal(props.quote.protocolFee, 7)} {tokenIn.symbol}
                 </span>
               </div>
             )}

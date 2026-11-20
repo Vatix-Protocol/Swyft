@@ -54,6 +54,29 @@ describe('AdminAuditService', () => {
       }),
     );
   });
+
+  it('caps a limit of 1000 at take 500', async () => {
+    findMany.mockResolvedValue([]);
+
+    await service.findRecent(1000);
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 500 }),
+    );
+  });
+
+  it('raises a limit of 0 to take 1', async () => {
+    findMany.mockResolvedValue([]);
+
+    await service.findRecent(0);
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 1 }));
+  });
+
+  it('returns an empty list without querying when prisma is missing', async () => {
+    await expect(new AdminAuditService().findRecent(1000)).resolves.toEqual([]);
+    expect(findMany).not.toHaveBeenCalled();
+  });
 });
 
 describe('AdminAuditService.record idempotency key validation', () => {

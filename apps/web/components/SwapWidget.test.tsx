@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
-import { SwapWidget } from './SwapWidget';
+import { SwapWidget, TokenPickerButton } from './SwapWidget';
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 
@@ -424,5 +424,37 @@ describe('SwapWidget', () => {
         expect(screen.queryByRole('dialog', { name: 'Confirm swap' })).not.toBeInTheDocument()
       );
     });
+  });
+});
+
+describe('TokenPickerButton listbox state', () => {
+  const tokens = [
+    { id: 'CUSDC', symbol: 'USDC' },
+    { id: 'CXLM', symbol: 'XLM' },
+  ] as Parameters<typeof TokenPickerButton>[0]['tokens'];
+
+  it('sets aria-expanded true when the list opens and excludes the other side', () => {
+    render(<TokenPickerButton token={null} tokens={tokens} onSelect={vi.fn()} exclude="CXLM" />);
+    const button = screen.getByRole('button', { name: /Select/ });
+    expect(button).toHaveAttribute('aria-haspopup', 'listbox');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(button);
+
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    const listbox = screen.getByRole('listbox', { name: 'Select token' });
+    expect(within(listbox).getByText('USDC')).toBeInTheDocument();
+    expect(within(listbox).queryByText('XLM')).not.toBeInTheDocument();
+  });
+
+  it('does not open when disabled', () => {
+    render(<TokenPickerButton token={null} tokens={tokens} onSelect={vi.fn()} disabled />);
+    const button = screen.getByRole('button', { name: /Select/ });
+    expect(button).toBeDisabled();
+
+    fireEvent.click(button);
+
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 });
