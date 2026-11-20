@@ -30,6 +30,18 @@ export function resolveJwtSecret(config: ConfigService): string {
   return secret;
 }
 
+/** JwtModule options factory; falls back to a 15m expiry only when JWT_EXPIRES_IN is unset. */
+export function jwtModuleOptionsFactory(config: ConfigService) {
+  return {
+    secret: resolveJwtSecret(config),
+    // Default sign options; individual sign() calls may override expiresIn.
+    signOptions: {
+      expiresIn: (config.get<string>('JWT_EXPIRES_IN') ??
+        '15m') as `${number}m`,
+    },
+  };
+}
+
 @Module({
   imports: [
     // Makes ConfigService available for JWT options and anywhere in AuthService.
@@ -39,14 +51,7 @@ export function resolveJwtSecret(config: ConfigService): string {
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: resolveJwtSecret(config),
-        // Default sign options; individual sign() calls may override expiresIn.
-        signOptions: {
-          expiresIn: (config.get<string>('JWT_EXPIRES_IN') ??
-            '15m') as `${number}m`,
-        },
-      }),
+      useFactory: jwtModuleOptionsFactory,
     }),
 
     // Provides the REDIS_CLIENT injection token used in AuthService.

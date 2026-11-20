@@ -23,6 +23,20 @@ function clampTick(tick: number): number {
   return Math.max(MIN_TICK, Math.min(MAX_TICK, tick));
 }
 
+const POSITIVE_DECIMAL = /^(?:\d+\.?\d*|\.\d+)$/;
+
+/**
+ * Tick for a typed price string, clamped to the protocol's valid range.
+ * Returns null unless the text is a positive decimal (e.g. "", "abc", "0", "-1").
+ */
+export function priceToTick(price: string): number | null {
+  const text = price.trim();
+  if (!POSITIVE_DECIMAL.test(text)) return null;
+  const p = Number(text);
+  if (!(p > 0) || !Number.isFinite(p)) return null;
+  return clampTick(Math.round(Math.log(p) / Math.log(TICK_BASE)));
+}
+
 /** Price at a tick, with the tick clamped to the protocol's valid range. */
 export function tickToPrice(tick: number): number {
   return Math.pow(TICK_BASE, clampTick(tick));

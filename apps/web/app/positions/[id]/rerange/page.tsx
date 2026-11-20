@@ -6,6 +6,7 @@ import { usePosition } from '@/hooks/usePositions';
 import { useRerangeLiquidity } from '@/hooks/useRerangeLiquidity';
 import { useWalletContext } from '@/context/WalletContext';
 import { PositionRangeBadge } from '@swyft/ui';
+import { priceToTick } from '@/lib/position-range';
 
 const TICK_BASE = 1.0001;
 const MIN_TICK = -887272;
@@ -13,10 +14,6 @@ const MAX_TICK = 887272;
 
 function tickToPrice(tick: number): number {
   return Math.pow(TICK_BASE, tick);
-}
-
-function priceToTick(price: number): number {
-  return Math.round(Math.log(price) / Math.log(TICK_BASE));
 }
 
 function nearestUsableTick(tick: number, tickSpacing: number): number {
@@ -125,23 +122,24 @@ export default function RerangeLiquidityPage({ params }: PageProps) {
   const newUpper = tickToPrice(newUpperTick).toFixed(6);
 
   const isBusy = status === 'signing' || status === 'submitting';
-  const isValidRange = newLowerTick < newUpperTick;
+  const pricesValid = priceToTick(newLowerPrice) !== null && priceToTick(newUpperPrice) !== null;
+  const isValidRange = pricesValid && newLowerTick < newUpperTick;
   const hasChanged =
     newLowerTick !== position.lowerTick || newUpperTick !== position.upperTick;
 
   function handleLowerPriceChange(price: string) {
     setNewLowerPrice(price);
-    const p = parseFloat(price);
-    if (!isNaN(p) && p > 0) {
-      setNewLowerTick(nearestUsableTick(priceToTick(p), tickSpacing));
+    const tick = priceToTick(price);
+    if (tick !== null) {
+      setNewLowerTick(nearestUsableTick(tick, tickSpacing));
     }
   }
 
   function handleUpperPriceChange(price: string) {
     setNewUpperPrice(price);
-    const p = parseFloat(price);
-    if (!isNaN(p) && p > 0) {
-      setNewUpperTick(nearestUsableTick(priceToTick(p), tickSpacing));
+    const tick = priceToTick(price);
+    if (tick !== null) {
+      setNewUpperTick(nearestUsableTick(tick, tickSpacing));
     }
   }
 

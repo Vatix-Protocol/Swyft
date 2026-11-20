@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { buildSwapTx, buildExactOutputSwapTx, toRawAmount, toStellarAddress } from '@swyft/sdk';
 import type { SwapQuote, ExactOutputQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
-import { ROUTER_ADDRESS } from '@/lib/constants';
+import { ROUTER_ADDRESS, getApiBase, getNetworkPassphrase } from '@/lib/constants';
+import { getAuthToken } from '@/lib/auth';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { useWalletContext } from '@/context/WalletContext';
 import { useTransactionStatus } from '@/context/TransactionStatusContext';
@@ -14,6 +15,12 @@ import { isWalletRejection, WALLET_REJECTION_MESSAGE } from '@/lib/wallet-errors
 
 export type SwapStatus = 'idle' | 'signing' | 'submitting' | 'pending' | 'success' | 'error';
 export type SwapError = 'rejected' | 'slippage' | 'network' | 'failed' | null;
+
+/**
+ * True when this module implements `executeExactOutput`. The swap widget only
+ * offers exact-output mode when this flag and `ROUTER_ADDRESS` are both set.
+ */
+export const EXACT_OUTPUT_SUBMIT_AVAILABLE = true;
 
 interface SwapResult {
   status: SwapStatus;
@@ -47,22 +54,23 @@ const ERROR_MESSAGES: Record<Exclude<SwapError, null>, string> = {
   rejected: 'Swap rejected in wallet',
   slippage: 'Price moved beyond slippage tolerance',
   network: 'Network error — swap could not be submitted',
-  failed: 'Swap failed on-chain',
+  failed: 'Transaction failed on-ledger',
 };
 
 const IDLE: SwapResult = { status: 'idle', error: null, txHash: null, detail: null };
 
 export function useSwapExecution() {
   const { reportTx } = useTransactionStatus();
+  const { network, apiBase } = useNetworkContext();
   const { enabled: mevEnabled, mevRpcUrl } = useMevProtection();
-  const { apiBase } = useNetworkContext();
   // Route all signing through the wallet context so xBull and Freighter both work.
   const { signTransaction } = useWalletContext();
   const labelRef = useRef('Swap');
   const [result, setResult] = useState<SwapResult>(IDLE);
 
   // Mirror local swap status into the app-wide indicator so it stays
-  // visible even after the confirmation modal closes.
+  // visible even after the confirmation modal closes. 'idle' also covers
+  // a silent wallet-rejection, which must clear a stuck "signing" pill.
   useEffect(() => {
     if (result.status === 'idle') {
       reportTx(null);
@@ -82,16 +90,19 @@ export function useSwapExecution() {
   }, [result.status, result.txHash, result.error, result.detail]);
 
   function reset() {
-    setResult(IDLE);
+    setResult({ status: 'idle', error: null, txHash: null, detail: null });
   }
 
-  function fail(error: Exclude<SwapError, null>, detail: string | null) {
-    setResult({ status: 'error', error, txHash: null, detail });
-  }
+  async function execute(params: ExecuteParams) {
+    const { poolId, tokenIn, tokenOut, amountIn, quote, walletAddress } = params;
 
-  async function signAndSubmit(tokenIn: Token, tokenOut: Token, buildXdr: () => string) {
     if (!signTransaction) {
-      fail('network', 'Wallet not connected');
+      setResult({
+        status: 'error',
+        error: 'network',
+        txHash: null,
+        detail: 'Wallet not connected',
+      });
       return;
     }
 

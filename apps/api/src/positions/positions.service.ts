@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { toScaledBigInt } from '../common/decimal';
 import { PriceService } from '../price/price.service';
 import { GetLpActivityQueryDto } from './dto/get-lp-activity-query.dto';
 import { GetPositionsQueryDto } from './dto/get-positions-query.dto';
@@ -31,7 +32,7 @@ interface PositionResponse {
   upperTick: number;
   liquidity: string;
   currentValueUsd: number;
-  poolCurrentPrice: number;
+  poolCurrentPrice: string;
   uncollectedFeesToken0: string;
   uncollectedFeesToken1: string;
   createdAt: number;
@@ -150,14 +151,17 @@ export class PositionsService {
     position: PositionSnapshot,
   ): Promise<PositionResponse> {
     const livePrice = await this.priceService.getSpotPrice(position.poolId);
-    const currentPrice = livePrice
-      ? Number.parseFloat(livePrice.currentPrice)
-      : position.poolCurrentPrice;
+    // Keep the live price as its decimal string; fall back to the stored
+    // pool price when the live price is missing or malformed (never NaN).
+    const currentPrice =
+      livePrice && toScaledBigInt(livePrice.currentPrice) !== null
+        ? livePrice.currentPrice.trim()
+        : String(position.poolCurrentPrice);
 
     const rangeStatus =
       position.status === 'active'
         ? this.getRangeStatus(
-            currentPrice,
+            Number(currentPrice),
             position.lowerTick,
             position.upperTick,
           )
