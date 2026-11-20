@@ -151,7 +151,10 @@ export class AdminAuditService {
       return [];
     }
 
-    const safeLimit = Math.max(1, Math.min(limit || 100, 500));
+    const safeLimit = Math.max(
+      1,
+      Math.min(Number.isNaN(limit) ? 100 : limit, 500),
+    );
     return this.prisma.adminAuditLog.findMany({
       orderBy: { createdAt: 'desc' },
       skip: Math.max(0, offset),
@@ -163,6 +166,12 @@ export class AdminAuditService {
    * Emit an admin audit record. Deny-by-default: authorization, input
    * validation, idempotency, and network gating are all enforced before any
    * write occurs. Any failure is surfaced as a typed AdminAuditError.
+   *
+   * Network gating: `resolveNetwork()` (STELLAR_NETWORK, default `testnet`,
+   * lowercased) must be one of ADMIN_AUDIT_ALLOWED_NETWORKS — `testnet`,
+   * `futurenet` or `mainnet`. Any other network is rejected with
+   * `ADMIN_AUDIT_FORBIDDEN` (AdminAuditErrorCode.FORBIDDEN) before any write,
+   * e.g. STELLAR_NETWORK=standalone.
    */
   async record(request: AdminAuditRequest): Promise<AdminAuditRecord> {
     const correlationId = request.correlationId ?? this.newCorrelationId();
