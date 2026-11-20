@@ -5,6 +5,7 @@ import { buildSwapTx, buildExactOutputSwapTx, toRawAmount, toStellarAddress } fr
 import type { SwapQuote, ExactOutputQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
 import { ROUTER_ADDRESS, getApiBase, getNetworkPassphrase } from '@/lib/constants';
+import { getAuthToken } from '@/lib/auth';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { useWalletContext } from '@/context/WalletContext';
 import { useTransactionStatus } from '@/context/TransactionStatusContext';
@@ -147,6 +148,8 @@ export function useSwapExecution() {
         const { hash } = await submitTransaction({
           signedXdr,
           apiBase: getApiBase(network),
+          authToken: getAuthToken(),
+
           mevEnabled,
           mevRpcUrl,
         });
@@ -241,6 +244,8 @@ export function useSwapExecution() {
         const { hash } = await submitTransaction({
           signedXdr,
           apiBase: getApiBase(network),
+          authToken: getAuthToken(),
+
           mevEnabled,
           mevRpcUrl,
         });

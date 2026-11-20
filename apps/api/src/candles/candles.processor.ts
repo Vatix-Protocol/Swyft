@@ -1,3 +1,4 @@
+// Consumes the CANDLES_QUEUE_NAME ("candle-aggregation") queue; must export CandlesWorker (imported by candles.module.ts and candles.processor.spec.ts).
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Job, Queue, Worker } from 'bullmq';
 import { CandlesService } from './candles.service';
