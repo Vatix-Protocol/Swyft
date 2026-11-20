@@ -13,6 +13,16 @@ interface Props {
   onChange: (bps: number) => void;
 }
 
+/**
+ * The single slippage-tolerance control for the swap flow; it owns the cap
+ * and the frontrunning warning, so no other component may duplicate them.
+ *
+ * - Presets: 10 bps (0.1%), 50 bps (0.5%) and 100 bps (1%).
+ * - Custom input (see `handleCustomChange`): accepts a percentage greater
+ *   than 0 and at most 50 (5000 bps, the 50 percent cap); other values are
+ *   ignored and `onChange` is not called.
+ * - Above 100 bps it shows "High slippage — your trade may be frontrun."
+ */
 export function SlippagePanel({ slippageBps, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState('');
