@@ -49,3 +49,23 @@ export function tokenFromAddress(address: string, symbol?: string, name?: string
 export function isUnknownToken(token: Token): boolean {
   return token.symbol.startsWith(UNKNOWN_TOKEN_PREFIX);
 }
+
+/**
+ * Formats a non-negative decimal string for display without converting it to
+ * a float. The fraction is truncated to `maxDecimals` digits and trailing
+ * zeros are trimmed, so `"0.1000000"` renders as `"0.1"`. Non-decimal input
+ * (including exponent notation such as `"1e2"`) renders as `"0"`.
+ */
+export function formatDecimal(value: string, maxDecimals: number): string {
+  const v = value.trim();
+  if (!/^\d*\.?\d*$/.test(v)) return '0';
+  const [int = '', frac = ''] = v.split('.');
+  const i = int.replace(/^0+(?=\d)/, '') || '0';
+  const f = frac.slice(0, maxDecimals).replace(/0+$/, '');
+  return f ? `${i}.${f}` : i;
+}
+
+/** True when a non-negative decimal string is greater than zero. */
+export function isPositiveDecimal(value: string): boolean {
+  return /^\d*\.?\d*$/.test(value.trim()) && /[1-9]/.test(value);
+}
