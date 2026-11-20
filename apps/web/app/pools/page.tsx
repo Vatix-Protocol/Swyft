@@ -17,6 +17,12 @@ function fmt(n: number, prefix = '$') {
   return `${prefix}${n.toFixed(2)}`;
 }
 
+function fmtFee(feeTier: string | null | undefined) {
+  if (feeTier == null || !/^\d+$/.test(String(feeTier).trim())) return '—';
+  const bps = parseInt(String(feeTier).trim(), 10);
+  return `${(bps / 10_000).toFixed(4)}%`;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type SortKey = 'tvl' | 'volume' | 'apr';

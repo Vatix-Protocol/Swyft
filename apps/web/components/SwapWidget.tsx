@@ -8,6 +8,7 @@ import { useSwapQuote } from '@/hooks/useSwapQuote';
 import { useWalletBalances } from '@/hooks/useWalletBalances';
 import { SwapConfirmModal } from '@/components/SwapConfirmModal';
 import { ROUTER_ADDRESS } from '@/lib/constants';
+import * as swapExecution from '@/hooks/useSwapExecution';
 
 // ---------------------------------------------------------------------------
 // TokenPickerButton
