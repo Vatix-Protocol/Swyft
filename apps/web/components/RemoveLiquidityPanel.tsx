@@ -92,9 +92,14 @@ export function RemoveLiquidityPanel({
 
   function handlePctInput(v: string) {
     setConfirming(false);
+    if (v.trim() === '') {
+      setCustomInput(v);
+      return;
+    }
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0 || n > 100) return;
     setCustomInput(v);
-    const n = parseFloat(v);
-    if (!isNaN(n) && n >= 1 && n <= 100) setPct(Math.round(n));
+    setPct(Math.round(n));
   }
 
   function handlePreset(p: number) {
@@ -219,6 +224,7 @@ export function RemoveLiquidityPanel({
             value={pct}
             onChange={(e) => {
               const v = Number(e.target.value);
+              if (!Number.isFinite(v) || v < 0 || v > 100) return;
               setConfirming(false);
               setPct(v);
               setCustomInput(String(v));
@@ -357,7 +363,14 @@ export function RemoveLiquidityPanel({
           <button
             type="button"
             onClick={() => setConfirming(true)}
-            disabled={isBusy || alreadyClosed || status === 'success' || estimatesLoading}
+            disabled={
+              isBusy ||
+              alreadyClosed ||
+              status === 'success' ||
+              estimatesLoading ||
+              customInput.trim() === '' ||
+              pct === 0
+            }
             className="w-full rounded-xl bg-red-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {status === 'signing' && 'Waiting for signature…'}
