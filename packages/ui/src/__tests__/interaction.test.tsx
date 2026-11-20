@@ -265,3 +265,12 @@ describe('TokenSelectorModal', () => {
     expect(screen.getByText('No tokens found')).toBeInTheDocument();
   });
 });
+
+describe('SlippagePanel accessible name', () => {
+  it('exposes the current percent and collapsed state before the click', () => {
+    render(<SlippagePanel slippageBps={50} onChange={vi.fn()} />);
+    const button = screen.getByRole('button', { name: /Slippage tolerance: 0\.5%/ });
+    expect(button.getAttribute('aria-label')).toContain('0.5%');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+  });
+});

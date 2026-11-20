@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDecimal } from '@/lib/token-display';
+
 export interface AmountInputsProps {
   token0Symbol: string;
   token1Symbol: string;
@@ -89,7 +91,7 @@ function TokenInput({ label, symbol, amount, balance, disabled, onChange }: Toke
             onClick={() => onChange(balance)}
             className="text-xs text-zinc-400 hover:text-indigo-500 transition-colors"
           >
-            Balance: {parseFloat(balance).toFixed(4)} {symbol}
+            Balance: {formatDecimal(balance, 4)} {symbol}
           </button>
         </div>
       )}

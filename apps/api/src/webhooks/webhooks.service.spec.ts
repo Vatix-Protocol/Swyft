@@ -446,6 +446,27 @@ describe('WebhooksService', () => {
       );
     });
 
+    it('stores 10000 when LARGE_SWAP_THRESHOLD_USD is unset', async () => {
+      prisma.webhook.create.mockResolvedValue(mockWebhookRecord);
+
+      await service.create(OWNER, URL, EVENT_TYPES);
+
+      expect(prisma.webhook.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ largeSwapUsd: 10000 }),
+        }),
+      );
+    });
+
+    it('rejects a non-numeric LARGE_SWAP_THRESHOLD_USD without creating a webhook', async () => {
+      process.env.LARGE_SWAP_THRESHOLD_USD = 'abc';
+
+      await expect(service.create(OWNER, URL, EVENT_TYPES)).rejects.toThrow(
+        'LARGE_SWAP_THRESHOLD_USD',
+      );
+      expect(prisma.webhook.create).not.toHaveBeenCalled();
+    });
+
     it('explicit largeSwapUsd overrides env var', async () => {
       process.env.LARGE_SWAP_THRESHOLD_USD = '25000';
       prisma.webhook.create.mockResolvedValue(mockWebhookRecord);

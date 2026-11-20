@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { PositionRangeBadge } from '@swyft/ui';
 import type { PositionSnapshot } from '@swyft/ui';
 import { estimateImpermanentLoss, rangeStatus, tickToPrice } from '@/lib/position-range';
+import { formatDecimal, isPositiveDecimal } from '@/lib/token-display';
 
 function shortSymbol(id: string) {
   return id.length > 8 ? `${id.slice(0, 4)}…` : id;
@@ -17,15 +18,22 @@ interface Props {
   authRequired?: boolean;
 }
 
-export function PositionCard({ position: p, onCollectFees, collecting, loading = false, authRequired = false }: Props) {
+export function PositionCard({
+  position: p,
+  onCollectFees,
+  collecting,
+  loading = false,
+  authRequired = false,
+}: Props) {
   const rs = rangeStatus(p);
   const t0 = shortSymbol(p.token0);
   const t1 = shortSymbol(p.token1);
   const lowerPrice = tickToPrice(p.lowerTick).toFixed(6);
   const upperPrice = tickToPrice(p.upperTick).toFixed(6);
-  const fees0 = parseFloat(p.uncollectedFeesToken0);
-  const fees1 = parseFloat(p.uncollectedFeesToken1);
-  const hasFees = fees0 > 0 || fees1 > 0;
+  const fees0 = formatDecimal(p.uncollectedFeesToken0, 4);
+  const fees1 = formatDecimal(p.uncollectedFeesToken1, 4);
+  const hasFees =
+    isPositiveDecimal(p.uncollectedFeesToken0) || isPositiveDecimal(p.uncollectedFeesToken1);
   const ilEstimate = estimateImpermanentLoss(p);
 
   if (loading) {
@@ -92,10 +100,10 @@ export function PositionCard({ position: p, onCollectFees, collecting, loading =
         <div className="rounded-xl bg-indigo-50 dark:bg-indigo-950/30 px-3 py-2.5">
           <p className="text-xs text-indigo-400 mb-0.5">Uncollected fees</p>
           <p className="text-xs font-medium text-indigo-700 dark:text-indigo-300 tabular-nums">
-            {fees0.toFixed(4)} {t0}
+            {fees0} {t0}
           </p>
           <p className="text-xs font-medium text-indigo-700 dark:text-indigo-300 tabular-nums">
-            {fees1.toFixed(4)} {t1}
+            {fees1} {t1}
           </p>
         </div>
       </div>

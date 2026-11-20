@@ -7,35 +7,13 @@ import {
   PositionStatus,
   PositionStatusFilter,
 } from './position.types';
+import { toScaledBigInt } from '../common/decimal';
 
 /** Cap on rows fetched per bulk-by-wallet lookup — a portfolio overview, not a paginated feed. */
 const BULK_POSITIONS_LIMIT = 500;
 
 /** Cap on rows fetched per event type before merging/paginating an activity feed. */
 const ACTIVITY_FETCH_LIMIT = 200;
-
-/**
- * Parses a decimal string into a BigInt scaled by 10^18 so share math stays
- * exact for values above 2^53. Returns null when the value is missing or not
- * a finite number, so callers can surface an explicit null instead of a
- * silent 0.
- */
-const SHARE_SCALE = 18n;
-const SHARE_SCALE_FACTOR = 10n ** SHARE_SCALE;
-
-function toScaledBigInt(value: unknown): bigint | null {
-  if (value === null || value === undefined) return null;
-  const str = typeof value === 'string' ? value.trim() : String(value);
-  if (str === '' || str === 'NaN' || str === 'Infinity' || str === '-Infinity') {
-    return null;
-  }
-  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(str);
-  if (!match) return null;
-  const sign = match[1] === '-' ? -1n : 1n;
-  const whole = match[2];
-  const fraction = (match[3] ?? '').padEnd(Number(SHARE_SCALE), '0').slice(0, Number(SHARE_SCALE));
-  return sign * (BigInt(whole) * SHARE_SCALE_FACTOR + BigInt(fraction));
-}
 
 /**
  * Computes a position's share of pool TVL as a percentage string, using

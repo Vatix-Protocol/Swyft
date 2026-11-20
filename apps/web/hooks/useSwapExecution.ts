@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { buildSwapTx, buildExactOutputSwapTx, toRawAmount, toStellarAddress } from '@swyft/sdk';
 import type { SwapQuote, ExactOutputQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
-import { ROUTER_ADDRESS, getApiBase } from '@/lib/constants';
+import { ROUTER_ADDRESS, getApiBase, getNetworkPassphrase } from '@/lib/constants';
 import { getAuthToken } from '@/lib/auth';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { useWalletContext } from '@/context/WalletContext';
@@ -15,6 +15,12 @@ import { isWalletRejection, WALLET_REJECTION_MESSAGE } from '@/lib/wallet-errors
 
 export type SwapStatus = 'idle' | 'signing' | 'submitting' | 'pending' | 'success' | 'error';
 export type SwapError = 'rejected' | 'slippage' | 'network' | 'failed' | null;
+
+/**
+ * True when this module implements `executeExactOutput`. The swap widget only
+ * offers exact-output mode when this flag and `ROUTER_ADDRESS` are both set.
+ */
+export const EXACT_OUTPUT_SUBMIT_AVAILABLE = true;
 
 interface SwapResult {
   status: SwapStatus;
@@ -48,7 +54,7 @@ const ERROR_MESSAGES: Record<Exclude<SwapError, null>, string> = {
   rejected: 'Swap rejected in wallet',
   slippage: 'Price moved beyond slippage tolerance',
   network: 'Network error — swap could not be submitted',
-  failed: 'Swap failed on-chain',
+  failed: 'Transaction failed on-ledger',
 };
 
 export function useSwapExecution() {
@@ -143,6 +149,7 @@ export function useSwapExecution() {
           signedXdr,
           apiBase: getApiBase(network),
           authToken: getAuthToken(),
+
           mevEnabled,
           mevRpcUrl,
         });
@@ -238,6 +245,7 @@ export function useSwapExecution() {
           signedXdr,
           apiBase: getApiBase(network),
           authToken: getAuthToken(),
+
           mevEnabled,
           mevRpcUrl,
         });
