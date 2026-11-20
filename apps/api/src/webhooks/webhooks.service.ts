@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebhookWorker } from './webhook.processor';
 import {
@@ -6,6 +6,19 @@ import {
   WebhookEventType,
   WebhookPayload,
 } from './webhook.types';
+
+/** Reads LARGE_SWAP_THRESHOLD_USD (default 10000); rejects non-numeric values. */
+function resolveLargeSwapThreshold(): number {
+  const raw = process.env.LARGE_SWAP_THRESHOLD_USD;
+  if (raw === undefined || raw.trim() === '') return 10000;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    throw new BadRequestException(
+      'LARGE_SWAP_THRESHOLD_USD is not a valid number',
+    );
+  }
+  return value;
+}
 
 @Injectable()
 export class WebhooksService {
@@ -28,15 +41,14 @@ export class WebhooksService {
     const validTypes = eventTypes.filter((e) =>
       (WEBHOOK_EVENTS as readonly string[]).includes(e),
     );
+    const threshold = largeSwapUsd ?? resolveLargeSwapThreshold();
     const webhook = await this.prisma.webhook.create({
       data: {
         ownerWallet,
         url,
         eventTypes: validTypes,
         secret,
-        largeSwapUsd:
-          largeSwapUsd ??
-          parseFloat(process.env.LARGE_SWAP_THRESHOLD_USD ?? '10000'),
+        largeSwapUsd: threshold,
       },
       select: { id: true, url: true, eventTypes: true, createdAt: true },
     });
@@ -46,7 +58,7 @@ export class WebhooksService {
         webhookId: webhook.id,
         action: 'created',
         ownerWallet,
-        meta: JSON.stringify({ url, eventTypes: validTypes }),
+        meta: JSON.stringify({ eventTypes: validTypes }),
       },
     });
 

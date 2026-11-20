@@ -221,7 +221,7 @@ export function SwapConfirmModal(props: Props) {
                 {formatDecimal(props.quote.lpFee, 7)} {tokenIn.symbol}
               </span>
             </div>
-            {parseFloat(props.quote.protocolFee) > 0 && (
+            {/[1-9]/.test(props.quote.protocolFee) && (
               <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
                 <span>Protocol fee</span>
                 <span>
