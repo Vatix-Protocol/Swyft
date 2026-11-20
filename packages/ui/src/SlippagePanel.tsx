@@ -26,6 +26,7 @@ interface Props {
 export function SlippagePanel({ slippageBps, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState('');
+  const [customError, setCustomError] = useState<string | null>(null);
   const panelId = useId();
   const labelId = `${panelId}-label`;
 
@@ -38,10 +39,17 @@ export function SlippagePanel({ slippageBps, onChange }: Props) {
     const v = e.target.value;
     if (!/^\d*\.?\d*$/.test(v)) return;
     setCustom(v);
-    const num = parseFloat(v);
-    if (!isNaN(num) && num > 0 && num <= 50) {
-      onChange(Math.round(num * 100));
+    const num = Number(v);
+    if (v === '' || v === '.') {
+      setCustomError(null);
+      return;
     }
+    if (!Number.isFinite(num) || num <= 0 || num > 50) {
+      setCustomError('Enter a slippage greater than 0% and at most 50%.');
+      return;
+    }
+    setCustomError(null);
+    onChange(Math.round(num * 100));
   }
 
   return (
@@ -90,6 +98,7 @@ export function SlippagePanel({ slippageBps, onChange }: Props) {
                 onClick={() => {
                   onChange(p.bps);
                   setCustom('');
+                  setCustomError(null);
                 }}
                 className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                   slippageBps === p.bps
@@ -109,10 +118,21 @@ export function SlippagePanel({ slippageBps, onChange }: Props) {
               value={custom}
               onChange={handleCustomChange}
               aria-label="Custom slippage percentage"
+              aria-invalid={customError !== null}
+              aria-describedby={customError ? `${panelId}-error` : undefined}
               className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
             />
             <span className="text-xs text-zinc-400">%</span>
           </div>
+          {customError && (
+            <p
+              id={`${panelId}-error`}
+              role="alert"
+              className="mt-1.5 text-xs text-red-600 dark:text-red-400"
+            >
+              {customError}
+            </p>
+          )}
           {slippageBps > 100 && (
             <p className="mt-1.5 text-xs text-yellow-600 dark:text-yellow-400">
               High slippage — your trade may be frontrun.

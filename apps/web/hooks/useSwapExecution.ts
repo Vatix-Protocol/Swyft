@@ -30,7 +30,7 @@ interface SwapResult {
   detail: string | null;
 }
 
-interface ExecuteParams {
+export interface ExecuteParams {
   poolId: string;
   tokenIn: Token;
   tokenOut: Token;
@@ -39,7 +39,7 @@ interface ExecuteParams {
   walletAddress: string;
 }
 
-interface ExecuteExactOutputParams {
+export interface ExecuteExactOutputParams {
   /** Pool fee tier to route through (see {@link ExactOutputQuote}). */
   fee: number;
   tokenIn: Token;
@@ -57,19 +57,16 @@ const ERROR_MESSAGES: Record<Exclude<SwapError, null>, string> = {
   failed: 'Transaction failed on-ledger',
 };
 
+const IDLE: SwapResult = { status: 'idle', error: null, txHash: null, detail: null };
+
 export function useSwapExecution() {
   const { reportTx } = useTransactionStatus();
-  const { network } = useNetworkContext();
+  const { network, apiBase } = useNetworkContext();
   const { enabled: mevEnabled, mevRpcUrl } = useMevProtection();
   // Route all signing through the wallet context so xBull and Freighter both work.
   const { signTransaction } = useWalletContext();
   const labelRef = useRef('Swap');
-  const [result, setResult] = useState<SwapResult>({
-    status: 'idle',
-    error: null,
-    txHash: null,
-    detail: null,
-  });
+  const [result, setResult] = useState<SwapResult>(IDLE);
 
   // Mirror local swap status into the app-wide indicator so it stays
   // visible even after the confirmation modal closes. 'idle' also covers
@@ -112,172 +109,76 @@ export function useSwapExecution() {
     labelRef.current = `${tokenIn.symbol} → ${tokenOut.symbol} swap`;
     setResult({ status: 'signing', error: null, txHash: null, detail: null });
 
+    let signedXdr: string | null;
     try {
-      const { xdr } = buildSwapTx({
-        poolId: toStellarAddress(poolId),
-        tokenInId: toStellarAddress(tokenIn.id),
-        tokenOutId: toStellarAddress(tokenOut.id),
-        amountIn: toRawAmount(amountIn),
-        minimumReceived: toRawAmount(quote.minimumReceived),
-        ownerAddress: toStellarAddress(walletAddress),
-      });
-
-      // Use wallet-context signTransaction so both Freighter and xBull work.
-      // The network passphrase is passed for wallets that need it (Freighter);
-      // xBull reads it from the XDR envelope directly.
-      const signedXdr = await signTransaction(xdr).catch((err: unknown) => {
-        if (isWalletRejection(err)) {
-          return null;
-        }
-        throw err;
-      });
-
-      if (!signedXdr) {
-        setResult({
-          status: 'error',
-          error: 'rejected',
-          txHash: null,
-          detail: WALLET_REJECTION_MESSAGE,
-        });
-        return;
-      }
-
-      setResult({ status: 'submitting', error: null, txHash: null, detail: null });
-
-      try {
-        const { hash } = await submitTransaction({
-          signedXdr,
-          apiBase: getApiBase(network),
-          authToken: getAuthToken(),
-
-          mevEnabled,
-          mevRpcUrl,
-        });
-        setResult({ status: 'success', error: null, txHash: hash, detail: null });
-      } catch (submitErr) {
-        const error: SwapError =
-          submitErr instanceof MevSubmissionError && submitErr.code === 'SLIPPAGE_EXCEEDED'
-            ? 'slippage'
-            : 'network';
-        const detail =
-          submitErr instanceof MevSubmissionError
-            ? submitErr.detail
-              ? `${submitErr.message} (${submitErr.detail})`
-              : submitErr.message
-            : submitErr instanceof Error
-              ? submitErr.message
-              : null;
-        setResult({ status: 'error', error, txHash: null, detail });
-      }
+      signedXdr = await signTransaction(buildXdr());
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '';
       if (isWalletRejection(e)) {
-        setResult({
-          status: 'error',
-          error: 'rejected',
-          txHash: null,
-          detail: WALLET_REJECTION_MESSAGE,
-        });
+        fail('rejected', WALLET_REJECTION_MESSAGE);
         return;
       }
-      setResult({ status: 'error', error: 'network', txHash: null, detail: msg || null });
+      fail('network', e instanceof Error ? e.message || null : null);
+      return;
+    }
+
+    if (!signedXdr) {
+      fail('rejected', WALLET_REJECTION_MESSAGE);
+      return;
+    }
+
+    setResult({ status: 'submitting', error: null, txHash: null, detail: null });
+
+    try {
+      const { hash } = await submitTransaction({ signedXdr, apiBase, mevEnabled, mevRpcUrl });
+      setResult({ status: 'success', error: null, txHash: hash, detail: null });
+    } catch (e: unknown) {
+      if (e instanceof MevSubmissionError) {
+        fail(
+          e.code === 'SLIPPAGE_EXCEEDED' ? 'slippage' : 'network',
+          e.detail ? `${e.message} (${e.detail})` : e.message
+        );
+        return;
+      }
+      fail('network', e instanceof Error ? e.message : null);
     }
   }
 
-  async function executeExactOutput(params: ExecuteExactOutputParams) {
+  function execute({ poolId, tokenIn, tokenOut, amountIn, quote, walletAddress }: ExecuteParams) {
+    return signAndSubmit(
+      tokenIn,
+      tokenOut,
+      () =>
+        buildSwapTx({
+          poolId: toStellarAddress(poolId),
+          tokenInId: toStellarAddress(tokenIn.id),
+          tokenOutId: toStellarAddress(tokenOut.id),
+          amountIn: toRawAmount(amountIn),
+          minimumReceived: toRawAmount(quote.minimumReceived),
+          ownerAddress: toStellarAddress(walletAddress),
+        }).xdr
+    );
+  }
+
+  function executeExactOutput(params: ExecuteExactOutputParams) {
     const { fee, tokenIn, tokenOut, amountOut, quote, walletAddress } = params;
-
-    if (!signTransaction) {
-      setResult({
-        status: 'error',
-        error: 'network',
-        txHash: null,
-        detail: 'Wallet not connected',
-      });
-      return;
-    }
-
     if (!ROUTER_ADDRESS) {
-      setResult({
-        status: 'error',
-        error: 'network',
-        txHash: null,
-        detail: 'Exact-output swaps are unavailable: router address is not configured',
-      });
-      return;
+      fail('network', 'Exact-output swaps are unavailable: router address is not configured');
+      return Promise.resolve();
     }
-
-    labelRef.current = `${tokenIn.symbol} → ${tokenOut.symbol} swap`;
-    setResult({ status: 'signing', error: null, txHash: null, detail: null });
-
-    try {
-      const { xdr } = buildExactOutputSwapTx({
-        routerId: toStellarAddress(ROUTER_ADDRESS),
-        tokenInId: toStellarAddress(tokenIn.id),
-        tokenOutId: toStellarAddress(tokenOut.id),
-        fee,
-        amountOut: toRawAmount(amountOut),
-        amountInMax: toRawAmount(quote.maximumIn),
-        ownerAddress: toStellarAddress(walletAddress),
-      });
-
-      const signedXdr = await signTransaction(xdr).catch((err: unknown) => {
-        if (isWalletRejection(err)) {
-          return null;
-        }
-        throw err;
-      });
-
-      if (!signedXdr) {
-        setResult({
-          status: 'error',
-          error: 'rejected',
-          txHash: null,
-          detail: WALLET_REJECTION_MESSAGE,
-        });
-        return;
-      }
-
-      setResult({ status: 'submitting', error: null, txHash: null, detail: null });
-
-      try {
-        const { hash } = await submitTransaction({
-          signedXdr,
-          apiBase: getApiBase(network),
-          authToken: getAuthToken(),
-
-          mevEnabled,
-          mevRpcUrl,
-        });
-        setResult({ status: 'success', error: null, txHash: hash, detail: null });
-      } catch (submitErr) {
-        const error: SwapError =
-          submitErr instanceof MevSubmissionError && submitErr.code === 'SLIPPAGE_EXCEEDED'
-            ? 'slippage'
-            : 'network';
-        const detail =
-          submitErr instanceof MevSubmissionError
-            ? submitErr.detail
-              ? `${submitErr.message} (${submitErr.detail})`
-              : submitErr.message
-            : submitErr instanceof Error
-              ? submitErr.message
-              : null;
-        setResult({ status: 'error', error, txHash: null, detail });
-      }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '';
-      if (isWalletRejection(e)) {
-        setResult({
-          status: 'error',
-          error: 'rejected',
-          txHash: null,
-          detail: WALLET_REJECTION_MESSAGE,
-        });
-        return;
-      }
-      setResult({ status: 'error', error: 'network', txHash: null, detail: msg || null });
-    }
+    return signAndSubmit(
+      tokenIn,
+      tokenOut,
+      () =>
+        buildExactOutputSwapTx({
+          routerId: toStellarAddress(ROUTER_ADDRESS),
+          tokenInId: toStellarAddress(tokenIn.id),
+          tokenOutId: toStellarAddress(tokenOut.id),
+          fee,
+          amountOut: toRawAmount(amountOut),
+          amountInMax: toRawAmount(quote.maximumIn),
+          ownerAddress: toStellarAddress(walletAddress),
+        }).xdr
+    );
   }
 
   return { ...result, execute, executeExactOutput, reset };

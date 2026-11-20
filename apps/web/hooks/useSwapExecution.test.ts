@@ -1,74 +1,50 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
-import type { Token } from '@swyft/ui';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
 import type { SwapQuote } from '@swyft/sdk';
+import type { Token } from '@swyft/ui';
+import { MevSubmissionError } from '@/lib/mev-submission';
+import { WalletRejectionError } from '@/lib/wallet-errors';
 
-// ─── Mocks ──────────────────────────────────────────────────────────────────
+const signTransaction = vi.fn();
+const submitTransaction = vi.fn();
 
-const mockSignTransaction = vi.fn();
-vi.mock('@stellar/freighter-api', () => ({
-  signTransaction: (...args: unknown[]) => mockSignTransaction(...args),
+vi.mock('@swyft/sdk', () => ({
+  buildSwapTx: () => ({ xdr: 'UNSIGNED_XDR' }),
+  buildExactOutputSwapTx: () => ({ xdr: 'UNSIGNED_XDR' }),
+  toRawAmount: (v: string) => BigInt(v),
+  toStellarAddress: (v: string) => v,
 }));
-vi.mock('@/context/WalletContext', () => ({
-  useWalletContext: () => ({
-    signTransaction: async (...args: unknown[]) => {
-      const result = await mockSignTransaction(...args);
-      if (typeof result === 'string') return result;
-      if (result && typeof result === 'object' && 'signedTxXdr' in result) {
-        return result.signedTxXdr;
-      }
-      throw new Error('Signing rejected');
-    },
-  }),
-}));
-
-const mockBuildSwapTx = vi.fn();
-const mockBuildExactOutputSwapTx = vi.fn();
-vi.mock('@swyft/sdk', async () => {
-  const actual = await vi.importActual<typeof import('@swyft/sdk')>('@swyft/sdk');
-  return {
-    ...actual,
-    buildSwapTx: (...args: unknown[]) => mockBuildSwapTx(...args),
-    buildExactOutputSwapTx: (...args: unknown[]) => mockBuildExactOutputSwapTx(...args),
-  };
-});
-
-const mockReportTx = vi.fn();
-vi.mock('@/context/TransactionStatusContext', () => ({
-  useTransactionStatus: () => ({ reportTx: mockReportTx }),
-}));
-
-vi.mock('@/lib/auth', () => ({
-  getAuthToken: () => 'test-auth-token',
-}));
-
+vi.mock('@/context/WalletContext', () => ({ useWalletContext: () => ({ signTransaction }) }));
 vi.mock('@/context/NetworkContext', () => ({
-  useNetworkContext: () => ({ network: 'TESTNET' }),
+  useNetworkContext: () => ({ network: 'TESTNET', apiBase: 'http://api.test' }),
 }));
-
-vi.mock('@/lib/constants', () => ({
-  ROUTER_ADDRESS: 'CROUTERADDRESSCROUTERADDRESSCROUTERADDRESSCROUTERAD',
-  getApiBase: (network: string) =>
-    network === 'TESTNET' ? 'https://testnet-api.example/v1' : 'https://public-api.example/v1',
-  getNetworkPassphrase: () => 'Test SDF Network ; September 2015',
+vi.mock('@/context/TransactionStatusContext', () => ({
+  useTransactionStatus: () => ({ reportTx: vi.fn() }),
 }));
-
-// Controllable MEV-protection state for each test. Defaults to disabled so
-// existing tests (written before MEV routing existed) keep exercising the
-// plain POST /transactions path without changes.
-const mevState: { enabled: boolean; mevRpcUrl: string | undefined } = {
-  enabled: false,
-  mevRpcUrl: undefined,
-};
 vi.mock('./useMevProtection', () => ({
-  isValidRpcUrl: (url: string | undefined) => Boolean(url),
-  useMevProtection: () => ({
-    enabled: mevState.enabled,
-    available: mevState.mevRpcUrl !== undefined,
-    toggle: vi.fn(),
-    rpcUrl: mevState.mevRpcUrl ?? 'https://soroban-testnet.stellar.org',
-    mevRpcUrl: mevState.mevRpcUrl,
-  }),
+  useMevProtection: () => ({ enabled: false, mevRpcUrl: '' }),
+}));
+vi.mock('@/lib/mev-submission', async (orig) => ({
+  ...(await orig<typeof import('@/lib/mev-submission')>()),
+  submitTransaction: (...args: unknown[]) => submitTransaction(...args),
+}));
+
+import { useSwapExecution } from './useSwapExecution';
+
+const token = (id: string): Token => ({ id, symbol: id, name: id, decimals: 7 }) as Token;
+const params = {
+  poolId: 'POOL',
+  tokenIn: token('XLM'),
+  tokenOut: token('USDC'),
+  amountIn: '10',
+  quote: { minimumReceived: '9' } as SwapQuote,
+  walletAddress: 'GWALLET',
+};
+
+async function run() {
+  const { result } = renderHook(() => useSwapExecution());
+  await act(() => result.current.execute(params));
+  return result
 }));
 
 import { useSwapExecution } from './useSwapExecution';
