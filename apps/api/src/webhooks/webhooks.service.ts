@@ -46,7 +46,7 @@ export class WebhooksService {
         webhookId: webhook.id,
         action: 'created',
         ownerWallet,
-        meta: JSON.stringify({ url, eventTypes: validTypes }),
+        meta: JSON.stringify({ webhookId: webhook.id, eventTypes: validTypes }),
       },
     });
 
