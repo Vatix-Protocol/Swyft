@@ -288,7 +288,7 @@ describe('WebhooksService', () => {
         id: 'log-1',
         webhookId: 'wh-uuid-1',
         action: 'created',
-        meta: '{"url":"https://example.com"}',
+        meta: '{"webhookId":"wh-uuid-1","eventTypes":["pool.created","swap.large"]}',
         createdAt: new Date(),
       },
     ];
@@ -506,5 +506,26 @@ describe('WebhooksService.create secret handling', () => {
     const auditData = auditArgs.data;
     expect(auditData.meta).not.toContain(SENTINEL);
     expect(JSON.stringify(auditData)).not.toContain(SENTINEL);
+  });
+
+  it('does not echo the webhook URL in audit meta', async () => {
+    const prisma = buildMockPrisma();
+    prisma.webhook.create.mockResolvedValue(mockWebhookRecord);
+    const service = new WebhooksService(
+      prisma as unknown as PrismaService,
+      buildMockWorker() as unknown as WebhookWorker,
+    );
+
+    await service.create(OWNER, URL, EVENT_TYPES);
+
+    const [auditArgs] = prisma.webhookAuditLog.create.mock.calls[0] as [
+      { data: { meta: string } },
+    ];
+    const auditData = auditArgs.data;
+    expect(auditData.meta).not.toContain(URL);
+    expect(JSON.stringify(auditData)).not.toContain(URL);
+    const parsedMeta = JSON.parse(auditData.meta);
+    expect(parsedMeta).toHaveProperty('webhookId');
+    expect(parsedMeta).not.toHaveProperty('url');
   });
 });
