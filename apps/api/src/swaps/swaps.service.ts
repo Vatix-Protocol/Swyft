@@ -118,6 +118,9 @@ export class SwapsService {
             tick: tick.tickIndex,
             liquidityNet: tick.liquidityNet,
             liquidityGross: tick.liquidityGross,
+            // getSwapQuote prices off the tick sqrt price and pool liquidity
+            // only; it never reads feeGrowthOutside, so a placeholder '0'
+            // satisfies the SDK tick type without affecting the quote.
             feeGrowthOutside: '0',
           })),
         },
