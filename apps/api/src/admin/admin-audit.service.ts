@@ -77,13 +77,14 @@ export interface AdminAuditRequest {
 }
 
 export interface AdminAuditLogInput {
-  actor: string;
+  actor: AdminAuditActor;
   action: string;
   resource?: string;
   meta?: Record<string, unknown> | string;
   ip?: string | null;
   statusCode?: number;
   createdAt?: Date;
+  idempotencyKey?: string;
 }
 
 /**
@@ -112,35 +113,23 @@ export class AdminAuditService {
   ) {}
 
   async log(input: AdminAuditLogInput): Promise<void> {
-    if (!this.prisma?.adminAuditLog?.create) {
-      this.records.push({
-        correlationId: input.action,
-        actorId: input.actor,
-        actorRole: 'admin',
-        action: input.action,
-        target: input.resource,
-        network: this.resolveNetwork(),
-        idempotencyKey: input.action,
-        metadata:
-          typeof input.meta === 'string' ? JSON.parse(input.meta) : input.meta,
-        timestamp: (input.createdAt ?? new Date()).toISOString(),
-      });
-      return;
-    }
+    // Generate a unique idempotency key if not provided
+    const idempotencyKey =
+      input.idempotencyKey ?? `${input.action}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
-    const payload = {
+    // Convert to AdminAuditRequest and use record() which performs all security checks
+    const request: AdminAuditRequest = {
       actor: input.actor,
       action: input.action,
-      resource: input.resource ?? 'admin',
-      meta:
+      target: input.resource,
+      idempotencyKey,
+      metadata:
         typeof input.meta === 'string'
-          ? input.meta
-          : JSON.stringify(input.meta ?? {}),
-      ip: input.ip ?? null,
-      statusCode: input.statusCode ?? null,
+          ? JSON.parse(input.meta)
+          : input.meta,
     };
 
-    await this.prisma.adminAuditLog.create({ data: payload });
+    await this.record(request);
   }
 
   async findRecent(

@@ -34,9 +34,14 @@ describe('AdminAuditInterceptor', () => {
         action: 'GET /admin/analytics/overview',
         resource: 'analytics',
         statusCode: 200,
+        actor: expect.objectContaining({
+          id: expect.any(String),
+          role: expect.any(String),
+        }),
       }),
     );
-    expect(auditService.log.mock.calls[0][0].actor).not.toContain(
+    // Actor should be the derived admin-interceptor, not the raw key
+    expect(auditService.log.mock.calls[0][0].actor.id).not.toContain(
       'do-not-store-me',
     );
   });

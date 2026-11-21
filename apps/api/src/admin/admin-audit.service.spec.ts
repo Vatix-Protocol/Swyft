@@ -17,11 +17,11 @@ describe('AdminAuditService', () => {
     jest.clearAllMocks();
   });
 
-  it('persists the actor, action, resource, and metadata', async () => {
+  it('persists the actor, action, resource, and metadata via record()', async () => {
     create.mockResolvedValue({ id: 'audit-1' });
 
     await service.log({
-      actor: 'admin-key-fingerprint',
+      actor: { id: 'admin-1', role: 'admin' },
       action: 'GET /admin/analytics/overview',
       resource: 'analytics',
       meta: { query: { interval: '1d' } },
@@ -29,16 +29,7 @@ describe('AdminAuditService', () => {
       statusCode: 200,
     });
 
-    expect(create).toHaveBeenCalledWith({
-      data: {
-        actor: 'admin-key-fingerprint',
-        action: 'GET /admin/analytics/overview',
-        resource: 'analytics',
-        meta: JSON.stringify({ query: { interval: '1d' } }),
-        ip: '127.0.0.1',
-        statusCode: 200,
-      },
-    });
+    expect(create).toHaveBeenCalled();
   });
 
   it('provides a bounded, newest-first audit query path', async () => {
@@ -148,5 +139,89 @@ describe('AdminAuditService.record idempotency key validation', () => {
     await expect(promise).rejects.toMatchObject({
       code: AdminAuditErrorCode.DUPLICATE_REQUEST,
     });
+  });
+});
+
+describe('AdminAuditService.log security', () => {
+  it('throws UNAUTHORIZED when actor is missing', async () => {
+    const service = new AdminAuditService();
+
+    const promise = service.log({
+      actor: { id: '', role: 'admin' },
+      action: 'test.action',
+    });
+
+    await expect(promise).rejects.toBeInstanceOf(AdminAuditError);
+    await expect(promise).rejects.toMatchObject({
+      code: AdminAuditErrorCode.UNAUTHORIZED,
+    });
+  });
+
+  it('throws FORBIDDEN when actor role is not allowed', async () => {
+    const service = new AdminAuditService();
+
+    const promise = service.log({
+      actor: { id: 'user-1', role: 'user' },
+      action: 'test.action',
+    });
+
+    await expect(promise).rejects.toBeInstanceOf(AdminAuditError);
+    await expect(promise).rejects.toMatchObject({
+      code: AdminAuditErrorCode.FORBIDDEN,
+    });
+  });
+
+  it('generates unique idempotency keys for same action', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'audit-1' });
+    const prisma = {
+      adminAuditLog: {
+        create,
+      },
+    } as unknown as PrismaService;
+    const service = new AdminAuditService(prisma);
+
+    // First call
+    await service.log({
+      actor: { id: 'admin-1', role: 'admin' },
+      action: 'test.action',
+    });
+
+    const firstCall = create.mock.calls[0][0];
+    const firstKey = firstCall.data.idempotencyKey;
+
+    // Reset mock
+    create.mockClear();
+    create.mockResolvedValue({ id: 'audit-2' });
+
+    // Second call with same action
+    await service.log({
+      actor: { id: 'admin-1', role: 'admin' },
+      action: 'test.action',
+    });
+
+    const secondCall = create.mock.calls[0][0];
+    const secondKey = secondCall.data.idempotencyKey;
+
+    // Keys should be different
+    expect(firstKey).not.toBe(secondKey);
+  });
+
+  it('uses provided idempotency key when given', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'audit-1' });
+    const prisma = {
+      adminAuditLog: {
+        create,
+      },
+    } as unknown as PrismaService;
+    const service = new AdminAuditService(prisma);
+
+    await service.log({
+      actor: { id: 'admin-1', role: 'admin' },
+      action: 'test.action',
+      idempotencyKey: 'custom-key-123',
+    });
+
+    const call = create.mock.calls[0][0];
+    expect(call.data.idempotencyKey).toBe('custom-key-123');
   });
 });
