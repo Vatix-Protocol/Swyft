@@ -325,6 +325,32 @@ describe('SwapsService', () => {
     });
   });
 
+  // ── #1359: resolveDirection rejects tokens not in the pool ────────────────
+
+  describe('resolveDirection()', () => {
+    // Addresses are compared exactly as the pool stores them (no lowercasing).
+    const pool = makePoolDetail();
+    const token0 = pool.token0.address;
+    const token1 = pool.token1.address;
+
+    it('throws InvalidInputException for a stranger token', () => {
+      expect(() =>
+        service['resolveDirection'](pool, token0, '0xStrangerToken'),
+      ).toThrow(InvalidInputException);
+      expect(() =>
+        service['resolveDirection'](pool, '0xStrangerToken', token1),
+      ).toThrow(InvalidInputException);
+    });
+
+    it('returns true for token0 -> token1', () => {
+      expect(service['resolveDirection'](pool, token0, token1)).toBe(true);
+    });
+
+    it('returns false for token1 -> token0', () => {
+      expect(service['resolveDirection'](pool, token1, token0)).toBe(false);
+    });
+  });
+
   describe('concurrent getSwaps()', () => {
     it('resolves overlapping calls with their own rows without shared loading state', async () => {
       expect(service).not.toHaveProperty('_isLoading');
