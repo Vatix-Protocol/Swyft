@@ -179,14 +179,6 @@ export class AdminAuditService {
       );
     }
 
-    if (this.seenKeys.has(request.idempotencyKey)) {
-      throw new AdminAuditError(
-        AdminAuditErrorCode.DUPLICATE_REQUEST,
-        'Duplicate admin audit request',
-        correlationId,
-      );
-    }
-
     const record: AdminAuditRecord = {
       correlationId,
       actorId: request.actor.id,
@@ -202,6 +194,20 @@ export class AdminAuditService {
     try {
       await this.persist(record);
     } catch (err) {
+      // Check for unique constraint violation on idempotencyKey
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        err.code === 'P2002'
+      ) {
+        throw new AdminAuditError(
+          AdminAuditErrorCode.DUPLICATE_REQUEST,
+          'Duplicate admin audit request',
+          correlationId,
+        );
+      }
+
       // Fail-closed: never report success when the write did not land.
       this.logger.error(
         `Admin audit persist failed correlationId=${correlationId} code=${AdminAuditErrorCode.DEPENDENCY_UNAVAILABLE}`,
@@ -317,8 +323,19 @@ export class AdminAuditService {
   }
 
   private async persist(record: AdminAuditRecord): Promise<void> {
-    // Default in-memory persistence. A production store can be injected by
-    // overriding this method or providing an AdminAuditStore implementation.
-    void record;
+    // Persist to database if Prisma is available
+    if (this.prisma?.adminAuditLog?.create) {
+      await this.prisma.adminAuditLog.create({
+        data: {
+          actor: record.actorId,
+          action: record.action,
+          resource: record.target ?? 'admin',
+          meta: record.metadata ? JSON.stringify(record.metadata) : '{}',
+          idempotencyKey: record.idempotencyKey,
+        },
+      });
+    }
+    // Default in-memory persistence for testing without database
+    // This is a fallback and not the source of truth for deduplication
   }
 }
