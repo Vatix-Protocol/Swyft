@@ -27,12 +27,36 @@ describe('resolveJwtSecret', () => {
     ).toThrow(/insecure default/);
   });
 
-  it('returns the secret in production when it has been changed', () => {
+  it('throws in production when JWT_SECRET is the insecure default with extra spacing', () => {
     process.env.NODE_ENV = 'production';
 
-    expect(resolveJwtSecret(configWith('a-real-unique-secret'))).toBe(
-      'a-real-unique-secret',
+    expect(() =>
+      resolveJwtSecret(configWith('  change-me-in-production  ')),
+    ).toThrow(/insecure default/);
+  });
+
+  it('throws in production when JWT_SECRET is shorter than minimum length', () => {
+    process.env.NODE_ENV = 'production';
+
+    expect(() => resolveJwtSecret(configWith('short'))).toThrow(
+      /must be at least 32 characters long/,
     );
+  });
+
+  it('throws in production when JWT_SECRET is exactly one character', () => {
+    process.env.NODE_ENV = 'production';
+
+    expect(() => resolveJwtSecret(configWith('a'))).toThrow(
+      /must be at least 32 characters long/,
+    );
+  });
+
+  it('returns the secret in production when it has been changed and meets minimum length', () => {
+    process.env.NODE_ENV = 'production';
+
+    expect(
+      resolveJwtSecret(configWith('a-real-unique-secret-that-is-long-enough')),
+    ).toBe('a-real-unique-secret-that-is-long-enough');
   });
 
   it('allows the insecure default outside production', () => {
@@ -41,6 +65,12 @@ describe('resolveJwtSecret', () => {
     expect(resolveJwtSecret(configWith('change-me-in-production'))).toBe(
       'change-me-in-production',
     );
+  });
+
+  it('allows short secrets outside production', () => {
+    process.env.NODE_ENV = 'development';
+
+    expect(resolveJwtSecret(configWith('short'))).toBe('short');
   });
 });
 
@@ -80,6 +110,21 @@ describe('resolveJwtSecret secret leakage', () => {
     expect(message).not.toContain(SENTINEL);
 
     expect(resolveJwtSecret(configWith(SENTINEL))).toBe(SENTINEL);
+    for (const spy of logSpies) {
+      for (const call of spy.mock.calls) {
+        expect(String(call.join(' '))).not.toContain(SENTINEL);
+      }
+    }
+  });
+
+  it('does not log the secret when rejecting due to minimum length', () => {
+    process.env.NODE_ENV = 'production';
+    const logSpies = (['log', 'warn', 'error', 'debug'] as const).map((m) =>
+      jest.spyOn(console, m).mockImplementation(() => undefined),
+    );
+
+    resolveJwtSecret(configWith(SENTINEL));
+
     for (const spy of logSpies) {
       for (const call of spy.mock.calls) {
         expect(String(call.join(' '))).not.toContain(SENTINEL);
