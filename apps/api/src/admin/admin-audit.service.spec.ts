@@ -104,4 +104,72 @@ describe('AdminAuditService.record idempotency key validation', () => {
       expect(service.list()).toHaveLength(0);
     },
   );
+
+  it('returns DUPLICATE_REQUEST when database unique constraint is violated', async () => {
+    const create = jest.fn();
+    const prisma = {
+      adminAuditLog: {
+        create,
+      },
+    } as unknown as PrismaService;
+    const service = new AdminAuditService(prisma);
+
+    // Simulate Prisma unique constraint violation error
+    const prismaError = {
+      code: 'P2002',
+      meta: { target: ['idempotencyKey'] },
+    };
+    create.mockRejectedValue(prismaError);
+
+    const promise = service.record({
+      actor: { id: 'admin-1', role: 'admin' },
+      action: 'pool.pause',
+      idempotencyKey: 'unique-key-123',
+    });
+
+    await expect(promise).rejects.toBeInstanceOf(AdminAuditError);
+    await expect(promise).rejects.toMatchObject({
+      code: AdminAuditErrorCode.DUPLICATE_REQUEST,
+      message: 'Duplicate admin audit request',
+    });
+  });
+
+  it('allows duplicate keys after restart (in-memory set is cleared)', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'audit-1' });
+    const prisma = {
+      adminAuditLog: {
+        create,
+      },
+    } as unknown as PrismaService;
+    const service = new AdminAuditService(prisma);
+
+    // First call succeeds
+    await service.record({
+      actor: { id: 'admin-1', role: 'admin' },
+      action: 'pool.pause',
+      idempotencyKey: 'unique-key-123',
+    });
+
+    expect(create).toHaveBeenCalledTimes(1);
+
+    // Simulate restart by creating a new service instance (clears in-memory set)
+    const service2 = new AdminAuditService(prisma);
+
+    // Second call with same key - database will enforce uniqueness
+    const prismaError = {
+      code: 'P2002',
+      meta: { target: ['idempotencyKey'] },
+    };
+    create.mockRejectedValue(prismaError);
+
+    const promise = service2.record({
+      actor: { id: 'admin-1', role: 'admin' },
+      action: 'pool.pause',
+      idempotencyKey: 'unique-key-123',
+    });
+
+    await expect(promise).rejects.toMatchObject({
+      code: AdminAuditErrorCode.DUPLICATE_REQUEST,
+    });
+  });
 });

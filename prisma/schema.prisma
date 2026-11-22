@@ -114,7 +114,7 @@ model Token {
   @@map("token")
 }
 
-// #75 — API key authentication
+// #75 â€” API key authentication
 model ApiKey {
   id           String    @id @default(cuid())
   hashedKey    String    @unique
@@ -128,7 +128,7 @@ model ApiKey {
   @@map("api_key")
 }
 
-// #82 — Webhook notifications
+// #82 â€” Webhook notifications
 model Webhook {
   id               String            @id @default(cuid())
   ownerWallet      String
@@ -158,7 +158,7 @@ model WebhookDelivery {
   @@map("webhook_delivery")
 }
 
-// #81 — OHLCV candle aggregation
+// #81 â€” OHLCV candle aggregation
 model PriceCandle {
   id          String   @id @default(cuid())
   poolId      String
@@ -290,29 +290,24 @@ model WebhookAuditLog {
   @@map("webhook_audit_log")
 }
 
-// #497 — Audit log for admin API actions
+// #497 â€” Audit log for admin API actions
 /// Immutable record of every action performed via the /admin/* endpoints.
 model AdminAuditLog {
-  id         String   @id @default(cuid())
-  /// Identifier of the caller — the value of the x-internal-key header (hashed) or 'system'.
-  actor      String
-  /// HTTP method + route, e.g. "GET /admin/analytics/overview".
-  action     String
-  /// High-level resource label, e.g. "analytics", "pools".
-  resource   String
-  /// JSON snapshot of relevant request context (query params, body summary).
-  meta       String   @default("{}")
-  ip         String?
-  statusCode Int?
-  createdAt  DateTime @default(now())
+  id              String   @id @default(cuid())
+  actor           String
+  action          String
+  resource        String
+  meta            String   @default("{}")
+  ip              String?
+  statusCode      Int?
+  idempotencyKey  String?  @unique
+  createdAt       DateTime @default(now())
 
   @@index([actor])
   @@index([action])
   @@index([createdAt])
   @@map("admin_audit_log")
 }
-
-/// Dead letter queue for failed indexer events that exceeded max retries
 model IndexerDeadLetter {
   id           String   @id @default(cuid())
   jobId        String   @unique
@@ -329,7 +324,7 @@ model IndexerDeadLetter {
   @@map("indexer_dead_letter")
 }
 
-/// #488 — TVL alert thresholds
+/// #488 â€” TVL alert thresholds
 /// User-defined thresholds for TVL alerts (e.g., alert when TVL drops below $X)
 model TvlAlertThreshold {
   id               String   @id @default(cuid())
@@ -369,7 +364,7 @@ model TvlAlertHistory {
   @@map("tvl_alert_history")
 }
 
-/// #489 — Historical TVL time series
+/// #489 â€” Historical TVL time series
 /// Daily TVL snapshots for time series export
 model TvlSnapshot {
   id               String   @id @default(cuid())
@@ -384,3 +379,6 @@ model TvlSnapshot {
   @@index([poolId, date])
   @@map("tvl_snapshot")
 }
+
+
+
