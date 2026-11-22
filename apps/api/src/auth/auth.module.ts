@@ -12,22 +12,48 @@ import { NonceController } from './nonce.controller';
 /** Placeholder value shipped in apps/api/.env.example — never valid in production. */
 const INSECURE_DEFAULT_JWT_SECRET = 'change-me-in-production';
 
+/** Minimum length for JWT_SECRET in production to ensure sufficient entropy. */
+const MIN_SECRET_LENGTH = 32;
+
 /**
  * Reads JWT_SECRET from config, refusing to boot in production if it is
- * missing or still set to the insecure placeholder from .env.example.
+ * missing, still set to the insecure placeholder from .env.example, or too short.
  */
 export function resolveJwtSecret(config: ConfigService): string {
   const secret = config.getOrThrow<string>('JWT_SECRET');
   const isProduction = process.env.NODE_ENV === 'production';
 
-  if (isProduction && secret === INSECURE_DEFAULT_JWT_SECRET) {
-    throw new Error(
-      'JWT_SECRET is set to the insecure default "change-me-in-production". ' +
-        'Set a unique secret before starting the API in production.',
-    );
+  if (isProduction) {
+    const trimmedSecret = secret.trim();
+
+    if (trimmedSecret === INSECURE_DEFAULT_JWT_SECRET) {
+      throw new Error(
+        'JWT_SECRET is set to the insecure default "change-me-in-production". ' +
+          'Set a unique secret before starting the API in production.',
+      );
+    }
+
+    if (trimmedSecret.length < MIN_SECRET_LENGTH) {
+      throw new Error(
+        `JWT_SECRET must be at least ${MIN_SECRET_LENGTH} characters long in production. ` +
+          `Current length: ${trimmedSecret.length}.`,
+      );
+    }
   }
 
   return secret;
+}
+
+/** JwtModule options factory; falls back to a 15m expiry only when JWT_EXPIRES_IN is unset. */
+export function jwtModuleOptionsFactory(config: ConfigService) {
+  return {
+    secret: resolveJwtSecret(config),
+    // Default sign options; individual sign() calls may override expiresIn.
+    signOptions: {
+      expiresIn: (config.get<string>('JWT_EXPIRES_IN') ??
+        '15m') as `${number}m`,
+    },
+  };
 }
 
 @Module({
@@ -39,14 +65,7 @@ export function resolveJwtSecret(config: ConfigService): string {
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: resolveJwtSecret(config),
-        // Default sign options; individual sign() calls may override expiresIn.
-        signOptions: {
-          expiresIn: (config.get<string>('JWT_EXPIRES_IN') ??
-            '15m') as `${number}m`,
-        },
-      }),
+      useFactory: jwtModuleOptionsFactory,
     }),
 
     // Provides the REDIS_CLIENT injection token used in AuthService.

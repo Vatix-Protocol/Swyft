@@ -1,6 +1,7 @@
 import { Pool, Token } from '@prisma/client';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import * as swyftSdk from '@swyft/sdk';
 import { SwapsService } from './swaps.service';
 import { SwapsRepository } from './swaps.repository';
 import {
@@ -232,12 +233,96 @@ describe('SwapsService', () => {
       );
     });
 
+    it('throws ResourceNotFoundException using the request pool id and never calls the SDK (#1360)', async () => {
+      const getSwapQuoteSpy = jest.spyOn(swyftSdk, 'getSwapQuote');
+      pools.findPoolById.mockResolvedValue(null);
+
+      const result = service.getQuote({
+        ...baseRequest,
+        poolId: 'pool-missing',
+      });
+
+      await expect(result).rejects.toThrow(ResourceNotFoundException);
+      await expect(result).rejects.toThrow('pool-missing');
+      expect(getSwapQuoteSpy).not.toHaveBeenCalled();
+
+      getSwapQuoteSpy.mockRestore();
+    });
+
+    it('prices without a real tick fee growth outside (#1362)', async () => {
+      const getSwapQuoteSpy = jest
+        .spyOn(swyftSdk, 'getSwapQuote')
+        .mockReturnValue({
+          amountOut: '1000000',
+          priceImpact: 0,
+          fee: '3000',
+          minimumReceived: '990000',
+          sqrtPriceLimitX96: '79228162514264337593543950336',
+        });
+      pools.findPoolById.mockResolvedValue(makePoolDetail());
+      pools.getPoolTicks.mockResolvedValue([
+        {
+          tickIndex: -100,
+          liquidityNet: '1000000000000000000',
+          liquidityGross: '1000000000000000000',
+          feeGrowthOutside0X128: '123456789',
+          feeGrowthOutside1X128: '987654321',
+        },
+      ]);
+
+      await expect(service.getQuote(baseRequest)).resolves.toBeDefined();
+
+      const call = getSwapQuoteSpy.mock.calls[0][0] as {
+        poolState: { ticks: Array<{ tick: number; feeGrowthOutside: string }> };
+      };
+      // The SDK quote math ignores fee growth outside; the mapper supplies a
+      // placeholder '0' that satisfies the tick type without affecting price.
+      expect(call.poolState.ticks[0]).toEqual(
+        expect.objectContaining({ tick: -100, feeGrowthOutside: '0' }),
+      );
+
+      getSwapQuoteSpy.mockRestore();
+    });
+
     it('throws InvalidInputException when tokenIn/tokenOut do not match the pool', async () => {
       pools.findPoolById.mockResolvedValue(makePoolDetail());
 
       await expect(
         service.getQuote({ ...baseRequest, tokenOut: '0xSomeOtherToken' }),
       ).rejects.toThrow(InvalidInputException);
+    });
+
+    it('throws InvalidInputException for a token that is not in the pool (#1359)', () => {
+      const pool = makePoolDetail();
+      expect(() =>
+        service['resolveDirection'](
+          pool,
+          '0xNotInThePool',
+          pool.token1.address,
+        ),
+      ).toThrow(InvalidInputException);
+    });
+
+    it('returns true for token0 -> token1 (#1359)', () => {
+      const pool = makePoolDetail();
+      expect(
+        service['resolveDirection'](
+          pool,
+          pool.token0.address,
+          pool.token1.address,
+        ),
+      ).toBe(true);
+    });
+
+    it('returns false for token1 -> token0 (#1359)', () => {
+      const pool = makePoolDetail();
+      expect(
+        service['resolveDirection'](
+          pool,
+          pool.token1.address,
+          pool.token0.address,
+        ),
+      ).toBe(false);
     });
 
     it('throws BusinessRuleViolationException when the pool has no valid price', async () => {
@@ -283,6 +368,30 @@ describe('SwapsService', () => {
       },
     );
 
+    it.each(['0', '0.000'])(
+      'rejects a non-positive amountIn %p at the token decimals',
+      async (amountIn) => {
+        pools.findPoolById.mockResolvedValue(makePoolDetail());
+
+        await expect(
+          service.getQuote({ ...baseRequest, amountIn }),
+        ).rejects.toThrow(InvalidInputException);
+        await expect(
+          service.getQuote({ ...baseRequest, amountIn }),
+        ).rejects.toThrow('amountIn must be greater than zero');
+      },
+    );
+
+    it('lets an amountIn of "1" past validation to the SDK quote', async () => {
+      pools.findPoolById.mockResolvedValue(makePoolDetail());
+
+      const outcome: unknown = await service
+        .getQuote({ ...baseRequest, amountIn: '1' })
+        .catch((err: unknown) => err);
+
+      expect(outcome).not.toBeInstanceOf(InvalidInputException);
+    });
+
     it('keeps "1.0" valid at 1 decimal', () => {
       expect(service['toBaseUnits']('1.0', 1)).toBe(10n);
     });
@@ -298,6 +407,43 @@ describe('SwapsService', () => {
       expect(price).toBe(
         service['fromBaseUnits']((amountOut * 10n ** 18n) / amountIn, 18),
       );
+    });
+
+    it.each([
+      [1n, 2, '0.01'],
+      [100n, 2, '1'],
+      [150n, 2, '1.5'],
+    ])(
+      'fromBaseUnits(%p at %p decimals) strips trailing zeros to %p (#1361)',
+      (amount, decimals, expected) => {
+        expect(service['fromBaseUnits'](amount, decimals)).toBe(expected);
+      },
+    );
+  });
+
+  // ── #1359: resolveDirection rejects tokens not in the pool ────────────────
+
+  describe('resolveDirection()', () => {
+    // Addresses are compared exactly as the pool stores them (no lowercasing).
+    const pool = makePoolDetail();
+    const token0 = pool.token0.address;
+    const token1 = pool.token1.address;
+
+    it('throws InvalidInputException for a stranger token', () => {
+      expect(() =>
+        service['resolveDirection'](pool, token0, '0xStrangerToken'),
+      ).toThrow(InvalidInputException);
+      expect(() =>
+        service['resolveDirection'](pool, '0xStrangerToken', token1),
+      ).toThrow(InvalidInputException);
+    });
+
+    it('returns true for token0 -> token1', () => {
+      expect(service['resolveDirection'](pool, token0, token1)).toBe(true);
+    });
+
+    it('returns false for token1 -> token0', () => {
+      expect(service['resolveDirection'](pool, token1, token0)).toBe(false);
     });
   });
 

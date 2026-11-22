@@ -45,6 +45,29 @@ describe('AdminAuditService', () => {
       }),
     );
   });
+
+  it('caps a limit of 1000 at take 500', async () => {
+    findMany.mockResolvedValue([]);
+
+    await service.findRecent(1000);
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 500 }),
+    );
+  });
+
+  it('raises a limit of 0 to take 1', async () => {
+    findMany.mockResolvedValue([]);
+
+    await service.findRecent(0);
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 1 }));
+  });
+
+  it('returns an empty list without querying when prisma is missing', async () => {
+    await expect(new AdminAuditService().findRecent(1000)).resolves.toEqual([]);
+    expect(findMany).not.toHaveBeenCalled();
+  });
 });
 
 describe('AdminAuditService.record idempotency key validation', () => {
@@ -224,4 +247,39 @@ describe('AdminAuditService.log security', () => {
     const call = create.mock.calls[0][0];
     expect(call.data.idempotencyKey).toBe('custom-key-123');
   });
+
+  it('throws DUPLICATE_REQUEST when idempotency key already exists', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'audit-1' });
+    const prisma = {
+      adminAuditLog: {
+        create,
+      },
+    } as unknown as PrismaService;
+    const service = new AdminAuditService(prisma);
+
+    // First call with key
+    await service.log({
+      actor: { id: 'admin-1', role: 'admin' },
+      action: 'pool.pause',
+      idempotencyKey: 'unique-key-123',
+    });
+
+    // Second call with same key - database will enforce uniqueness
+    const prismaError = {
+      code: 'P2002',
+      meta: { target: ['idempotencyKey'] },
+    };
+    create.mockRejectedValue(prismaError);
+
+    const promise = service.log({
+      actor: { id: 'admin-1', role: 'admin' },
+      action: 'pool.pause',
+      idempotencyKey: 'unique-key-123',
+    });
+
+    await expect(promise).rejects.toMatchObject({
+      code: AdminAuditErrorCode.DUPLICATE_REQUEST,
+    });
+  });
+});
 });
