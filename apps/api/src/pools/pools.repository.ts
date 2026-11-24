@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Pool } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { InvalidInputException } from '../request-validation/http.exceptions';
 import {
   PoolListQuery,
   PoolListResult,
@@ -118,7 +119,11 @@ export class PoolsRepository {
 
     // Validate as a decimal string and persist it verbatim so the stored value
     // remains an exact decimal (e.g. "1.10" == 1.10) instead of a binary float.
-    if (!PoolsRepository.isValidDecimalPrice(patch.currentPrice)) return;
+    if (!PoolsRepository.isValidDecimalPrice(patch.currentPrice)) {
+      throw new InvalidInputException(
+        'currentPrice must be a positive decimal',
+      );
+    }
     const currentPrice = patch.currentPrice.trim();
 
     await this.prisma.pool
@@ -126,7 +131,7 @@ export class PoolsRepository {
         where: { id: poolId },
         data: { currentPrice },
       })
-      .catch((error: { code?: string }) => {
+      .catch((error: Error & { code?: string }) => {
         // State updates may arrive for a pool that has not been indexed yet.
         // Ignore that race; a later event will create the pool and update it.
         if (error.code !== 'P2025') throw error;

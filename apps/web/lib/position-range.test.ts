@@ -33,6 +33,12 @@ describe('position-range', () => {
     expect(tickToPrice(-1)).toBeCloseTo(1 / 1.0001, 12);
   });
 
+  it('tickToPrice is strictly increasing across ascending ticks', () => {
+    const prices = [0, 1, 100].map(tickToPrice);
+    expect(prices[0]).toBeLessThan(prices[1]);
+    expect(prices[1]).toBeLessThan(prices[2]);
+  });
+
   it('reports a position whose current tick is inside the range as in-range', () => {
     const p = position({ poolCurrentPrice: tickToPrice(0) });
     expect(rangeStatus(p)).toBe('in-range');

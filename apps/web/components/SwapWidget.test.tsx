@@ -75,11 +75,7 @@ vi.mock('@swyft/ui', () => ({
   }) => (
     <div data-testid={`swap-input-${label.replace(/\s+/g, '-').toLowerCase()}`}>
       <span>{label}</span>
-      <input
-        aria-label={label}
-        value={amount}
-        onChange={(e) => onAmountChange?.(e.target.value)}
-      />
+      <input aria-label={label} value={amount} onChange={(e) => onAmountChange?.(e.target.value)} />
     </div>
   ),
   PriceImpactBadge: ({ impact }: { impact: number }) => (
@@ -153,9 +149,7 @@ describe('SwapWidget', () => {
 
     it('renders the direction swap button with accessible label', () => {
       renderWidget();
-      expect(
-        screen.getByRole('button', { name: 'Swap token pair direction' })
-      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Swap token pair direction' })).toBeInTheDocument();
     });
 
     it('direction swap button has 44px touch target (h-11 w-11)', () => {
@@ -202,9 +196,7 @@ describe('SwapWidget', () => {
       fireEvent.click(firstPicker);
       expect(screen.getByRole('listbox', { name: 'Select token' })).toBeInTheDocument();
 
-      const backdrop = container.querySelector(
-        '[aria-hidden="true"].fixed.inset-0'
-      ) as Element;
+      const backdrop = container.querySelector('[aria-hidden="true"].fixed.inset-0') as Element;
       fireEvent.click(backdrop);
       expect(screen.queryByRole('listbox', { name: 'Select token' })).not.toBeInTheDocument();
     });
@@ -250,6 +242,28 @@ describe('SwapWidget', () => {
 
       expect(screen.queryByRole('listbox', { name: 'Select token' })).not.toBeInTheDocument();
     });
+
+    it('excludes the token selected on the opposite side', () => {
+      renderWidget();
+      const [inputPicker, outputPicker] = screen.getAllByRole('button', { name: /Select/ });
+
+      fireEvent.click(outputPicker);
+      fireEvent.click(screen.getByRole('button', { name: 'XLM' }));
+      fireEvent.click(inputPicker);
+
+      let options = within(screen.getByRole('listbox', { name: 'Select token' })).getAllByRole(
+        'option'
+      );
+      expect(options.map((option) => option.textContent)).toEqual(['USDC']);
+
+      fireEvent.click(screen.getByRole('button', { name: 'USDC' }));
+      fireEvent.click(screen.getByRole('button', { name: 'XLM' }));
+
+      options = within(screen.getByRole('listbox', { name: 'Select token' })).getAllByRole(
+        'option'
+      );
+      expect(options.map((option) => option.textContent)).toEqual(['XLM']);
+    });
   });
 
   // ── CTA button states ─────────────────────────────────────────────────────
@@ -257,9 +271,7 @@ describe('SwapWidget', () => {
   describe('swap button', () => {
     it('shows "Connect wallet to swap" when wallet is disconnected', () => {
       renderWidget(disconnectedWallet);
-      expect(
-        screen.getByRole('button', { name: 'Connect wallet to swap' })
-      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Connect wallet to swap' })).toBeInTheDocument();
     });
 
     it('shows "Select tokens" when wallet is connected but no tokens chosen', () => {
@@ -391,7 +403,7 @@ describe('SwapWidget', () => {
       expect(confirmButton).toBeDisabled();
     });
 
-    it('retries the swap after a network error via the modal\'s own retry button', async () => {
+    it("retries the swap after a network error via the modal's own retry button", async () => {
       (global.fetch as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ ok: false, json: async () => ({ message: 'tx failed' }) })
         .mockResolvedValueOnce({ ok: true, json: async () => ({ hash: 'retry-hash' }) });

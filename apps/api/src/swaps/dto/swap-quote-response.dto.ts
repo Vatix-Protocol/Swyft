@@ -1,5 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+/**
+ * `amountOut` and `executionPrice` are decimal strings, not JavaScript
+ * numbers. The apps/web consumer must not parse them with `Number`.
+ */
 export class SwapQuoteResponseDto {
   @ApiProperty({
     description: 'Estimated amount of tokenOut received, before slippage',
