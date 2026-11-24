@@ -282,4 +282,45 @@ describe('AdminAuditService.log security', () => {
     });
   });
 });
+
+// #1365 — duplicate detection survives a second service instance
+describe('AdminAuditService.record duplicate detection across instances (#1365)', () => {
+  it('throws DUPLICATE_REQUEST on the second instance and leaves exactly one row', async () => {
+    // The idempotency key is a stable value unrelated to the action name so
+    // the test does not rely on seenKeys (which only exists for the life of one
+    // instance) and instead proves the database constraint is the authority.
+    const idempotencyKey = 'idem-key-cross-instance-1365';
+
+    const rows: unknown[] = [];
+    const create = jest.fn().mockImplementation((args: { data: unknown }) => {
+      rows.push(args.data);
+      return Promise.resolve({ id: `row-${rows.length}` });
+    });
+    const prisma = {
+      adminAuditLog: { create },
+    } as unknown as PrismaService;
+
+    const actor = { id: 'admin-99', role: 'admin' } as const;
+    const action = 'pool.activate';
+
+    // First instance: the call succeeds and the row lands.
+    const serviceA = new AdminAuditService(prisma);
+    await serviceA.record({ actor, action, idempotencyKey });
+    expect(rows).toHaveLength(1);
+
+    // Second instance: seenKeys is empty (new instance), so only the database
+    // constraint catches the duplicate.  Simulate the unique-constraint error
+    // that Prisma raises (P2002) to confirm the service surfaces DUPLICATE_REQUEST.
+    const p2002 = { code: 'P2002', meta: { target: ['idempotencyKey'] } };
+    create.mockRejectedValueOnce(p2002);
+
+    const serviceB = new AdminAuditService(prisma);
+    await expect(
+      serviceB.record({ actor, action, idempotencyKey }),
+    ).rejects.toMatchObject({ code: AdminAuditErrorCode.DUPLICATE_REQUEST });
+
+    // The rejected call must not have written a second row.
+    expect(rows).toHaveLength(1);
+  });
+});
 });
