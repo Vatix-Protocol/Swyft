@@ -421,6 +421,36 @@ describe('SwapsService', () => {
     );
   });
 
+  // ── #1363: pagination uses the requested page size ───────────────────────
+
+  describe('getSwaps() pagination (#1363)', () => {
+    it('yields totalPages 0 when total is 0', async () => {
+      repo.listSwaps.mockResolvedValue({ items: [], total: 0 });
+
+      const result = await service.getSwaps({ page: 1, limit: 20 });
+
+      expect(result.totalPages).toBe(0);
+      expect(result.total).toBe(0);
+    });
+
+    it('yields totalPages 2 for total 21 and limit 20', async () => {
+      repo.listSwaps.mockResolvedValue({ items: [], total: 21 });
+
+      const result = await service.getSwaps({ page: 1, limit: 20 });
+
+      expect(result.totalPages).toBe(2);
+      expect(result.limit).toBe(20);
+    });
+
+    it('defaults limit to 20 when omitted', async () => {
+      repo.listSwaps.mockResolvedValue({ items: [], total: 0 });
+
+      const result = await service.getSwaps({ page: 1 });
+
+      expect(result.limit).toBe(20);
+    });
+  });
+
   // ── #1359: resolveDirection rejects tokens not in the pool ────────────────
 
   describe('resolveDirection()', () => {
