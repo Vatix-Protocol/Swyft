@@ -33,6 +33,15 @@ describe('position-range', () => {
     expect(tickToPrice(-1)).toBeCloseTo(1 / 1.0001, 12);
   });
 
+  it('uses the current tick, with an inclusive lower tick and an exclusive upper tick', () => {
+    const bounds = { status: 'active' as const, lowerTick: 0, upperTick: 20 };
+    expect(rangeStatus({ ...bounds, currentTick: 10 })).toBe('in-range');
+    expect(rangeStatus({ ...bounds, currentTick: 0 })).toBe('in-range');
+    // Upper tick is exclusive, matching the pool mint rule `tick < tick_upper`.
+    expect(rangeStatus({ ...bounds, currentTick: 20 })).toBe('out-of-range');
+    expect(rangeStatus({ ...bounds, currentTick: 10, poolCurrentPrice: 1e6 })).toBe('in-range');
+  });
+
   it('reports a position whose current tick is inside the range as in-range', () => {
     const p = position({ poolCurrentPrice: tickToPrice(0) });
     expect(rangeStatus(p)).toBe('in-range');

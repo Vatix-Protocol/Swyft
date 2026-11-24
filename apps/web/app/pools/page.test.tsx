@@ -86,6 +86,37 @@ describe('PoolsPage', () => {
     expect(screen.getByText(/\?C123…\/\?C987…/)).toBeInTheDocument();
   });
 
+  it('does not render NaN when a pool has no fee tier', () => {
+    const pool = {
+      id: 'pool-no-fee',
+      token0: 'XLM',
+      token1: 'USDC',
+      tvl: 1000,
+      volume24h: 100,
+      volume7d: 700,
+      feeApr: 1,
+      currentPrice: 0.1,
+    };
+
+    mockUsePools.mockReturnValue({
+      data: {
+        items: [
+          { ...pool, id: 'pool-undefined-fee', feeTier: undefined },
+          { ...pool, feeTier: '' },
+        ],
+        totalPages: 1,
+      },
+      isLoading: false,
+      isError: false,
+      misconfigError: null,
+    });
+
+    render(<PoolsPage />);
+
+    expect(screen.getAllByText('—')).toHaveLength(2);
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
+
   it('renders fee tier "3000" as the formatter text, not a float', () => {
     mockUsePools.mockReturnValue({
       data: {

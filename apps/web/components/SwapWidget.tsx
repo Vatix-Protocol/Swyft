@@ -56,11 +56,7 @@ export function TokenPickerButton({
       {open && (
         <>
           {/* Backdrop — closes dropdown on outside tap (mobile-friendly) */}
-          <div
-            className="fixed inset-0 z-20"
-            aria-hidden="true"
-            onClick={() => setOpen(false)}
-          />
+          <div className="fixed inset-0 z-20" aria-hidden="true" onClick={() => setOpen(false)} />
           <ul
             role="listbox"
             aria-label="Select token"
@@ -208,8 +204,7 @@ export function SwapWidget({
   const inBalance = pair.tokenIn ? (balances[pair.tokenIn.id] ?? undefined) : undefined;
   const outBalance = pair.tokenOut ? (balances[pair.tokenOut.id] ?? undefined) : undefined;
 
-  const effectiveAmountIn =
-    swapMode === 'exactOut' ? (exactOutputQuote?.amountIn ?? '') : amountIn;
+  const effectiveAmountIn = swapMode === 'exactOut' ? (exactOutputQuote?.amountIn ?? '') : amountIn;
 
   const insufficient =
     inBalance !== undefined && parseFloat(effectiveAmountIn || '0') > parseFloat(inBalance);
@@ -221,10 +216,7 @@ export function SwapWidget({
     insufficient ||
     (swapMode === 'exactIn'
       ? !amountIn || parseFloat(amountIn) <= 0 || quoteLoading || !quote
-      : !amountOut ||
-        parseFloat(amountOut) <= 0 ||
-        !exactOutputQuote ||
-        feeTier == null);
+      : !amountOut || parseFloat(amountOut) <= 0 || !exactOutputQuote || feeTier == null);
 
   function selectIn(token: Token) {
     const next =
@@ -354,9 +346,15 @@ export function SwapWidget({
             {exactOutputAvailable && (
               <button
                 type="button"
-                onClick={() =>
-                  setSwapMode((m) => (m === 'exactIn' ? 'exactOut' : 'exactIn'))
-                }
+                onClick={() => {
+                  if (swapMode === 'exactIn') {
+                    setAmountIn('');
+                    setSwapMode('exactOut');
+                  } else {
+                    setAmountOut('');
+                    setSwapMode('exactIn');
+                  }
+                }}
                 aria-pressed={swapMode === 'exactOut'}
                 className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
               >
@@ -429,9 +427,7 @@ export function SwapWidget({
             role="group"
             aria-labelledby="swap-label-receive"
             aria-describedby={
-              poolExists === false && pair.tokenIn && pair.tokenOut
-                ? errorIds.noPool
-                : undefined
+              poolExists === false && pair.tokenIn && pair.tokenOut ? errorIds.noPool : undefined
             }
           >
             <label id="swap-label-receive" className="sr-only">
@@ -441,11 +437,7 @@ export function SwapWidget({
               label="You receive"
               token={pair.tokenOut}
               amount={
-                swapMode === 'exactOut'
-                  ? amountOut
-                  : quoteLoading
-                    ? ''
-                    : (quote?.amountOut ?? '')
+                swapMode === 'exactOut' ? amountOut : quoteLoading ? '' : (quote?.amountOut ?? '')
               }
               balance={outBalance}
               onAmountChange={swapMode === 'exactOut' ? setAmountOut : undefined}
@@ -510,14 +502,22 @@ export function SwapWidget({
 
           {/* Insufficient balance error */}
           {insufficient && (
-            <p id={errorIds.insufficientBalance} role="alert" className="text-xs text-red-600 dark:text-red-400">
+            <p
+              id={errorIds.insufficientBalance}
+              role="alert"
+              className="text-xs text-red-600 dark:text-red-400"
+            >
               Insufficient {pair.tokenIn?.symbol} balance
             </p>
           )}
 
           {/* No pool warning */}
           {poolExists === false && pair.tokenIn && pair.tokenOut && (
-            <p id={errorIds.noPool} role="alert" className="text-xs text-amber-600 dark:text-amber-400">
+            <p
+              id={errorIds.noPool}
+              role="alert"
+              className="text-xs text-amber-600 dark:text-amber-400"
+            >
               No pool exists for this pair. Try a different token combination.
             </p>
           )}
