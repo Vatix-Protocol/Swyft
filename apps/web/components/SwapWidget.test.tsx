@@ -8,6 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
+import { useSwapQuote } from '@/hooks/useSwapQuote';
 import { SwapWidget, TokenPickerButton } from './SwapWidget';
 
 // ── Module mocks ────────────────────────────────────────────────────────────
@@ -44,6 +45,11 @@ vi.mock('@/hooks/useWalletBalances', () => ({
   useWalletBalances: () => ({}),
 }));
 
+vi.mock('@/lib/constants', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/constants')>()),
+  ROUTER_ADDRESS: 'CROUTERADDRESS',
+}));
+
 // SwapConfirmModal is rendered for real (not mocked away) so that the
 // network-mismatch banner and retry logic it owns are exercised by these
 // tests. Its own dependencies that reach the network / wallet extension are
@@ -75,11 +81,7 @@ vi.mock('@swyft/ui', () => ({
   }) => (
     <div data-testid={`swap-input-${label.replace(/\s+/g, '-').toLowerCase()}`}>
       <span>{label}</span>
-      <input
-        aria-label={label}
-        value={amount}
-        onChange={(e) => onAmountChange?.(e.target.value)}
-      />
+      <input aria-label={label} value={amount} onChange={(e) => onAmountChange?.(e.target.value)} />
     </div>
   ),
   PriceImpactBadge: ({ impact }: { impact: number }) => (
@@ -153,9 +155,7 @@ describe('SwapWidget', () => {
 
     it('renders the direction swap button with accessible label', () => {
       renderWidget();
-      expect(
-        screen.getByRole('button', { name: 'Swap token pair direction' })
-      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Swap token pair direction' })).toBeInTheDocument();
     });
 
     it('direction swap button has 44px touch target (h-11 w-11)', () => {
@@ -202,9 +202,7 @@ describe('SwapWidget', () => {
       fireEvent.click(firstPicker);
       expect(screen.getByRole('listbox', { name: 'Select token' })).toBeInTheDocument();
 
-      const backdrop = container.querySelector(
-        '[aria-hidden="true"].fixed.inset-0'
-      ) as Element;
+      const backdrop = container.querySelector('[aria-hidden="true"].fixed.inset-0') as Element;
       fireEvent.click(backdrop);
       expect(screen.queryByRole('listbox', { name: 'Select token' })).not.toBeInTheDocument();
     });
@@ -257,9 +255,7 @@ describe('SwapWidget', () => {
   describe('swap button', () => {
     it('shows "Connect wallet to swap" when wallet is disconnected', () => {
       renderWidget(disconnectedWallet);
-      expect(
-        screen.getByRole('button', { name: 'Connect wallet to swap' })
-      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Connect wallet to swap' })).toBeInTheDocument();
     });
 
     it('shows "Select tokens" when wallet is connected but no tokens chosen', () => {
@@ -337,6 +333,34 @@ describe('SwapWidget', () => {
     });
   });
 
+  describe('swap mode amounts', () => {
+    it('clears the inactive amount when the mode switches', () => {
+      renderWidget(connectedWallet);
+
+      const [payPicker, receivePicker] = screen.getAllByRole('button', { name: /Select/ });
+      fireEvent.click(payPicker);
+      fireEvent.click(screen.getByRole('button', { name: 'USDC' }));
+      fireEvent.click(receivePicker);
+      fireEvent.click(screen.getByRole('button', { name: 'XLM' }));
+
+      fireEvent.change(screen.getByRole('textbox', { name: 'You pay' }), {
+        target: { value: '100' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Exact input' }));
+
+      const quoteCalls = vi.mocked(useSwapQuote).mock.calls;
+      expect(quoteCalls[quoteCalls.length - 1][0].amountIn).toBe('');
+
+      fireEvent.change(screen.getByRole('textbox', { name: 'You receive' }), {
+        target: { value: '50' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Exact output' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Exact input' }));
+
+      expect(screen.getByRole('textbox', { name: 'You receive' })).toHaveValue('');
+    });
+  });
+
   // ── Confirmation modal (real SwapConfirmModal, not mocked away) ──────────
   //
   // These tests exercise the actual SwapConfirmModal that SwapWidget renders
@@ -353,7 +377,7 @@ describe('SwapWidget', () => {
       fireEvent.click(receivePicker);
       fireEvent.click(screen.getByRole('button', { name: 'XLM' }));
 
-      const payInput = screen.getByLabelText('You pay');
+      const payInput = screen.getByRole('textbox', { name: 'You pay' });
       fireEvent.change(payInput, { target: { value: '100' } });
     }
 
@@ -391,7 +415,7 @@ describe('SwapWidget', () => {
       expect(confirmButton).toBeDisabled();
     });
 
-    it('retries the swap after a network error via the modal\'s own retry button', async () => {
+    it("retries the swap after a network error via the modal's own retry button", async () => {
       (global.fetch as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ ok: false, json: async () => ({ message: 'tx failed' }) })
         .mockResolvedValueOnce({ ok: true, json: async () => ({ hash: 'retry-hash' }) });
