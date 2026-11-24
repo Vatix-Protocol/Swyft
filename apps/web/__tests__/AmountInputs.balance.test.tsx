@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { AmountInputs } from '@/components/AddLiquidity/AmountInputs';
+import { AmountInputs, parseAmountToBaseUnits } from '@/components/AddLiquidity/AmountInputs';
 
 function renderWith(amount0: string, balance0: string) {
   return render(
@@ -36,6 +36,22 @@ describe('AmountInputs — over-balance check', () => {
     expect(screen.queryByText('Insufficient balance')).not.toBeInTheDocument();
     unmount();
     renderWith('1.0000002', '1.0000001');
+    expect(screen.getByText('Insufficient balance')).toBeInTheDocument();
+  });
+
+  it('parses balances with 18 fractional digits exactly', () => {
+    const balance = '0.123456789012345678';
+    expect(parseAmountToBaseUnits(balance)).toBe(123456789012345678n);
+    expect(parseAmountToBaseUnits('0.123456789012345679')).toBe(123456789012345679n);
+  });
+
+  it('does not warn when an 18-decimal amount equals its balance', () => {
+    renderWith('0.123456789012345678', '0.123456789012345678');
+    expect(screen.queryByText('Insufficient balance')).not.toBeInTheDocument();
+  });
+
+  it('warns when an 18-decimal amount is one base unit above its balance', () => {
+    renderWith('0.123456789012345679', '0.123456789012345678');
     expect(screen.getByText('Insufficient balance')).toBeInTheDocument();
   });
 });

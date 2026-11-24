@@ -62,4 +62,28 @@ describe('useSwapQuote slippage refetch', () => {
     const body = JSON.parse(mockApiFetch.mock.calls[1][1].body as string);
     expect(body.slippageBps).toBe(100);
   });
+
+  it('does not request a quote for an empty amount', async () => {
+    const { result } = renderHook(() =>
+      useSwapQuote({ ...baseParams, amountIn: '' })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    expect(mockApiFetch).toHaveBeenCalledTimes(0);
+    expect(result.current.quote).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('requests a quote for amountIn "1"', async () => {
+    renderHook(() => useSwapQuote({ ...baseParams, amountIn: '1' }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    expect(mockApiFetch).toHaveBeenCalledTimes(1);
+  });
 });

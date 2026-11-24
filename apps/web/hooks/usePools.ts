@@ -10,7 +10,7 @@ export interface PoolListItem {
   id: string;
   token0: string;
   token1: string;
-  feeTier: string;
+  feeTier?: string | null;
   tvl: number;
   volume24h: number;
   volume7d: number;

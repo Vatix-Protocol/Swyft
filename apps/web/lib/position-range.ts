@@ -10,13 +10,6 @@ const TICK_BASE = 1.0001;
 const MIN_TICK = -887272;
 const MAX_TICK = 887272;
 
-/**
- * Relative tolerance for treating a price as sitting exactly on a range edge.
- * Absorbs float rounding between the API's price and 1.0001^tick while staying
- * far below one tick (~1e-4), so anything a tick outside is still out of range.
- */
-const BOUNDARY_TOLERANCE = 1e-9;
-
 export type RangeStatus = 'in-range' | 'out-of-range' | 'closed';
 
 function clampTick(tick: number): number {
@@ -57,17 +50,29 @@ export function rangeMidpointPrice(p: Pick<PositionSnapshot, 'lowerTick' | 'uppe
   return sqrtMid * sqrtMid;
 }
 
-/** In range when lower price <= current price <= upper price (edges inclusive). */
-export function rangeStatus(
-  p: Pick<PositionSnapshot, 'status' | 'lowerTick' | 'upperTick' | 'poolCurrentPrice'>
-): RangeStatus {
+/**
+ * Input for {@link rangeStatus}. `currentTick` is the pool's tick; the legacy
+ * `poolCurrentPrice` is converted to a tick only when no tick is supplied.
+ */
+type RangeStatusInput = Pick<PositionSnapshot, 'status' | 'lowerTick' | 'upperTick'> & {
+  currentTick?: number;
+  poolCurrentPrice?: number;
+};
+
+/**
+ * In range when lowerTick <= currentTick < upperTick.
+ *
+ * The upper tick is exclusive, matching the pool's mint rule (a position is
+ * active only while `tick < tick_upper`); the lower tick is inclusive.
+ */
+export function rangeStatus(p: RangeStatusInput, tickOverride?: number): RangeStatus {
   if (p.status === 'closed') return 'closed';
-  const lower = tickToPrice(p.lowerTick);
-  const upper = tickToPrice(p.upperTick);
-  const price = p.poolCurrentPrice;
-  const aboveLower = price >= lower * (1 - BOUNDARY_TOLERANCE);
-  const belowUpper = price <= upper * (1 + BOUNDARY_TOLERANCE);
-  return aboveLower && belowUpper ? 'in-range' : 'out-of-range';
+  const tick =
+    tickOverride ??
+    p.currentTick ??
+    (p.poolCurrentPrice != null ? priceToTick(String(p.poolCurrentPrice)) : null);
+  if (tick == null || !Number.isFinite(tick) || p.upperTick <= p.lowerTick) return 'out-of-range';
+  return tick >= p.lowerTick && tick < p.upperTick ? 'in-range' : 'out-of-range';
 }
 
 /**
@@ -80,10 +85,22 @@ export function rangeStatus(
  * valued in token1 at the current price.
  */
 export function estimateImpermanentLoss(
-  p: Pick<PositionSnapshot, 'lowerTick' | 'upperTick' | 'poolCurrentPrice'>
+  p: Pick<PositionSnapshot, 'lowerTick' | 'upperTick' | 'poolCurrentPrice' | 'liquidity'>
 ): number {
   const price = p.poolCurrentPrice;
-  if (!Number.isFinite(price) || price <= 0 || p.upperTick <= p.lowerTick) return 0;
+  let liquidity: bigint;
+  try {
+    liquidity = BigInt(p.liquidity);
+  } catch {
+    return 0;
+  }
+  if (liquidity <= 0n || !Number.isFinite(price) || price <= 0 || p.upperTick <= p.lowerTick) {
+    return 0;
+  }
+  const entryPrice = rangeMidpointPrice(p);
+  if (Math.abs(price - entryPrice) <= Number.EPSILON * Math.max(price, entryPrice) * 8) {
+    return 0;
+  }
 
   const sqrtLower = tickToSqrtPrice(p.lowerTick);
   const sqrtUpper = tickToSqrtPrice(p.upperTick);
@@ -98,5 +115,5 @@ export function estimateImpermanentLoss(
   const il = lpMinusHold / holdValue;
   // LP value is concave and the hold value is its tangent at the deposit price, so
   // IL is never positive; clamp float noise (and -0) to exactly 0.
-  return il < 0 ? il : 0;
+  return il < -1e-12 ? il : 0;
 }

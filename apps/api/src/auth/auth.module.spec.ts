@@ -133,6 +133,52 @@ describe('resolveJwtSecret secret leakage', () => {
   });
 });
 
+// #1364 — placeholder rejection is an exact match, not a substring check
+describe('resolveJwtSecret placeholder exact-match (#1364)', () => {
+  const originalEnv = process.env.NODE_ENV;
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalEnv;
+  });
+
+  function configWith(secret: string): ConfigService {
+    return { getOrThrow: () => secret } as unknown as ConfigService;
+  }
+
+  // The test name contains the placeholder so a rename of the constant will
+  // break this test before it can silently accept the old value in production.
+  it('rejects "change-me-in-production" in production (exact placeholder)', () => {
+    process.env.NODE_ENV = 'production';
+
+    expect(() =>
+      resolveJwtSecret(configWith('change-me-in-production')),
+    ).toThrow(/insecure default/);
+  });
+
+  it('accepts a different secret of sufficient length in production', () => {
+    process.env.NODE_ENV = 'production';
+
+    const differentSecret = 'a-different-secret-that-is-definitely-not-the-placeholder';
+    // Do not assert the accepted value literally in an error message; compare
+    // lengths instead so the secret is never printed if the assertion fails.
+    const returned = resolveJwtSecret(configWith(differentSecret));
+    expect(returned.length).toBe(differentSecret.length);
+  });
+
+  it('does not reject a secret that merely contains the placeholder as a substring', () => {
+    process.env.NODE_ENV = 'production';
+
+    // A secret that includes the placeholder text but is longer must only be
+    // rejected by the minimum-length rule, not the exact-match rule.
+    const supersetSecret = 'prefix-change-me-in-production-suffix-padding-here';
+    // The secret is long enough (>32 chars) so only the exact-match rule
+    // could reject it; confirm it does not.
+    expect(() => resolveJwtSecret(configWith(supersetSecret))).not.toThrow(
+      /insecure default/,
+    );
+  });
+});
+
 describe('jwtModuleOptionsFactory expiresIn', () => {
   function configWith(expiresIn: string | undefined): ConfigService {
     return {

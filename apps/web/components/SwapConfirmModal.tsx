@@ -37,7 +37,6 @@ type Props =
 
 export function SwapConfirmModal(props: Props) {
   const { tokenIn, tokenOut, walletAddress, onClose, onSuccess } = props;
-  const mode = props.mode ?? 'exactIn';
   const { status, error, txHash, execute, executeExactOutput, reset } = useSwapExecution();
   const { network } = useNetworkContext();
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -328,6 +327,21 @@ export function SwapConfirmModal(props: Props) {
               </p>
             </div>
           )}
+
+          {status === 'error' &&
+            error !== 'rejected' &&
+            error !== 'slippage' &&
+            error !== 'network' &&
+            error !== 'failed' && (
+              <div
+                role="alert"
+                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950"
+              >
+                <p className="text-xs font-medium text-red-700 dark:text-red-400">
+                  Swap failed. The transaction could not be completed.
+                </p>
+              </div>
+            )}
 
           {/* Network mismatch warning */}
           {networkMismatch && status === 'idle' && (
