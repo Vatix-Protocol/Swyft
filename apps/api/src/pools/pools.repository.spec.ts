@@ -1,5 +1,6 @@
 import { Pool } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { InvalidInputException } from '../request-validation/http.exceptions';
 import { PoolsRepository } from './pools.repository';
 import { mockPool } from '../pools-unit-test/mock-factories';
 
@@ -189,7 +190,8 @@ describe('PoolsRepository', () => {
       prisma.pool.findMany.mockImplementation(
         async ({ where }: { where: { active?: boolean } }) =>
           seeded.filter(
-            (pool) => where.active === undefined || pool.active === where.active,
+            (pool) =>
+              where.active === undefined || pool.active === where.active,
           ),
       );
     });
@@ -240,19 +242,34 @@ describe('PoolsRepository', () => {
     });
   });
 
-  it('persists a valid price update through Prisma', async () => {
-    prisma.pool.update.mockResolvedValue(makePool({ currentPrice: '2.5' }));
+  it.each(['1', '2.5'])(
+    'persists valid price %s through Prisma',
+    async (price) => {
+      prisma.pool.update.mockResolvedValue(makePool({ currentPrice: price }));
 
-    await repository.upsertPoolState('pool-1', { currentPrice: '2.5' });
+      await repository.upsertPoolState('pool-1', { currentPrice: price });
 
-    expect(prisma.pool.update).toHaveBeenCalledWith({
-      where: { id: 'pool-1' },
-      data: { currentPrice: '2.5' },
-    });
-  });
+      expect(prisma.pool.update).toHaveBeenCalledWith({
+        where: { id: 'pool-1' },
+        data: { currentPrice: price },
+      });
+    },
+  );
 
-  it('ignores malformed values and a pool that has not been indexed yet', async () => {
-    await repository.upsertPoolState('pool-1', { currentPrice: 'not-a-price' });
+  it.each(['', '   '])(
+    'rejects blank price %j without updating Prisma',
+    async (price) => {
+      await expect(
+        repository.upsertPoolState('pool-1', { currentPrice: price }),
+      ).rejects.toBeInstanceOf(InvalidInputException);
+      expect(prisma.pool.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects malformed values and ignores a pool that has not been indexed yet', async () => {
+    await expect(
+      repository.upsertPoolState('pool-1', { currentPrice: 'not-a-price' }),
+    ).rejects.toBeInstanceOf(InvalidInputException);
     expect(prisma.pool.update).not.toHaveBeenCalled();
 
     prisma.pool.update.mockRejectedValue({ code: 'P2025' });

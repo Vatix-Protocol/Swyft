@@ -248,6 +248,28 @@ describe('SwapWidget', () => {
 
       expect(screen.queryByRole('listbox', { name: 'Select token' })).not.toBeInTheDocument();
     });
+
+    it('excludes the token selected on the opposite side', () => {
+      renderWidget();
+      const [inputPicker, outputPicker] = screen.getAllByRole('button', { name: /Select/ });
+
+      fireEvent.click(outputPicker);
+      fireEvent.click(screen.getByRole('button', { name: 'XLM' }));
+      fireEvent.click(inputPicker);
+
+      let options = within(screen.getByRole('listbox', { name: 'Select token' })).getAllByRole(
+        'option'
+      );
+      expect(options.map((option) => option.textContent)).toEqual(['USDC']);
+
+      fireEvent.click(screen.getByRole('button', { name: 'USDC' }));
+      fireEvent.click(screen.getByRole('button', { name: 'XLM' }));
+
+      options = within(screen.getByRole('listbox', { name: 'Select token' })).getAllByRole(
+        'option'
+      );
+      expect(options.map((option) => option.textContent)).toEqual(['XLM']);
+    });
   });
 
   // ── CTA button states ─────────────────────────────────────────────────────
