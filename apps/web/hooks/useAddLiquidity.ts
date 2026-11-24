@@ -8,6 +8,7 @@ import { useTransactionStatus } from '@/context/TransactionStatusContext';
 import { MevSubmissionError, submitTransaction } from '@/lib/mev-submission';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { isWalletRejection } from '@/lib/wallet-errors';
+import { parseAmountToBaseUnits } from '@/components/AddLiquidity/AmountInputs';
 
 const TICK_BASE = 1.0001;
 const MIN_TICK = -887272;
@@ -117,7 +118,7 @@ export function useAddLiquidity() {
   function syncAmountsForRange(
     s: AddLiquidityState,
     newLowerTick: number,
-    newUpperTick: number,
+    newUpperTick: number
   ): Pick<AddLiquidityState, 'amount0' | 'amount1'> {
     if (!s.pool) return { amount0: s.amount0, amount1: s.amount1 };
     const lp = tickToPrice(newLowerTick);
@@ -224,7 +225,8 @@ export function useAddLiquidity() {
     setState((s) => {
       if (!s.pool) return { ...s, amount0: val, lastEditedAmount: 'amount0' };
       const n = parseFloat(val);
-      if (isNaN(n) || n <= 0) return { ...s, amount0: val, amount1: '', lastEditedAmount: 'amount0' };
+      if (isNaN(n) || n <= 0)
+        return { ...s, amount0: val, amount1: '', lastEditedAmount: 'amount0' };
       const { amount1 } = calcAmounts(
         s.pool.currentPrice,
         tickToPrice(s.lowerTick),
@@ -232,7 +234,12 @@ export function useAddLiquidity() {
         n,
         null
       );
-      return { ...s, amount0: val, amount1: amount1 > 0 ? amount1.toFixed(7) : '', lastEditedAmount: 'amount0' };
+      return {
+        ...s,
+        amount0: val,
+        amount1: amount1 > 0 ? amount1.toFixed(7) : '',
+        lastEditedAmount: 'amount0',
+      };
     });
   }, []);
 
@@ -240,7 +247,8 @@ export function useAddLiquidity() {
     setState((s) => {
       if (!s.pool) return { ...s, amount1: val, lastEditedAmount: 'amount1' };
       const n = parseFloat(val);
-      if (isNaN(n) || n <= 0) return { ...s, amount1: val, amount0: '', lastEditedAmount: 'amount1' };
+      if (isNaN(n) || n <= 0)
+        return { ...s, amount1: val, amount0: '', lastEditedAmount: 'amount1' };
       const { amount0 } = calcAmounts(
         s.pool.currentPrice,
         tickToPrice(s.lowerTick),
@@ -248,7 +256,12 @@ export function useAddLiquidity() {
         null,
         n
       );
-      return { ...s, amount1: val, amount0: amount0 > 0 ? amount0.toFixed(7) : '', lastEditedAmount: 'amount1' };
+      return {
+        ...s,
+        amount1: val,
+        amount0: amount0 > 0 ? amount0.toFixed(7) : '',
+        lastEditedAmount: 'amount1',
+      };
     });
   }, []);
 
@@ -284,12 +297,17 @@ export function useAddLiquidity() {
         const { pool, lowerTick, upperTick, amount0, amount1 } = state;
         if (!pool) throw new Error('No pool selected');
 
-        // Calculate liquidity units from token amounts (simplified: use amount0 as proxy)
-        const liquidityAmount = parseFloat(amount0 || '0') > 0
-          ? Math.floor(parseFloat(amount0) * 1e7).toString()
-          : Math.floor(parseFloat(amount1 || '0') * 1e7).toString();
+        // Calculate liquidity units from token amounts (simplified: use amount0 as proxy).
+        // The contract amount uses 7 decimal places; truncate from the shared 18-place parser.
+        const toLiquidityUnits = (amount: string) => {
+          const baseUnits = parseAmountToBaseUnits(amount || '0');
+          return baseUnits === null ? 0n : baseUnits / 10n ** 11n;
+        };
+        const amount0Units = toLiquidityUnits(amount0);
+        const amount1Units = toLiquidityUnits(amount1);
+        const liquidityAmount = (amount0Units > 0n ? amount0Units : amount1Units).toString();
 
-        if (!liquidityAmount || liquidityAmount === '0') {
+        if (liquidityAmount === '0') {
           throw new Error('Enter an amount to add');
         }
 
@@ -377,7 +395,11 @@ export function useAddLiquidity() {
     const up = tickToPrice(state.upperTick);
     const cp = state.pool.currentPrice;
     const inRange = cp >= lp && cp <= up;
-    const depositValue = parseFloat(state.amount0 || '0') * cp + parseFloat(state.amount1 || '0');
+    const amount0BaseUnits = parseAmountToBaseUnits(state.amount0 || '0') ?? 0n;
+    const amount1BaseUnits = parseAmountToBaseUnits(state.amount1 || '0') ?? 0n;
+    const amountScale = Number(10n ** 18n);
+    const depositValue =
+      (Number(amount0BaseUnits) / amountScale) * cp + Number(amount1BaseUnits) / amountScale;
     const shareOfPool =
       state.pool.tvl > 0 ? ((depositValue / state.pool.tvl) * 100).toFixed(4) : '0.0000';
 

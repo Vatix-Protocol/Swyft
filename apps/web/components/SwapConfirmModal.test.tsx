@@ -66,4 +66,21 @@ describe('SwapConfirmModal slippage error', () => {
     renderWithError('rejected');
     expect(screen.queryByText(SLIPPAGE_COPY)).not.toBeInTheDocument();
   });
+
+  it('shows distinct wallet rejection and on-ledger failure messages', () => {
+    renderWithError('rejected');
+    expect(screen.getByText(/signature rejected/i)).toBeInTheDocument();
+
+    mockExecution.mockReset();
+    renderWithError('failed');
+    expect(screen.getByText(/transaction failed on-ledger/i)).toBeInTheDocument();
+  });
+
+  it('shows a safe generic message for an unknown error code', () => {
+    renderWithError('unknown-code');
+    expect(
+      screen.getByText(/swap failed\. the transaction could not be completed/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/stack/i)).not.toBeInTheDocument();
+  });
 });

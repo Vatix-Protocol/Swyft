@@ -47,6 +47,13 @@ describe('PositionPreview - estimated fees APR', () => {
   });
 });
 
+describe('PositionPreview - amount validation', () => {
+  it('disables submission when an amount exceeds the supported decimal scale', () => {
+    render(<PositionPreview {...baseProps({ amount0: '1.1234567890123456789', amount1: '' })} />);
+    expect(screen.getByRole('button', { name: 'Add liquidity' })).toBeDisabled();
+  });
+});
+
 describe('PositionPreview - missing doc URL', () => {
   it('omits the assumptions link when FEE_APR_DOC_URL is empty', async () => {
     vi.resetModules();
@@ -58,9 +65,7 @@ describe('PositionPreview - missing doc URL', () => {
 
     render(<PositionPreviewMock {...baseProps()} />);
 
-    expect(
-      screen.queryByLabelText('Fee APR calculation assumptions'),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Fee APR calculation assumptions')).not.toBeInTheDocument();
 
     const anchors = document.querySelectorAll('a');
     for (const anchor of anchors) {
