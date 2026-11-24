@@ -122,8 +122,10 @@ export default function RerangeLiquidityPage({ params }: PageProps) {
   const newUpper = tickToPrice(newUpperTick).toFixed(6);
 
   const isBusy = status === 'signing' || status === 'submitting';
-  const pricesValid = priceToTick(newLowerPrice) !== null && priceToTick(newUpperPrice) !== null;
-  const isValidRange = pricesValid && newLowerTick < newUpperTick;
+  const lowerTick = priceToTick(newLowerPrice);
+  const upperTick = priceToTick(newUpperPrice);
+  const pricesValid = lowerTick !== null && upperTick !== null;
+  const isValidRange = pricesValid && lowerTick < upperTick;
   const hasChanged =
     newLowerTick !== position.lowerTick || newUpperTick !== position.upperTick;
 
@@ -216,110 +218,93 @@ export default function RerangeLiquidityPage({ params }: PageProps) {
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Lower price</label>
+                <label
+                  htmlFor="new-lower-price"
+                  className="mb-1 block text-xs text-zinc-400"
+                >
+                  Lower price
+                </label>
                 <input
+                  id="new-lower-price"
                   type="text"
                   inputMode="decimal"
                   value={newLowerPrice}
                   onChange={(e) => handleLowerPriceChange(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                  placeholder="0.00"
                 />
               </div>
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Upper price</label>
+                <label
+                  htmlFor="new-upper-price"
+                  className="mb-1 block text-xs text-zinc-400"
+                >
+                  Upper price
+                </label>
                 <input
+                  id="new-upper-price"
                   type="text"
                   inputMode="decimal"
                   value={newUpperPrice}
                   onChange={(e) => handleUpperPriceChange(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                  placeholder="0.00"
                 />
               </div>
             </div>
-            <p className="mt-2 text-xs text-zinc-400">
-              Ticks: {newLowerTick} – {newUpperTick}
-            </p>
+            {!pricesValid && (
+              <p className="mt-2 text-xs text-red-500">
+                Enter valid prices for both bounds.
+              </p>
+            )}
+            {pricesValid && !isValidRange && (
+              <p className="mt-2 text-xs text-red-500">
+                Lower price must be below upper price.
+              </p>
+            )}
           </div>
 
-          {/* Summary */}
+          {/* New range preview */}
           <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-xs dark:border-zinc-800 dark:bg-zinc-800/50">
-            <p className="mb-2 font-medium text-zinc-500 dark:text-zinc-400">Summary</p>
-            <div className="flex flex-col gap-1.5 text-zinc-500 dark:text-zinc-400">
-              <div className="flex justify-between">
-                <span>Action</span>
-                <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                  Remove from {currentLowerPrice}–{currentUpperPrice}, add to {newLower}–{newUpper}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>Liquidity</span>
-                <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                  {position.liquidity} units
-                </span>
-              </div>
+            <p className="mb-2 font-medium text-zinc-500 dark:text-zinc-400">New range</p>
+            <div className="flex justify-between text-zinc-500 dark:text-zinc-400">
+              <span>Price range</span>
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                {newLower} – {newUpper} {token1Symbol}/{token0Symbol}
+              </span>
             </div>
           </div>
 
-          {/* Status feedback */}
-          {status === 'success' && (
-            <div
-              role="status"
-              className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-xs font-medium text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-400"
-            >
-              Position reranged successfully.{' '}
-              {txHash && <span className="font-mono opacity-70">{txHash.slice(0, 12)}…</span>}
-            </div>
+          {txError && (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">
+              {txError}
+            </p>
           )}
 
-          {status === 'error' && (
-            <div
-              role="alert"
-              className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950"
-            >
-              <svg
-                className="mt-0.5 h-4 w-4 shrink-0 text-red-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
-                />
-              </svg>
-              <div className="flex-1">
-                <p className="text-xs font-medium text-red-700 dark:text-red-400">
-                  {txError === 'rejected' && 'Transaction rejected in wallet.'}
-                  {txError === 'failed' &&
-                    'Transaction failed on-ledger. The requested operation was not completed.'}
-                  {txError === 'network' && 'Network error — please try again.'}
-                </p>
-                <button
-                  type="button"
-                  onClick={reset}
-                  className="mt-1 text-xs text-red-500 underline hover:text-red-700"
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
+          {txHash && (
+            <p className="rounded-lg bg-green-50 px-3 py-2 text-xs text-green-600 dark:bg-green-900/20 dark:text-green-400">
+              Rerange submitted: {txHash.slice(0, 10)}…
+            </p>
           )}
 
-          {/* Rerange button */}
           <button
             type="button"
             onClick={() => rerange(newLowerTick, newUpperTick)}
-            disabled={isBusy || !isValidRange || !hasChanged || status === 'success'}
-            className="w-full rounded-xl bg-indigo-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isBusy || !isValidRange || !hasChanged}
+            className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {status === 'signing' && 'Waiting for signature…'}
-            {status === 'submitting' && 'Submitting…'}
-            {(status === 'idle' || status === 'error') && 'Rerange liquidity'}
-            {status === 'success' && 'Reranged ✓'}
+            {isBusy ? 'Submitting…' : 'Rerange liquidity'}
           </button>
+
+          {status === 'success' && (
+            <button
+              type="button"
+              onClick={reset}
+              className="w-full rounded-lg border border-zinc-200 px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              Rerange again
+            </button>
+          )}
         </div>
       </div>
     </main>
