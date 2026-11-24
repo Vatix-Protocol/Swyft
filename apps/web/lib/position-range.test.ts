@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { PositionSnapshot } from '@swyft/ui';
-import { estimateImpermanentLoss, rangeStatus, tickToPrice } from './position-range';
+import {
+  estimateImpermanentLoss,
+  rangeMidpointPrice,
+  rangeStatus,
+  tickToPrice,
+} from './position-range';
 
 const LOWER_TICK = -1000;
 const UPPER_TICK = 1000;
@@ -46,6 +51,19 @@ describe('position-range', () => {
     const p = position({ poolCurrentPrice: tickToPrice(0) });
     expect(rangeStatus(p)).toBe('in-range');
     expect(estimateImpermanentLoss(p)).toBe(0);
+  });
+
+  it('returns zero impermanent loss at the range midpoint entry price', () => {
+    const p = position({ lowerTick: -800, upperTick: 1000 });
+    expect(estimateImpermanentLoss({ ...p, poolCurrentPrice: rangeMidpointPrice(p) })).toBe(0);
+  });
+
+  it('returns a defined zero estimate for a zero-liquidity position', () => {
+    const result = estimateImpermanentLoss(
+      position({ liquidity: '0', poolCurrentPrice: tickToPrice(UPPER_TICK + 1) })
+    );
+    expect(result).toBe(0);
+    expect(Number.isNaN(result)).toBe(false);
   });
 
   it('reports a position whose current tick is outside the range as out-of-range', () => {

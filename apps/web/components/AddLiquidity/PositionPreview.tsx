@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import type { TxStatus } from '@/hooks/useAddLiquidity';
 import { FEE_APR_DOC_URL } from '@/lib/constants';
+import { parseAmountToBaseUnits } from './AmountInputs';
 
 export interface PositionPreviewProps {
   token0Symbol: string;
@@ -41,7 +42,8 @@ export interface PositionPreviewProps {
 
 /** True when `value` is a plain decimal string greater than zero (e.g. "1.230000"), compared without float parsing. */
 function isPositiveDecimal(value: string): boolean {
-  return /^\d*\.?\d*$/.test(value) && /[1-9]/.test(value);
+  const amount = parseAmountToBaseUnits(value);
+  return amount !== null && amount > 0n;
 }
 
 interface RowProps {
@@ -143,10 +145,7 @@ export function PositionPreview({
           <Row label={`${token0Symbol} deposit`} value={amount0 || '0'} />
           <Row label={`${token1Symbol} deposit`} value={amount1 || '0'} />
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
-          <Row
-            label="Price range"
-            value={`${lowerPrice || '0'} – ${upperPrice || '0'}`}
-          />
+          <Row label="Price range" value={`${lowerPrice || '0'} – ${upperPrice || '0'}`} />
           <Row label="Share of pool" value={`${shareOfPool}%`} />
           <Row
             label={
@@ -231,8 +230,8 @@ export function PositionPreview({
               {txError === 'failed'
                 ? 'Transaction failed on-ledger. The requested operation was not completed.'
                 : txError === 'rejected'
-                ? 'Transaction rejected in wallet.'
-                : 'Network error — please try again.'}
+                  ? 'Transaction rejected in wallet.'
+                  : 'Network error — please try again.'}
             </p>
             <button
               type="button"

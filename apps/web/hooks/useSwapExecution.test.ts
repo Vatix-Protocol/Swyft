@@ -1,50 +1,38 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import type { SwapQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
-import { MevSubmissionError } from '@/lib/mev-submission';
-import { WalletRejectionError } from '@/lib/wallet-errors';
 
-const signTransaction = vi.fn();
-const submitTransaction = vi.fn();
+const { signTransaction, mockBuildSwapTx, mockBuildExactOutputSwapTx, mockReportTx, mevState } =
+  vi.hoisted(() => ({
+    signTransaction: vi.fn(),
+    mockBuildSwapTx: vi.fn(),
+    mockBuildExactOutputSwapTx: vi.fn(),
+    mockReportTx: vi.fn(),
+    mevState: { enabled: false, mevRpcUrl: undefined as string | undefined },
+  }));
+const mockSignTransaction = signTransaction;
 
 vi.mock('@swyft/sdk', () => ({
-  buildSwapTx: () => ({ xdr: 'UNSIGNED_XDR' }),
-  buildExactOutputSwapTx: () => ({ xdr: 'UNSIGNED_XDR' }),
-  toRawAmount: (v: string) => BigInt(v),
+  buildSwapTx: (...args: unknown[]) => mockBuildSwapTx(...args),
+  buildExactOutputSwapTx: (...args: unknown[]) => mockBuildExactOutputSwapTx(...args),
+  toRawAmount: (v: string) => v,
   toStellarAddress: (v: string) => v,
 }));
+vi.mock('@/lib/constants', () => ({ ROUTER_ADDRESS: 'CROUTER' }));
 vi.mock('@/context/WalletContext', () => ({ useWalletContext: () => ({ signTransaction }) }));
 vi.mock('@/context/NetworkContext', () => ({
-  useNetworkContext: () => ({ network: 'TESTNET', apiBase: 'http://api.test' }),
+  useNetworkContext: () => ({
+    network: 'TESTNET',
+    apiBase: 'https://testnet-api.example/v1',
+  }),
 }));
 vi.mock('@/context/TransactionStatusContext', () => ({
-  useTransactionStatus: () => ({ reportTx: vi.fn() }),
+  useTransactionStatus: () => ({ reportTx: mockReportTx }),
 }));
-vi.mock('./useMevProtection', () => ({
-  useMevProtection: () => ({ enabled: false, mevRpcUrl: '' }),
-}));
-vi.mock('@/lib/mev-submission', async (orig) => ({
-  ...(await orig<typeof import('@/lib/mev-submission')>()),
-  submitTransaction: (...args: unknown[]) => submitTransaction(...args),
-}));
-
-import { useSwapExecution } from './useSwapExecution';
-
-const token = (id: string): Token => ({ id, symbol: id, name: id, decimals: 7 }) as Token;
-const params = {
-  poolId: 'POOL',
-  tokenIn: token('XLM'),
-  tokenOut: token('USDC'),
-  amountIn: '10',
-  quote: { minimumReceived: '9' } as SwapQuote,
-  walletAddress: 'GWALLET',
-};
-
-async function run() {
-  const { result } = renderHook(() => useSwapExecution());
-  await act(() => result.current.execute(params));
-  return result
+vi.mock('./useMevProtection', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./useMevProtection')>()),
+  useMevProtection: () => mevState,
 }));
 
 import { useSwapExecution } from './useSwapExecution';
@@ -89,6 +77,7 @@ beforeEach(() => {
   mockBuildExactOutputSwapTx.mockReturnValue({ xdr: 'unsigned-exact-out-xdr', type: 'swap' });
   mevState.enabled = false;
   mevState.mevRpcUrl = undefined;
+  localStorage.setItem('swyft_auth_token', 'test-auth-token');
 });
 
 afterEach(() => {
@@ -256,6 +245,31 @@ describe('useSwapExecution — exact-input signing and submission', () => {
     expect(result.current.status).toBe('error');
     expect(result.current.error).toBe('slippage');
     expect(result.current.detail).toBe('price moved');
+  });
+
+  it('maps a failed on-chain transaction to the failed error', async () => {
+    mockSignTransaction.mockResolvedValue('signed-xdr');
+    mockFetchOnce({
+      ok: false,
+      json: async () => ({ code: 'TX_FAILED', message: 'Transaction failed on-ledger' }),
+    } as any);
+
+    const { result } = renderHook(() => useSwapExecution());
+
+    await act(async () => {
+      await result.current.execute({
+        poolId: 'CPOOL',
+        tokenIn,
+        tokenOut,
+        amountIn: '100',
+        quote,
+        walletAddress: 'GWALLET',
+      });
+    });
+
+    expect(result.current.status).toBe('error');
+    expect(result.current.detail).toBe('Transaction failed on-ledger');
+    expect(result.current.error).toBe('failed');
   });
 
   it('maps a generic non-ok response to a network error and includes result_codes in the detail', async () => {

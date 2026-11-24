@@ -2,6 +2,26 @@
 
 import { formatDecimal } from '@/lib/token-display';
 
+const AMOUNT_DECIMALS = 18;
+const AMOUNT_SCALE = 10n ** BigInt(AMOUNT_DECIMALS);
+
+/** Converts a plain decimal amount to exact 18-decimal base units. */
+export function parseAmountToBaseUnits(amount: string): bigint | null {
+  const text = amount.trim();
+  if (!/^(?:\d+\.?\d*|\.\d+)$/.test(text)) return null;
+
+  const [whole = '0', fraction = ''] = text.split('.');
+  if (fraction.length > AMOUNT_DECIMALS) return null;
+
+  try {
+    return (
+      BigInt(whole || '0') * AMOUNT_SCALE + BigInt((fraction || '0').padEnd(AMOUNT_DECIMALS, '0'))
+    );
+  } catch {
+    return null;
+  }
+}
+
 export interface AmountInputsProps {
   token0Symbol: string;
   token1Symbol: string;
@@ -32,14 +52,9 @@ interface TokenInputProps {
 
 /** Compares two non-negative decimal strings exactly, without converting to float. */
 function exceedsBalance(amount: string, balance: string): boolean {
-  const [ai = '', af = ''] = (amount || '0').split('.');
-  const [bi = '', bf = ''] = (balance || '0').split('.');
-  const len = Math.max(af.length, bf.length);
-  try {
-    return BigInt((ai || '0') + af.padEnd(len, '0')) > BigInt((bi || '0') + bf.padEnd(len, '0'));
-  } catch {
-    return false;
-  }
+  const amountUnits = parseAmountToBaseUnits(amount || '0');
+  const balanceUnits = parseAmountToBaseUnits(balance || '0');
+  return amountUnits !== null && balanceUnits !== null && amountUnits > balanceUnits;
 }
 
 function TokenInput({ label, symbol, amount, balance, disabled, onChange }: TokenInputProps) {

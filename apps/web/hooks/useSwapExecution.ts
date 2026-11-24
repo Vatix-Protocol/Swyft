@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { buildSwapTx, buildExactOutputSwapTx, toRawAmount, toStellarAddress } from '@swyft/sdk';
 import type { SwapQuote, ExactOutputQuote } from '@swyft/sdk';
 import type { Token } from '@swyft/ui';
-import { ROUTER_ADDRESS, getApiBase, getNetworkPassphrase } from '@/lib/constants';
+import { ROUTER_ADDRESS } from '@/lib/constants';
 import { getAuthToken } from '@/lib/auth';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { useWalletContext } from '@/context/WalletContext';
@@ -61,7 +61,7 @@ const IDLE: SwapResult = { status: 'idle', error: null, txHash: null, detail: nu
 
 export function useSwapExecution() {
   const { reportTx } = useTransactionStatus();
-  const { network, apiBase } = useNetworkContext();
+  const { apiBase } = useNetworkContext();
   const { enabled: mevEnabled, mevRpcUrl } = useMevProtection();
   // Route all signing through the wallet context so xBull and Freighter both work.
   const { signTransaction } = useWalletContext();
@@ -93,16 +93,17 @@ export function useSwapExecution() {
     setResult({ status: 'idle', error: null, txHash: null, detail: null });
   }
 
-  async function execute(params: ExecuteParams) {
-    const { poolId, tokenIn, tokenOut, amountIn, quote, walletAddress } = params;
+  function fail(error: Exclude<SwapError, null>, detail: string | null) {
+    setResult({ status: 'error', error, txHash: null, detail });
+  }
 
+  async function signAndSubmit(
+    tokenIn: Token,
+    tokenOut: Token,
+    buildXdr: () => string
+  ): Promise<void> {
     if (!signTransaction) {
-      setResult({
-        status: 'error',
-        error: 'network',
-        txHash: null,
-        detail: 'Wallet not connected',
-      });
+      fail('network', 'Wallet not connected');
       return;
     }
 
@@ -111,7 +112,16 @@ export function useSwapExecution() {
 
     let signedXdr: string | null;
     try {
-      signedXdr = await signTransaction(buildXdr());
+      const signedResult: unknown = await signTransaction(buildXdr());
+      signedXdr =
+        typeof signedResult === 'string'
+          ? signedResult
+          : signedResult !== null &&
+              typeof signedResult === 'object' &&
+              'signedTxXdr' in signedResult &&
+              typeof signedResult.signedTxXdr === 'string'
+            ? signedResult.signedTxXdr
+            : null;
     } catch (e: unknown) {
       if (isWalletRejection(e)) {
         fail('rejected', WALLET_REJECTION_MESSAGE);
@@ -129,14 +139,25 @@ export function useSwapExecution() {
     setResult({ status: 'submitting', error: null, txHash: null, detail: null });
 
     try {
-      const { hash } = await submitTransaction({ signedXdr, apiBase, mevEnabled, mevRpcUrl });
+      const { hash } = await submitTransaction({
+        signedXdr,
+        apiBase,
+        authToken: getAuthToken(),
+        mevEnabled,
+        mevRpcUrl,
+      });
       setResult({ status: 'success', error: null, txHash: hash, detail: null });
     } catch (e: unknown) {
       if (e instanceof MevSubmissionError) {
-        fail(
-          e.code === 'SLIPPAGE_EXCEEDED' ? 'slippage' : 'network',
-          e.detail ? `${e.message} (${e.detail})` : e.message
-        );
+        if (e.code === 'SLIPPAGE_EXCEEDED') {
+          fail('slippage', e.detail ? `${e.message} (${e.detail})` : e.message);
+          return;
+        }
+        if (e.code === 'TX_FAILED' || e.code === 'TRANSACTION_FAILED') {
+          fail('failed', e.detail ? `${e.message} (${e.detail})` : e.message);
+          return;
+        }
+        fail('network', e.detail ? `${e.message} (${e.detail})` : e.message);
         return;
       }
       fail('network', e instanceof Error ? e.message : null);

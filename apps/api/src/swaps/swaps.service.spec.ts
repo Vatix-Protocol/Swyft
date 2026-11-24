@@ -121,13 +121,30 @@ describe('SwapsService', () => {
       expect(result.totalPages).toBe(0);
     });
 
-    it('passes poolId filter to repository', async () => {
+    it('trims poolId and wallet filters and omits whitespace-only filters', async () => {
       repo.listSwaps.mockResolvedValue({ items: [], total: 0 });
 
-      await service.getSwaps({ poolId: 'pool-abc', page: 1, limit: 10 });
+      await service.getSwaps({
+        poolId: ' pool-abc ',
+        wallet: ' wallet-abc ',
+        page: 1,
+        limit: 10,
+      });
 
       expect(repo.listSwaps).toHaveBeenCalledWith(
-        expect.objectContaining({ poolId: 'pool-abc' }),
+        expect.objectContaining({ poolId: 'pool-abc', wallet: 'wallet-abc' }),
+      );
+
+      repo.listSwaps.mockClear();
+      await service.getSwaps({
+        poolId: ' ',
+        wallet: '   ',
+        page: 1,
+        limit: 10,
+      });
+
+      expect(repo.listSwaps).toHaveBeenCalledWith(
+        expect.objectContaining({ poolId: undefined, wallet: undefined }),
       );
     });
 

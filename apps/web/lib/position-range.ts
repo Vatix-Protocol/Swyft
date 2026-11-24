@@ -85,10 +85,22 @@ export function rangeStatus(p: RangeStatusInput, tickOverride?: number): RangeSt
  * valued in token1 at the current price.
  */
 export function estimateImpermanentLoss(
-  p: Pick<PositionSnapshot, 'lowerTick' | 'upperTick' | 'poolCurrentPrice'>
+  p: Pick<PositionSnapshot, 'lowerTick' | 'upperTick' | 'poolCurrentPrice' | 'liquidity'>
 ): number {
   const price = p.poolCurrentPrice;
-  if (!Number.isFinite(price) || price <= 0 || p.upperTick <= p.lowerTick) return 0;
+  let liquidity: bigint;
+  try {
+    liquidity = BigInt(p.liquidity);
+  } catch {
+    return 0;
+  }
+  if (liquidity <= 0n || !Number.isFinite(price) || price <= 0 || p.upperTick <= p.lowerTick) {
+    return 0;
+  }
+  const entryPrice = rangeMidpointPrice(p);
+  if (Math.abs(price - entryPrice) <= Number.EPSILON * Math.max(price, entryPrice) * 8) {
+    return 0;
+  }
 
   const sqrtLower = tickToSqrtPrice(p.lowerTick);
   const sqrtUpper = tickToSqrtPrice(p.upperTick);
